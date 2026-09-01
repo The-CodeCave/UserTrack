@@ -11,6 +11,7 @@
 - Sync engine: append-only snapshots, 4-hour cron, derived metrics (24h/7d/30d, growth %), daily rollups, failure demotion to `pending`, manual "Sync now" with cooldown.
 - Leaderboard: verified-only default, "all sources" toggle, ranking by 30-day verified new users, demo rows excluded from ranks.
 - Public SaaS page: metric cards, Recharts growth chart (24H–ALL, total/new), provenance, founder card, share buttons.
-- OG images for SaaS, profile and leaderboard (`next/og`, vendored Geist woff).
+- OG images for SaaS, profile and leaderboard (`next/og`, vendored Geist woff, brand wordmark).
+- Brand assets: favicon / `icon.png` / `apple-icon.png` from the UT monogram, wordmark in header and OG frame (`public/brand`, sources in `brand/`).
 - Demo seed (`seed:run` / `seed:clear`), Vitest unit tests, Playwright smoke test (`scripts/smoke.mjs`).
 - Railway deployment (`railway.toml`), Convex production deployment, docs.

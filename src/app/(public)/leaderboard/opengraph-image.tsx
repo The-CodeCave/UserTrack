@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
-import { OgFrame, OG_SIZE, PINK, MUTED } from "@/lib/og/frame";
+import { ogWordmark, OgFrame, OG_SIZE, PINK, MUTED } from "@/lib/og/frame";
 import { ogFonts } from "@/lib/og/fonts";
 import { formatCompact, formatDelta } from "@/lib/format";
 
@@ -13,7 +13,7 @@ export default async function Image() {
   const rows = await fetchQuery(api.public.leaderboard, { verifiedOnly: true, limit: 5 });
   return new ImageResponse(
     (
-      <OgFrame footer="LEADERBOARD · 30D">
+      <OgFrame wordmark={await ogWordmark()} footer="LEADERBOARD · 30D">
         <div style={{ display: "flex", fontSize: 52, letterSpacing: -1.5 }}>Who is gaining users right now</div>
         <div style={{ display: "flex", marginTop: 8, fontSize: 22, color: MUTED }}>SaaS ranked by verified new users · last 30 days</div>
         <div style={{ display: "flex", flexDirection: "column", marginTop: 28, borderTop: "1px solid rgba(255,255,255,0.16)" }}>

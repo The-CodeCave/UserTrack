@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 export const OG_SIZE = { width: 1200, height: 630 };
 export const PINK = "#fb0184";
@@ -9,7 +11,12 @@ const LINE = "rgba(255,255,255,0.16)";
 const HOST = (() => { try { return new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://usertrack.app").hostname.toUpperCase(); } catch { return "USERTRACK.APP"; } })();
 
 // Shared blueprint frame: graphite surface, construction grid, corner ticks, wordmark.
-export function OgFrame({ children, footer }: { children: ReactNode; footer?: string }) {
+export async function ogWordmark() {
+  const buf = await readFile(path.join(process.cwd(), "public", "brand", "wordmark.png"));
+  return `data:image/png;base64,${buf.toString("base64")}`;
+}
+
+export function OgFrame({ children, footer, wordmark }: { children: ReactNode; footer?: string; wordmark: string }) {
   return (
     <div
       style={{
@@ -36,10 +43,8 @@ export function OgFrame({ children, footer }: { children: ReactNode; footer?: st
         <div key={i} style={{ position: "absolute", width: 14, height: 14, display: "flex", ...s }} />
       ))}
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, border: "1.5px solid rgba(255,255,255,0.4)", fontFamily: "Geist Mono", fontSize: 16 }}>
-          U<span style={{ color: PINK }}>T</span>
-        </div>
-        <div style={{ display: "flex", fontSize: 24 }}>User<span style={{ color: PINK }}>Track</span></div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={wordmark} alt="" width={118} height={42} style={{ width: 118, height: 42 }} />
         <div style={{ marginLeft: "auto", display: "flex", fontFamily: "Geist Mono", fontSize: 16, color: MUTED, letterSpacing: 2 }}>{footer ?? HOST}</div>
       </div>
       <div style={{ display: "flex", flex: 1, flexDirection: "column", justifyContent: "flex-end" }}>{children}</div>

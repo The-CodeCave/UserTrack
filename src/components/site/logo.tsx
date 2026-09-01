@@ -1,14 +1,11 @@
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 
+// Brand assets live in public/brand (generated from brand/*.png). Wordmark is 1200×426.
 export function Logo({ className, compact }: { className?: string; compact?: boolean }) {
-  return (
-    <span className={cn("inline-flex items-center gap-2 font-semibold tracking-tight", className)}>
-      <span className="grid size-7 place-items-center border border-line-strong font-mono text-[11px] leading-none">
-        U<span className="text-pink">T</span>
-      </span>
-      {!compact && (
-        <span className="text-lg">User<span className="text-pink">Track</span></span>
-      )}
-    </span>
+  return compact ? (
+    <Image src="/brand/monogram.png" alt="UserTrack" width={28} height={28} className={cn("size-7", className)} priority />
+  ) : (
+    <Image src="/brand/wordmark.png" alt="UserTrack" width={124} height={44} className={cn("h-7 w-auto", className)} priority />
   );
 }

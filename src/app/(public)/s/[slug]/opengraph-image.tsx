@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
-import { OgFrame, OgSpark, OgBadge, OG_SIZE, PINK, MUTED } from "@/lib/og/frame";
+import { ogWordmark, OgFrame, OgSpark, OgBadge, OG_SIZE, PINK, MUTED } from "@/lib/og/frame";
 import { ogFonts } from "@/lib/og/fonts";
 import { formatCompact, formatDelta, formatPct } from "@/lib/format";
 
@@ -19,7 +19,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
 
   return new ImageResponse(
     (
-      <OgFrame footer={s?.rank ? `#${s.rank} · LAST 30 DAYS` : undefined}>
+      <OgFrame wordmark={await ogWordmark()} footer={s?.rank ? `#${s.rank} · LAST 30 DAYS` : undefined}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 40 }}>
           <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
