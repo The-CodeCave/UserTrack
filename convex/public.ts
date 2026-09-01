@@ -47,7 +47,7 @@ export const saasBySlug = query({
     if (!s || !s.isPublic) return null;
     const owner = await ctx.db.get(s.ownerId);
     const integration = await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", s._id)).first();
-    return { ...publicSaas(s), owner: owner ? publicProfile(owner) : null, source: integration?.provider ?? null };
+    return { ...publicSaas(s), owner: owner ? publicProfile(owner) : null, source: integration?.provider ?? null, spark: await sparkline(ctx, s._id) };
   },
 });
 

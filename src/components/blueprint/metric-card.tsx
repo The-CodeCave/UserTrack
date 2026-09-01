@@ -22,7 +22,7 @@ export function MetricCard({
       <div className="text-label">{label}</div>
       <div
         className={cn(
-          "tabular mt-2 text-3xl font-semibold tracking-tight sm:text-4xl",
+          "mt-2 text-3xl font-semibold tracking-tight sm:text-4xl",
           accent && "text-pink",
         )}
       >

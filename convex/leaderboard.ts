@@ -9,9 +9,10 @@ export const rerank = internalMutation({
       .withIndex("by_public_trust_new30d", (q) => q.eq("isPublic", true).eq("trust", "verified"))
       .order("desc")
       .collect();
-    ranked.sort((a, b) => b.newUsers30d - a.newUsers30d || b.growth30dPct - a.growth30dPct || b.totalUsers - a.totalUsers);
+    const real = ranked.filter((s) => !s.isDemo);
+    real.sort((a, b) => b.newUsers30d - a.newUsers30d || b.growth30dPct - a.growth30dPct || b.totalUsers - a.totalUsers);
     const rankedIds = new Set<string>();
-    for (const [i, s] of ranked.entries()) {
+    for (const [i, s] of real.entries()) {
       rankedIds.add(s._id);
       if (s.rank !== i + 1) await ctx.db.patch(s._id, { rank: i + 1 });
     }

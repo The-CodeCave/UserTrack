@@ -1,0 +1,9 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "pnpm build"
+
+[deploy]
+startCommand = "pnpm start"
+healthcheckPath = "/leaderboard"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"

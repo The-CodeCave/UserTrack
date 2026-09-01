@@ -15,7 +15,7 @@ importers:
         specifier: ^0.12.5
         version: 0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.15(next@16.3.4(@babel/core@7.29.7)(@types/node@20.19.43)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@20.19.43)(vite@8.2.2(@types/node@20.19.43)(esbuild@0.27.0)(jiti@2.7.0))))(convex@1.45.0(react@19.2.8))(hono@4.13.5)(react@19.2.8)(typescript@5.9.3)
       better-auth:
-        specifier: ^1.6.15
+        specifier: 1.6.15
         version: 1.6.15(next@16.3.4(@babel/core@7.29.7)(@types/node@20.19.43)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@20.19.43)(vite@8.2.2(@types/node@20.19.43)(esbuild@0.27.0)(jiti@2.7.0)))
       class-variance-authority:
         specifier: ^0.7.1
@@ -84,6 +84,9 @@ importers:
       eslint-config-next:
         specifier: 16.3.4
         version: 16.3.4(@typescript-eslint/parser@8.69.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+      playwright-core:
+        specifier: ^1.62.1
+        version: 1.62.1
       tailwindcss:
         specifier: ^4
         version: 4.3.3
@@ -3225,6 +3228,11 @@ packages:
   pkg-up@3.1.0:
     resolution: {integrity: sha512-nDywThFk1i4BQK4twPQ6TA4RT8bDY96yeuCVBWL3ePARCiEKDRSrNGbFIgUJpLp+XeIR65v8ra7WuJOFUBtkMA==}
     engines: {node: '>=8'}
+
+  playwright-core@1.62.1:
+    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
@@ -6914,6 +6922,8 @@ snapshots:
   pkg-up@3.1.0:
     dependencies:
       find-up: 3.0.0
+
+  playwright-core@1.62.1: {}
 
   possible-typed-array-names@1.1.0: {}
 

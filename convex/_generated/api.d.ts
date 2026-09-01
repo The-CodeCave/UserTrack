@@ -24,6 +24,7 @@ import type * as providers_supabase from "../providers/supabase.js";
 import type * as providers_types from "../providers/types.js";
 import type * as public_ from "../public.js";
 import type * as saas from "../saas.js";
+import type * as seed from "../seed.js";
 import type * as sync from "../sync.js";
 
 import type {
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   "providers/types": typeof providers_types;
   public: typeof public_;
   saas: typeof saas;
+  seed: typeof seed;
   sync: typeof sync;
 }>;
 

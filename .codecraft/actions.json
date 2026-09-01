@@ -1,0 +1,17 @@
+{
+  "actions": [
+    {
+      "id": "dev",
+      "name": "Next.js dev server",
+      "command": "PATH=/opt/homebrew/bin:$PATH pnpm dev",
+      "cwd": ".",
+      "url": "http://localhost:3000"
+    },
+    {
+      "id": "convex-dev",
+      "name": "Convex dev (push + watch)",
+      "command": "PATH=/opt/homebrew/bin:$PATH pnpm convex:dev",
+      "cwd": "."
+    }
+  ]
+}

@@ -23,3 +23,21 @@ export function timeAgo(ts: number, now = Date.now()) {
   if (h < 48) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 }
+
+export type Range = "24h" | "7d" | "30d" | "90d" | "1y" | "all";
+export const RANGES: Range[] = ["24h", "7d", "30d", "90d", "1y", "all"];
+
+export function formatTick(t: number, range: Range) {
+  const d = new Date(t);
+  if (range === "24h") return d.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (range === "7d") return d.toLocaleDateString("en", { weekday: "short" });
+  if (range === "1y" || range === "all") return d.toLocaleDateString("en", { month: "short", year: "2-digit" });
+  return d.toLocaleDateString("en", { month: "short", day: "numeric" });
+}
+
+export function formatPointDate(t: number, range: Range) {
+  const d = new Date(t);
+  return range === "24h" || range === "7d"
+    ? d.toLocaleString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })
+    : d.toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" });
+}
