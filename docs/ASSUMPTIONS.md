@@ -1,0 +1,22 @@
+# Assumptions Log
+
+Decisions made autonomously during the CodeCraft loop. Each entry: what was assumed, why, and how to revisit.
+
+| # | Assumption | Rationale | Revisit |
+|---|-----------|-----------|---------|
+| A1 | **Next.js 16 App Router** (not Vite/CRA). | Metadata API, `next/og` ImageResponse, RSC + Convex `fetchQuery` for SEO pages. | n/a |
+| A2 | **Auth data lives inside Convex** via `@convex-dev/better-auth` component. | Single backend, no external Postgres, Better Auth remains the auth engine. Docs pin `better-auth ~1.6.x`; `better-auth` is **pinned to exactly 1.6.15**: 1.6.30 breaks `ConvexBetterAuthProvider`'s `AuthClient` typing (`useSession().data: never`). pnpm uses `node-linker=hoisted` (`.npmrc`) so only one copy of `better-auth` types exists. | If the component blocks, fall back to Better Auth + Railway Postgres and mirror user ids into Convex. |
+| A3 | **Ranking formula** = verified net new users in trailing 30 days (`total_now − total_30d_ago`), tiebreak by 30d growth %. | Simple, explainable, growth-first, not size-first. | Could add a blended score later. |
+| A4 | **Trust levels**: `verified` (auto-synced from a 3rd-party auth provider or a domain-matched endpoint), `unverified` (manual/self-reported or non-domain-matched endpoint), `pending` (connected, no successful sync yet). | Matches brief; keeps manual entry possible but never ranked as verified. | Add stronger verification (DNS TXT, OAuth) post-MVP. |
+| A5 | **MVP providers**: Clerk (users/count API), Supabase (PostgREST exact count on a table), Custom JSON endpoint (`{"totalUsers": n}` with a per-SaaS bearer token; verified only when host matches SaaS website host), Manual (unverified). | Fetch-only, no native deps, covers most indie SaaS auth stacks. Extensible `Provider` interface. | Add Firebase, Auth0, Postgres read-only. |
+| A6 | Provider secrets are stored in the `integrations` table and **never returned by any query**; only server actions read them. Convex encrypts at rest. | Pragmatic for MVP. | Add envelope encryption with a KMS-style key in env. |
+| A7 | **Sync cadence**: Convex cron every 4h, plus an immediate sync on connect and a manual "Sync now" (rate-limited to 1/10min). | Brief asks for "multiple updates per day, default 4h". | Tunable constant. |
+| A8 | **New users** = delta of total users between snapshots (we don't get per-user signup events from every provider). | Uniform across providers. | Providers with event APIs can later report true signups. |
+| A9 | Charts use **Recharts 3** with custom styling. | Mature, responsive, SSR-safe, easy to skin to blueprint look. | n/a |
+| A10 | **Password reset** shipped as UI + Better Auth `requestPasswordReset` wired to console-logging email sender in dev; real email provider (Resend) is a post-MVP env toggle. | No email provider credentials available; don't block MVP. | Set `RESEND_API_KEY` and swap sender. |
+| A11 | Logos/avatars are **URLs** (with a hosted-upload option via Convex storage). | Fast; Convex storage is available if needed. | n/a |
+| A12 | Railway hosts the **Next.js server only**; Convex is hosted by Convex Cloud (team `thecodecave`, project `usertrack`). | Standard Convex deployment model. | n/a |
+| A13 | Public pages are **dynamic** (no ISR) and read Convex via `fetchQuery`; Convex caches queries so this is cheap. OG images are cached by CDN headers for 1h. | Simplicity + freshness. | Add `revalidate` if traffic demands. |
+| A14 | Leaderboard reads a **materialized `saasMetrics` row per SaaS**, recomputed after every snapshot, never recomputed on page load. | Performance requirement from the brief. | n/a |
+| A15 | Seed/demo data: a small seeded set of demo SaaS entries flagged `isDemo` is used so the public leaderboard and landing page are never empty on day one. Demo entries are labeled and excluded from ranking once ≥5 real verified SaaS exist. | Shareability requires the product to look alive. | Remove seed via `internal.seed.clear`. |
+| A-loop | **Model orchestration**: Fable 5.1 handles PLAN, BUILD, VERIFY/REVIEW and REPAIR (originally Opus 5 was to execute tickets). | Explicit user instruction mid-loop. | n/a |
