@@ -60,7 +60,8 @@ export default function OnboardingPage() {
   }
 
   return (
-    <main className="bp-grid bp-grid-fade min-h-full flex-1 px-4 py-8 sm:py-14">
+    <main className="relative min-h-full flex-1 px-4 py-8 sm:py-14">
+      <div aria-hidden className="bp-grid bp-grid-fade absolute inset-0 -z-10" />
       <div className="mx-auto max-w-xl">
         <Link href="/" className="mb-8 inline-block"><Logo /></Link>
         <ol className="mb-6 grid grid-cols-4 gap-1">

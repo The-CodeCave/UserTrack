@@ -11,7 +11,6 @@ export const alt = "UserTrack leaderboard";
 
 export default async function Image() {
   const rows = await fetchQuery(api.public.leaderboard, { verifiedOnly: true, limit: 5 });
-  const text = `${rows.map((r) => `${r.name}${formatCompact(r.totalUsers)}${formatDelta(r.newUsers30d)}`).join("")}Who is gaining users right now SaaS ranked by verified new users · last 30 days USERTRACK.APP UserTrack #0123456789.,+−%KM`;
   return new ImageResponse(
     (
       <OgFrame footer="LEADERBOARD · 30D">
@@ -30,6 +29,6 @@ export default async function Image() {
         </div>
       </OgFrame>
     ),
-    { ...size, fonts: await ogFonts(text) },
+    { ...size, fonts: await ogFonts() },
   );
 }

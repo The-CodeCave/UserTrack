@@ -16,7 +16,6 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   const total = s ? formatCompact(s.totalUsers) : "—";
   const delta = s ? formatDelta(s.newUsers30d) : "";
   const pct = s ? formatPct(s.growth30dPct) : "";
-  const text = `${name}${total}${delta}${pct}${s?.description ?? ""}TOTAL USERS NEW 30D GROWTH VERIFIED PENDING SELF-REPORTED USERTRACK.APP UserTrack #0123456789.,+−%KM`;
 
   return new ImageResponse(
     (
@@ -38,7 +37,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
         </div>
       </OgFrame>
     ),
-    { ...size, fonts: await ogFonts(text) },
+    { ...size, fonts: await ogFonts() },
   );
 }
 

@@ -20,7 +20,8 @@ export default async function LandingPage() {
 
   return (
     <div>
-      <section className="bp-grid bp-grid-fade relative overflow-hidden">
+      <section className="relative overflow-hidden">
+        <div aria-hidden className="bp-grid bp-grid-fade absolute inset-0 -z-10" />
         <div className="mx-auto grid max-w-6xl gap-10 px-4 pb-16 pt-16 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:pb-24 lg:pt-24">
           <div>
             <SectionLabel>Public SaaS growth leaderboard · free</SectionLabel>

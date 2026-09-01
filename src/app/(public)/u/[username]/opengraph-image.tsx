@@ -16,7 +16,6 @@ export default async function Image({ params }: { params: Promise<{ username: st
   const new30 = p ? formatDelta(p.saas.reduce((a, s) => a + s.newUsers30d, 0)) : "";
   const name = p?.displayName ?? "Not found";
   const names = p?.saas.slice(0, 4).map((s) => s.name).join("  ·  ") ?? "";
-  const text = `${name}@${username}${total}${new30}${names}SAAS USERS NEW · 30D USERTRACK.APP UserTrack #0123456789.,+−%KM`;
 
   return new ImageResponse(
     (
@@ -36,7 +35,7 @@ export default async function Image({ params }: { params: Promise<{ username: st
         <div style={{ display: "flex", marginTop: 28, fontFamily: "Geist Mono", fontSize: 18, color: MUTED, letterSpacing: 1 }}>{names}</div>
       </OgFrame>
     ),
-    { ...size, fonts: await ogFonts(text) },
+    { ...size, fonts: await ogFonts() },
   );
 }
 

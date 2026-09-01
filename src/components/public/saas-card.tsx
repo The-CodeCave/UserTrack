@@ -37,7 +37,7 @@ export function LeaderboardRow({ s, position }: { s: SaasRow; position: number }
         <div className="flex min-w-0 items-center gap-3">
           <SaasLogo name={s.name} logoUrl={s.logoUrl} size={36} />
           <div className="min-w-0">
-            <div className="flex items-center gap-2 truncate font-medium">{s.name}<TrustBadge trust={s.trust} className="hidden sm:inline-flex" />{s.isDemo && <DemoTag />}</div>
+            <div className="flex min-w-0 items-center gap-2 font-medium"><span className="truncate">{s.name}</span><TrustBadge trust={s.trust} className="hidden shrink-0 sm:inline-flex" />{s.isDemo && <DemoTag />}</div>
             <div className="truncate font-mono text-[11px] text-muted-foreground">{s.owner ? `@${s.owner.username}` : ""}{s.owner && s.description ? " · " : ""}{s.description}</div>
           </div>
         </div>
@@ -59,5 +59,5 @@ export function LeaderboardRow({ s, position }: { s: SaasRow; position: number }
 }
 
 export function DemoTag() {
-  return <span className="border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Demo</span>;
+  return <span className="shrink-0 border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Demo</span>;
 }

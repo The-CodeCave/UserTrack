@@ -43,7 +43,7 @@ export function GrowthChart({
         {points.length >= 2 && (
           <ResponsiveContainer width="100%" height="100%">
             {metric === "total" ? (
-              <AreaChart data={points} margin={{ top: 16, right: 12, bottom: 0, left: 0 }}>
+              <AreaChart data={points} margin={{ top: 16, right: 28, bottom: 0, left: 0 }}>
                 <defs>
                   <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={PINK} stopOpacity={0.28} />
@@ -58,7 +58,7 @@ export function GrowthChart({
                 {last && <ReferenceDot x={last.t} y={last.total} r={4} fill={PINK} stroke="#0b0c0e" strokeWidth={2} />}
               </AreaChart>
             ) : (
-              <BarChart data={points} margin={{ top: 16, right: 12, bottom: 0, left: 0 }} barCategoryGap="30%">
+              <BarChart data={points} margin={{ top: 16, right: 28, bottom: 0, left: 0 }} barCategoryGap="30%">
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="t" tickFormatter={(t) => formatTick(t, range)} tick={AXIS} axisLine={false} tickLine={false} minTickGap={40} />
                 <YAxis tickFormatter={formatCompact} tick={AXIS} axisLine={false} tickLine={false} width={44} />

@@ -111,8 +111,9 @@
       linear-gradient(to bottom, rgb(255 255 255 / 0.05) 1px, transparent 1px);
     background-size: var(--grid-size) var(--grid-size);
   }
+  /* Use on an absolutely positioned background layer only — masks would hide content otherwise. */
   .bp-grid-fade {
-    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 100%);
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, black 20%, transparent 100%);
   }
   .pink-glow {
     box-shadow: 0 0 0 1px rgb(251 1 132 / 0.5), 0 0 24px var(--pink-glow);

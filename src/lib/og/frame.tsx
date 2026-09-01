@@ -6,6 +6,7 @@ export const INK = "#f4f4f5";
 export const MUTED = "#8b8f98";
 export const BG = "#0b0c0e";
 const LINE = "rgba(255,255,255,0.16)";
+const HOST = (() => { try { return new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://usertrack.app").hostname.toUpperCase(); } catch { return "USERTRACK.APP"; } })();
 
 // Shared blueprint frame: graphite surface, construction grid, corner ticks, wordmark.
 export function OgFrame({ children, footer }: { children: ReactNode; footer?: string }) {
@@ -39,7 +40,7 @@ export function OgFrame({ children, footer }: { children: ReactNode; footer?: st
           U<span style={{ color: PINK }}>T</span>
         </div>
         <div style={{ display: "flex", fontSize: 24 }}>User<span style={{ color: PINK }}>Track</span></div>
-        <div style={{ marginLeft: "auto", display: "flex", fontFamily: "Geist Mono", fontSize: 16, color: MUTED, letterSpacing: 2 }}>{footer ?? "USERTRACK.APP"}</div>
+        <div style={{ marginLeft: "auto", display: "flex", fontFamily: "Geist Mono", fontSize: 16, color: MUTED, letterSpacing: 2 }}>{footer ?? HOST}</div>
       </div>
       <div style={{ display: "flex", flex: 1, flexDirection: "column", justifyContent: "flex-end" }}>{children}</div>
     </div>

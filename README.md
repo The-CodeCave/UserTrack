@@ -1,37 +1,42 @@
-## Vision
+# UserTrack
 
-UserTrack is a public growth layer for SaaS.
+Public, shareable leaderboard of SaaS user growth. Founders connect a read-only data source, UserTrack snapshots the user count every 4 hours, and every product gets a growth page with a chart, trust badge and custom OG image.
 
-The goal is simple: make user growth visible, comparable, and trustworthy.
+**Live:** https://usertrack-production.up.railway.app
 
-Founders should be able to connect their SaaS in minutes and get a public profile that shows how their product is actually growing over time. Instead of static screenshots, self-reported numbers, or revenue-only leaderboards, UserTrack focuses on verified user growth and transparent historical data.
+## Stack
+Next.js 16 (App Router, RSC) · React 19 · Tailwind 4 + shadcn/ui (Base UI) · Convex (DB, functions, crons, HTTP) · Better Auth via `@convex-dev/better-auth` · Recharts 3 · Motion · `next/og` · Railway.
 
-Every SaaS gets a public, shareable page with:
+## Run locally
+```bash
+pnpm install
+npx convex dev            # creates .env.local, pushes functions, watches
+npx convex env set BETTER_AUTH_SECRET "$(openssl rand -base64 32)"
+npx convex env set SITE_URL http://localhost:3000
+echo 'NEXT_PUBLIC_SITE_URL=http://localhost:3000' >> .env.local
+npx convex run seed:run   # optional demo data
+pnpm dev                  # http://localhost:3000
+```
 
-* total users
-* new users
-* growth over time
-* historical charts
-* leaderboard position
-* verification status
+## Scripts
+| Command | Purpose |
+|---|---|
+| `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
+| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest |
+| `pnpm convex:dev` · `pnpm convex:deploy` | Convex dev watch · deploy to prod |
+| `node scripts/smoke.mjs [base] [mobile]` | E2E: sign-up → onboarding → publish → public page (needs Chrome) |
+| `node scripts/shot.mjs <url> <out.png> [w] [h] [full]` | Screenshot helper |
 
-UserTrack should make it easy to discover which SaaS products are gaining real traction right now.
+## Layout
+```
+convex/            schema, auth, profiles, saas, integrations, sync engine, crons, public queries, seed
+convex/providers/  data-source adapters (clerk, supabase, endpoint, manual)
+src/app/(public)/  /, /leaderboard, /s/[slug], /u/[username] (+ opengraph-image routes)
+src/app/(auth)/    /sign-in, /sign-up
+src/app/app/       dashboard: onboarding, saas, profile, settings
+src/components/    blueprint primitives, charts, app forms, public cards
+docs/              ARCHITECTURE · BACKLOG · ASSUMPTIONS · DEPLOYMENT · CODECRAFT · ROADMAP
+```
 
-The product is designed around three principles:
-
-**Trust.**
-Metrics should come from connected data sources wherever possible, not manually entered numbers.
-
-**Simplicity.**
-Connecting a SaaS and publishing a profile should take only a few minutes.
-
-**Shareability.**
-Every profile, chart, milestone, and ranking should be something founders actually want to share.
-
-The first version of UserTrack focuses on one core question:
-
-> Which SaaS products are gaining users right now?
-
-Everything else is secondary.
-
-UserTrack is free to use and built for founders, indie hackers, and software companies who want to build in public, benchmark their growth, and make traction visible.
+## Trust model (short)
+`verified` = synced from Clerk/Supabase or a JSON endpoint on the SaaS's own domain · `unverified` = manual / foreign endpoint, badged, never ranked · `pending` = no successful sync yet. Snapshots are append-only and carry source + trust. Ranking = verified new users in the last 30 days. Details in `docs/ARCHITECTURE.md`.
