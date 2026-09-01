@@ -108,4 +108,4 @@ Vertical-slice ordering: each epic leaves the app in a usable state. The first f
 | UT-1301 | Convex prod deployment + env; Next.js build runs `convex deploy --cmd` | Prod deployment URL live | 102 | ☑ |
 | UT-1302 | Railway service, env vars, domain; `railway up` green | Public URL responds 200; auth works in prod | 1301 | ☐ |
 | UT-1303 | Seed demo data (labelled) so leaderboard isn't empty | `internal.seed.run` idempotent | 802 | ☑ |
-| UT-1304 | Final docs: README, DEPLOYMENT, ROADMAP, CHANGELOG | Future engineer can run locally in < 10 min | all | ☐ |
+| UT-1304 | Final docs: README, DEPLOYMENT, ROADMAP, CHANGELOG | Future engineer can run locally in < 10 min | all | ☑ |

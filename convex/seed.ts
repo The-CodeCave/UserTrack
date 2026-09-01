@@ -1,3 +1,4 @@
+import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { DAY, HOUR, dayKey } from "./lib/time";
@@ -77,5 +78,25 @@ export const clear = internalMutation({
     await ctx.db.delete(p._id);
     await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
     return "cleared";
+  },
+});
+
+// Removes a profile and everything it owns (used to clean up smoke-test accounts). Auth user stays.
+export const removeProfile = internalMutation({
+  args: { username: v.string() },
+  handler: async (ctx, { username }) => {
+    const p = await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", username)).unique();
+    if (!p) return "not found";
+    const list = await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", p._id)).collect();
+    for (const s of list) {
+      for (const t of ["integrations"] as const) for (const r of await ctx.db.query(t).withIndex("by_saas", (q) => q.eq("saasId", s._id)).collect()) await ctx.db.delete(r._id);
+      for (const r of await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).collect()) await ctx.db.delete(r._id);
+      for (const r of await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id)).collect()) await ctx.db.delete(r._id);
+      for (const r of await ctx.db.query("syncRuns").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).collect()) await ctx.db.delete(r._id);
+      await ctx.db.delete(s._id);
+    }
+    await ctx.db.delete(p._id);
+    await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
+    return `removed ${username} (${list.length} saas)`;
   },
 });
