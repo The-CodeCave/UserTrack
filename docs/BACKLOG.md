@@ -22,7 +22,7 @@ Vertical-slice ordering: each epic leaves the app in a usable state. The first f
 | UT-202 | Typography: Geist Sans (UI) + Geist Mono (labels/stats) via `next/font` | Rendered in layout; `font-mono` used for metric labels | 201 | ☑ |
 | UT-203 | Blueprint primitives: `<Grid/>` background, `<Panel/>` with corner ticks, `<MetricCard/>`, `<TrustBadge/>`, `<SectionLabel/>` | Storybook-free: visible on `/design` dev route | 201 | ☑ |
 | UT-204 | Layout shells: public `SiteHeader`/`SiteFooter`, app `AppShell` (sidebar desktop / bottom-nav mobile) | Renders at 375px and 1440px without overflow | 203 | ☑ |
-| UT-205 | Motion: reveal/trace animations via `motion` with reduced-motion respect | `prefers-reduced-motion` disables animation | 203 | ☐ |
+| UT-205 | Motion: reveal/trace animations via `motion` with reduced-motion respect | `prefers-reduced-motion` disables animation | 203 | ◐ (step transitions + chart draw shipped; reduced-motion guard → ROADMAP) |
 
 ## Epic 3 — Authentication
 | ID | Title | Acceptance criteria | Deps | Status |
@@ -106,6 +106,6 @@ Vertical-slice ordering: each epic leaves the app in a usable state. The first f
 | ID | Title | Acceptance criteria | Deps | Status |
 |---|---|---|---|---|
 | UT-1301 | Convex prod deployment + env; Next.js build runs `convex deploy --cmd` | Prod deployment URL live | 102 | ☑ |
-| UT-1302 | Railway service, env vars, domain; `railway up` green | Public URL responds 200; auth works in prod | 1301 | ☐ |
+| UT-1302 | Railway service, env vars, domain; `railway up` green | Public URL responds 200; auth works in prod | 1301 | ☑ |
 | UT-1303 | Seed demo data (labelled) so leaderboard isn't empty | `internal.seed.run` idempotent | 802 | ☑ |
 | UT-1304 | Final docs: README, DEPLOYMENT, ROADMAP, CHANGELOG | Future engineer can run locally in < 10 min | all | ☑ |
