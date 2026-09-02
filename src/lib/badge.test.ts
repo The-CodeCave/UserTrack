@@ -44,9 +44,46 @@ describe("renderBadge", () => {
   it("width grows with text", () => {
     expect(width(renderBadge({ ...base, totalUsers: 12_345_678 }))).toBeGreaterThan(width(renderBadge({ ...base, totalUsers: 7 })));
   });
+  it("growth badge honours the 7d window", () => {
+    expect(renderBadge({ ...base, type: "growth", window: "7d", growth7dPct: 2.5 })).toContain(">+2.5% · 7d</text>");
+    expect(renderBadge({ ...base, type: "growth", window: "7d" })).toContain(">0.0% · 7d</text>");
+  });
   it("renders not-found badge", () => {
     const s = renderNotFoundBadge("dark");
     expect(s).toContain(">not found</text>");
     expect(s).toContain("<title>Not found on UserTrack</title>");
+  });
+});
+
+describe("chart badge", () => {
+  const chart: BadgeInput = { ...base, type: "chart", newUsers7d: 50, growth7dPct: 3.3, spark: [10, 12, 15, 20] };
+  it("renders a 320px widget with a sparkline", () => {
+    const s = renderBadge(chart);
+    expect(s).toContain('width="320"');
+    expect(s).toContain('height="120"');
+    expect(s).toContain("<path");
+    expect(s).toContain("<circle");
+    expect(s).toContain(">USERTRACK</text>");
+    expect(s).toContain(">12.5K</text>");
+    expect(s).toContain(">+1,900 · +18.2% · 30d</text>");
+    expect(s).toContain("<title>Acme on UserTrack: 12,481 users, +1,900 in 30d</title>");
+  });
+  it("draws a dashed baseline without enough data", () => {
+    const s = renderBadge({ ...chart, spark: [7] });
+    expect(s).not.toContain("<path");
+    expect(s).toContain('stroke-dasharray="2 3"');
+  });
+  it("compact height and 7d window", () => {
+    expect(renderBadge({ ...chart, compact: true })).toContain('height="96"');
+    const s = renderBadge({ ...chart, window: "7d" });
+    expect(s).toContain(">+50 · +3.3% · 7d</text>");
+    expect(s).toContain("+50 in 7d</title>");
+  });
+  it("escapes and truncates the name", () => {
+    const s = renderBadge({ ...chart, name: "<script>&x" });
+    expect(s).not.toContain("<script");
+    // Entities must stay lowercase after the uppercase label transform (&LT; is not valid XML).
+    expect(s).toContain(">&lt;SCRIPT&gt;&amp;X</text>");
+    expect(renderBadge({ ...chart, name: "Supercalifragilistic Product" })).toContain(">SUPERCALIFRAGILIS…</text>");
   });
 });

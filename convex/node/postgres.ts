@@ -25,7 +25,7 @@ const pgQueryArg = v.object({
 });
 
 // Actionable, secret-free error messages. `retryable` drives the sync engine's retry policy.
-function explain(e: unknown): { message: string; retryable: boolean } {
+export function explain(e: unknown): { message: string; retryable: boolean } {
   const err = e as NodeJS.ErrnoException & { code?: string; routine?: string };
   const code = err?.code ?? "";
   const msg = String(err?.message ?? e);

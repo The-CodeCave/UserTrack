@@ -18,6 +18,7 @@ export interface SaasRow {
   trustLabel?: string;
   rank?: number;
   trendingRank?: number;
+  verifiedAt?: number;
   isDemo?: boolean;
   totalUsers: number;
   newUsers24h: number;
@@ -98,15 +99,25 @@ export function DemoTag() {
 }
 
 export function MiniSaasCard({ s, metric }: { s: SaasRow; metric?: { label: string; value: string } }) {
+  const trusted = s.trust === "verified" && s.trustLabel !== "Data under review";
   return (
     <Link href={`/s/${s.slug}`} className="group block">
       <Panel className="flex h-full items-center gap-3 p-3 transition-colors group-hover:border-line-strong">
         <SaasLogo name={s.name} logoUrl={s.logoUrl} size={36} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 font-medium"><span className="truncate">{s.name}</span>{s.isDemo && <DemoTag />}</div>
-          <div className="truncate font-mono text-[11px] text-muted-foreground">{formatCompact(s.totalUsers)} users · {categoryLabel(s.category)}</div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-medium">
+            <span className="min-w-0 truncate">{s.name}</span>
+            {s.isDemo && <DemoTag />}
+            {trusted && <TrustBadge trust={s.trust} label={s.trustLabel} className="shrink-0" />}
+            {s.trendingRank && <span className="shrink-0 border border-pink/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-pink">#{s.trendingRank} trending</span>}
+          </div>
+          <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+            <span className="min-w-0 truncate">{formatCompact(s.totalUsers)} users · {categoryLabel(s.category)}</span>
+            {s.movement && <MovementTag m={s.movement} className="shrink-0" />}
+          </div>
         </div>
-        <div className="text-right">
+        <Sparkline values={s.spark} width={72} height={24} className="hidden shrink-0 text-foreground sm:block" />
+        <div className="shrink-0 text-right">
           <div className="font-semibold text-pink">{metric?.value ?? formatDelta(s.newUsers7d)}</div>
           <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{metric?.label ?? "7d"}</div>
         </div>

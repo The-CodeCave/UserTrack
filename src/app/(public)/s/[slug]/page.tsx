@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchQuery } from "convex/nextjs";
-import { ExternalLink, Flame, Users, Zap, Repeat, Globe, CreditCard, ImageIcon } from "lucide-react";
+import { ExternalLink, Flame, Zap, Repeat, Globe, CreditCard, ImageIcon, Award } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
@@ -16,10 +16,12 @@ import { FollowButton } from "@/components/public/follow-button";
 import { Funnel } from "@/components/public/funnel";
 import { MilestoneRow } from "@/components/public/milestones";
 import { EmbedBadge } from "@/components/public/embed-badge";
+import { TrendingExplain } from "@/components/public/trending-explain";
 import { formatCompact, formatDelta, formatMoney, formatPct, formatRate, timeAgo } from "@/lib/format";
 import { providerLabel, ROLE_META } from "@/lib/providers-ui";
 import { categoryLabel } from "@/lib/categories";
 import { saasUrl, shareUrl } from "@/lib/site";
+import { availableShareKinds } from "@/lib/share";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +39,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const s = await fetchQuery(api.public.saasBySlug, { slug });
   if (!s) notFound();
+  const bench = await fetchQuery(api.public.benchmarkHighlight, { slug });
   const url = saasUrl(slug);
   const hasActivation = s.activatedUsers !== undefined;
   const hasRetention = s.retentionRatePct !== undefined;
@@ -66,6 +69,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
               {s.isDemo && <DemoTag />}
               {s.rank && <Link href="/leaderboard" className="inline-flex items-center gap-1 border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider hover:border-line-strong">#{s.rank} · 30d <MovementTag m={s.prevRank !== undefined ? { kind: s.prevRank > s.rank ? "up" : s.prevRank < s.rank ? "down" : "same", delta: s.prevRank - s.rank } : null} /></Link>}
               {s.trendingRank && <Link href="/trending" className="inline-flex items-center gap-1 border border-pink/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-pink hover:bg-pink/10"><Flame className="size-3" />#{s.trendingRank} trending</Link>}
+              {s.trendingRank && <TrendingExplain slug={slug} />}
             </div>
             <p className="mt-2 max-w-xl text-muted-foreground">{s.description}</p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
@@ -91,6 +95,9 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
           <div className="mt-1 font-mono text-xs text-muted-foreground">{formatPct(s.growth30dPct)} growth</div>
         </MetricCard>
       </div>
+      {bench && (
+        <div className="mt-3"><span title={`Compared with ${formatCompact(bench.sampleSize)} verified products. Refreshed daily.`} className="inline-flex max-w-full items-center gap-1.5 border border-pink/60 px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-pink"><Award className="size-3 shrink-0" /><span className="truncate">{bench.statement}</span></span></div>
+      )}
 
       <Panel className="mt-3 p-4 sm:p-5">
         <div className="mb-3 flex items-center justify-between">
@@ -158,7 +165,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
 
       <div className="mt-8 grid gap-3 md:grid-cols-2">
         {s.owner && (
-          <Link href={`/u/${s.owner.username}`} className="group">
+          <Link href={`/u/${s.owner.username}`} className="group block min-w-0">
             <Panel className="flex h-full items-center gap-4 p-4 transition-colors group-hover:border-line-strong">
               <div className="grid size-12 shrink-0 place-items-center border border-line bg-background font-mono">{s.owner.avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -191,12 +198,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
             <div className="flex items-center gap-2 text-sm font-medium"><ImageIcon className="size-4 text-pink" /> Share cards</div>
             <p className="mt-1 text-xs text-muted-foreground">Each card has its own preview image for X, LinkedIn, Slack, Discord and iMessage.</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              {[
-                { kind: "users", label: `${formatCompact(s.totalUsers)} users`, Icon: Users },
-                { kind: "growth", label: `${formatDelta(s.newUsers30d)} in 30d`, Icon: Flame },
-                ...(s.rank ? [{ kind: "rank", label: `#${s.rank} on UserTrack`, Icon: Flame }] : []),
-                ...(s.trendingRank ? [{ kind: "trending", label: `#${s.trendingRank} trending`, Icon: Flame }] : []),
-              ].map((c) => (
+              {availableShareKinds(s).map((c) => (
                 <Link key={c.kind} href={shareUrl(slug, c.kind)} className={cn("border border-line px-3 py-2 text-sm transition-colors hover:border-pink hover:text-pink")}>{c.label}</Link>
               ))}
             </div>

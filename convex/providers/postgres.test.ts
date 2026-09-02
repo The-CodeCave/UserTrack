@@ -69,6 +69,24 @@ describe("postgres provider", () => {
     const pub = JSON.stringify(postgres.publicConfig(v.config));
     expect(pub).not.toContain("secretpw");
     expect(pub).not.toContain("abcdefghijklmnop");
+    const sql = postgres.validate({ connectionString: "postgresql://ro:hunter2@db.example.com/app", sql: "select count(*) from x where t >= $1" }, "activation");
+    if (!sql.ok) throw new Error(sql.error);
+    expect(JSON.stringify(postgres.publicConfig(sql.config))).not.toContain("hunter2");
+    expect(postgres.publicConfig(sql.config).source).toBe("custom query");
+  });
+  it("explains connection string problems", () => {
+    expect(parseConnectionString("db.example.com/app")).toMatchObject({ ok: false, error: expect.stringContaining("postgres://") });
+    expect(parseConnectionString("postgresql://db.example.com/app")).toMatchObject({ ok: false, error: expect.stringContaining("no user") });
+    expect(parseConnectionString("postgresql://ro:pw@host name/app")).toMatchObject({ ok: false, error: expect.stringContaining("URL-encode") });
+  });
+  it("rejects writes and derives SSL from sslmode", () => {
+    expect(validateSql("INSERT INTO users VALUES (1)")).toMatch(/SELECT/);
+    expect(validateSql("select 1 from users where id in (insert into t values (1) returning id)")).toMatch(/read-only/);
+    expect(defaultSsl("localhost", new URLSearchParams())).toBe("disable");
+    expect(defaultSsl("localhost", new URLSearchParams("sslmode=require"))).toBe("require");
+    expect(defaultSsl("db.example.com", new URLSearchParams("sslmode=verify-full"))).toBe("require");
+    const v = postgres.validate({ connectionString: "postgresql://ro:pw@127.0.0.1/app?sslmode=require", tableRef: "users" }, "users");
+    expect(v.ok && v.config.ssl).toBe("require");
   });
 });
 

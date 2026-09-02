@@ -82,7 +82,7 @@ function chart(i: BadgeInput) {
     `<title>${escapeXml(title)}</title>` +
     `<rect width="${W}" height="${HH}" fill="${p.base}"/>` +
     grid + path + dot +
-    `<text x="14" y="24" ${FONT} font-size="11" letter-spacing="1.5" fill="${p.muted}">${escapeXml(i.name.length > 18 ? `${i.name.slice(0, 17)}…` : i.name).toUpperCase()}</text>` +
+    `<text x="14" y="24" ${FONT} font-size="11" letter-spacing="1.5" fill="${p.muted}">${escapeXml((i.name.length > 18 ? `${i.name.slice(0, 17)}…` : i.name).toUpperCase())}</text>` +
     `<text x="14" y="${i.compact ? 56 : 60}" font-family="Geist, Inter, ui-sans-serif, system-ui, sans-serif" font-size="${i.compact ? 26 : 30}" font-weight="600" fill="${p.text}">${escapeXml(formatCompact(i.totalUsers))}</text>` +
     `<text x="14" y="${i.compact ? 74 : 80}" ${FONT} font-size="11" fill="${PINK}">${escapeXml(`${formatDelta(delta)} · ${formatPct(pct)} · ${win}`)}</text>` +
     bars(14, HH - 9) + `<text x="32" y="${HH - 10}" ${FONT} font-size="10" letter-spacing="1" fill="${p.muted}">USERTRACK</text>` +

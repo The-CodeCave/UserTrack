@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { historyDto, milestoneDto, saasDto, type SaasRow } from "./dto";
+import { compareDto, feedItemDto, funnelDto, historyDto, milestoneDto, saasDto, type SaasRow } from "./dto";
 
 const FORBIDDEN = ["ownerId", "trustState", "trustScore", "config", "flags", "fraudFlags", "isPublic", "showTraffic", "showRevenue", "_id", "_creationTime", "spark", "sources"];
 
@@ -74,5 +74,38 @@ describe("milestoneDto / historyDto", () => {
       { t: "1970-01-01T00:00:00.000Z", totalUsers: 10, newUsers: 2, activatedUsers: undefined },
       { t: "1970-01-02T00:00:00.000Z", totalUsers: 12, newUsers: 2, activatedUsers: 3 },
     ]);
+  });
+});
+
+describe("funnelDto / feedItemDto / compareDto", () => {
+  it("keeps per-stage provenance", () => {
+    const d = funnelDto({
+      timeframe: "30d", days: 30, verification: "partially_verified", coverageDays: 30,
+      stages: [
+        { key: "signups", label: "Signups", value: 100, kind: "users", source: { provider: "clerk", label: "Clerk", verification: "verified", secret: "x" } as never },
+        { key: "activated", label: "Activated", value: 40, conversionPct: 40, kind: "activation" },
+      ],
+    });
+    expect(d.stages[0].source).toEqual({ provider: "clerk", label: "Clerk", verification: "verified" });
+    expect(d.stages[1].source).toBeUndefined();
+    expect(d.verification).toBe("partially_verified");
+  });
+  it("feed item emits ISO time and share URLs", () => {
+    const item = { id: "f1", kind: "milestone", subkind: "users", at: Date.UTC(2026, 0, 2), title: "1K users", detail: "Hit 1,000", saas: { slug: "acme", name: "Acme", totalUsers: 1000, trust: "verified" as const, trustLabel: "Verified" } };
+    const d = feedItemDto({ ...item, share: "milestone-m1" });
+    expect(d.at).toBe("2026-01-02T00:00:00.000Z");
+    expect(d.urls.page).toMatch(/\/s\/acme$/);
+    expect(d.urls.share).toMatch(/\/s\/acme\/milestone-m1$/);
+    expect(d.saas.trust).toEqual({ level: "verified", label: "Verified" });
+    expect(feedItemDto(item).urls.share).toBeUndefined();
+  });
+  it("compare indexes to 100 at the first non-zero day", () => {
+    const series = [{ day: "2026-01-01", total: 0, delta: 0 }, { day: "2026-01-02", total: 50, delta: 50 }, { day: "2026-01-03", total: 75, delta: 25 }];
+    const d = compareDto([{ ...base, series }, { ...base, slug: "beta", series: series.map((p) => ({ ...p, total: 0 })) }], 0);
+    expect(d.days).toBe("all");
+    expect(d.products[0].series.map((p) => p.index)).toEqual([0, 100, 150]);
+    expect(d.products[1].series.map((p) => p.index)).toEqual([undefined, undefined, undefined]);
+    expect(d.urls.page).toMatch(/\/compare\?s=acme,beta&days=all$/);
+    expect(compareDto([{ ...base, series }], 30)).toMatchObject({ days: 30, urls: { page: expect.stringMatching(/&days=30$/) } });
   });
 });
