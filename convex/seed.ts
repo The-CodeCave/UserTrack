@@ -114,6 +114,11 @@ export const removeProfile = internalMutation({
     for (const s of list) await removeSaas(ctx, s._id);
     for (const r of await ctx.db.query("follows").withIndex("by_follower", (q) => q.eq("followerId", p._id)).collect()) await ctx.db.delete(r._id);
     for (const r of await ctx.db.query("digests").withIndex("by_profile_week", (q) => q.eq("profileId", p._id)).collect()) await ctx.db.delete(r._id);
+    for (const t of await ctx.db.query("developerTokens").withIndex("by_profile", (q) => q.eq("profileId", p._id)).collect()) {
+      for (const u of await ctx.db.query("apiUsage").withIndex("by_token_day", (q) => q.eq("tokenId", t._id)).collect()) await ctx.db.delete(u._id);
+      await ctx.db.delete(t._id);
+    }
+    for (const r of await ctx.db.query("auditLogs").withIndex("by_profile_time", (q) => q.eq("profileId", p._id)).collect()) await ctx.db.delete(r._id);
     await ctx.db.delete(p._id);
     await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
     return `removed ${username} (${list.length} saas)`;
