@@ -7,6 +7,7 @@ import { CATEGORY_SLUGS } from "../../src/lib/categories";
 import { normalizeDomain } from "../lib/domain";
 import { publicTrustLabel } from "../lib/trust";
 import { scheduleMissingSourceReminder } from "../email/lifecycle";
+import { markLaunched } from "./events";
 
 export type DomainErrorCode = "not_found" | "bad_request" | "conflict" | "rate_limited" | "forbidden";
 
@@ -99,6 +100,7 @@ export async function updateProject(ctx: MutationCtx, saas: Doc<"saas">, patch: 
   if (patch.slug && slugify(patch.slug) !== saas.slug) next.slug = await uniqueSlug(ctx, patch.slug, saas._id);
   if (patch.isPublic !== undefined && patch.isPublic !== saas.isPublic) next.isPublic = patch.isPublic;
   await ctx.db.patch(saas._id, next);
+  if (next.isPublic) await markLaunched(ctx, saas);
   if (next.isPublic !== undefined) await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
   return { ...saas, ...next };
 }
@@ -122,7 +124,7 @@ export function projectUrls(s: Pick<Doc<"saas">, "slug">, username?: string) {
     profile: username ? `${base}/u/${username}` : undefined,
     badge: `${base}/api/badge/${s.slug}.svg`,
     ogImage: `${base}/s/${s.slug}/opengraph-image`,
-    share: Object.fromEntries(["users", "growth", "rank", "trending", "activation"].map((k) => [k, `${base}/s/${s.slug}/share/${k}`])) as Record<string, string>,
+    share: Object.fromEntries(["users", "growth", "week", "rank", "trending", "activation"].map((k) => [k, `${base}/s/${s.slug}/share/${k}`])) as Record<string, string>,
     api: `${base}/api/v1/saas/${s.slug}`,
   };
 }

@@ -13,6 +13,7 @@ import { checkSnapshot } from "./lib/trust";
 import { addMilestones, openFlags, refreshTrust } from "./trust";
 import { onSourceFailure, onSourceSuccess } from "./email/lifecycle";
 import { onSpikeCheck, onUsersSnapshot } from "./email/growth";
+import { addOnceEvent } from "./domain/events";
 import { integrationRole, providerKind, trustLevel } from "./schema";
 
 const STAGGER_WINDOW_MS = 10 * 60_000;
@@ -168,6 +169,10 @@ export const recordSuccess = internalMutation({
 
       await ctx.db.patch(saasId, { trust, lastSyncedAt: now, activeUsers30d: metrics.activeUsers30d ?? saas.activeUsers30d });
       await recomputeDerived(ctx, saasId, metrics);
+      if (trust === "verified" && saas.verifiedAt === undefined && !saas.isDemo) {
+        await ctx.db.patch(saasId, { verifiedAt: now });
+        await addOnceEvent(ctx, saasId, "verified", now, "Verified on UserTrack", `${saas.name} now syncs verified user counts read-only from ${getProvider(integration.provider).label}.`);
+      }
 
       // Milestones, spikes and anomaly checks only for real (non-demo) products.
       if (!saas.isDemo) {

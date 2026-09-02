@@ -44,7 +44,7 @@ describe("handleMcpRequest", () => {
     expect(msg.result.capabilities.prompts).toBeDefined();
   });
 
-  it("lists all 15 tools with input schemas", async () => {
+  it("lists all 23 tools with input schemas", async () => {
     const msg = await rpc("tools/list");
     const tools = msg.result.tools as { name: string; inputSchema: unknown; description: string; annotations: { readOnlyHint: boolean } }[];
     expect(tools.map((t) => t.name).sort()).toEqual(TOOLS.map((t) => t.name).sort());
@@ -172,7 +172,7 @@ describe("/mcp route", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     const body = await res.json();
-    expect((Array.isArray(body) ? body[0] : body).result.tools).toHaveLength(15);
+    expect((Array.isArray(body) ? body[0] : body).result.tools).toHaveLength(23);
   });
 
   it("answers GET without SSE accept with a JSON discovery document", async () => {
@@ -183,7 +183,7 @@ describe("/mcp route", () => {
     expect(body.transport).toBe("streamable-http");
     expect(body.endpoint).toMatch(/\/mcp$/);
     expect(body.auth.tokenPrefix).toBe("ut_mcp_");
-    expect(body.tools).toHaveLength(15);
+    expect(body.tools).toHaveLength(23);
     expect(body.tools[0]).toMatchObject({ name: "usertrack_get_account", scope: "profile:read", readOnly: true });
     expect(body.setupWorkflow[0]).toBe("usertrack_get_account");
   });

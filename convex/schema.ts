@@ -104,6 +104,13 @@ export default defineSchema({
     trendingScore30d: v.optional(v.number()),
     trendingRank: v.optional(v.number()),
     prevTrendingRank: v.optional(v.number()),
+    trendingRank24h: v.optional(v.number()),
+    prevTrendingRank24h: v.optional(v.number()),
+    trendingRank30d: v.optional(v.number()),
+    prevTrendingRank30d: v.optional(v.number()),
+    // Set once when the product first becomes public / verified (drives the discovery feed).
+    launchedAt: v.optional(v.number()),
+    verifiedAt: v.optional(v.number()),
     // Trust
     trustScore: v.optional(v.number()),
     trustState: v.optional(trustState),
@@ -213,7 +220,7 @@ export default defineSchema({
   // Growth events used as chart annotations and feed items.
   events: defineTable({
     saasId: v.id("saas"),
-    kind: v.union(v.literal("spike"), v.literal("activation_spike"), v.literal("traffic_spike"), v.literal("reconnect"), v.literal("source_changed")),
+    kind: v.union(v.literal("spike"), v.literal("activation_spike"), v.literal("traffic_spike"), v.literal("reconnect"), v.literal("source_changed"), v.literal("launched"), v.literal("verified")),
     day: v.string(),
     at: v.number(),
     title: v.string(),
@@ -222,7 +229,8 @@ export default defineSchema({
     multiple: v.optional(v.number()),
   })
     .index("by_saas_time", ["saasId", "at"])
-    .index("by_saas_kind_day", ["saasId", "kind", "day"]),
+    .index("by_saas_kind_day", ["saasId", "kind", "day"])
+    .index("by_time", ["at"]),
 
   follows: defineTable({
     followerId: v.id("profiles"),

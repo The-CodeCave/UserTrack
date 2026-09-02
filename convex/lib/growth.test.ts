@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { trendingScore } from "./trending";
+import { explainTrending, trendingFactors, trendingScore } from "./trending";
 import { checkSnapshot, publicTrustLabel, trustScore, trustState } from "./trust";
 import { dailyMilestones, rankMilestones, thresholdMilestones, streakDays } from "./milestones";
 import { detectSpike } from "./spikes";
@@ -22,6 +22,33 @@ describe("trending", () => {
     expect(trendingScore({ ...base, prevNewUsers: 100 })).toBeGreaterThan(trendingScore(base));
     expect(trendingScore({ ...base, trustScore: 90 })).toBeGreaterThan(trendingScore({ ...base, trustScore: 30 }));
     expect(trendingScore({ ...base, activationRatePct: 80 })).toBeGreaterThan(trendingScore(base));
+  });
+  it("does not let huge products win on scale alone", () => {
+    const mid = trendingScore({ newUsers: 800, prevNewUsers: 300, baseUsers: 4000 });
+    const huge = trendingScore({ newUsers: 3000, prevNewUsers: 3200, baseUsers: 900_000 });
+    expect(mid).toBeGreaterThan(huge);
+  });
+  it("penalises stale sources and short history, never boosts", () => {
+    const now = 100 * 86_400_000;
+    const base = { newUsers: 200, prevNewUsers: 150, baseUsers: 2000, now, firstSnapshotAt: 0 };
+    const fresh = trendingScore({ ...base, lastSyncedAt: now - 3_600_000 });
+    const aging = trendingScore({ ...base, lastSyncedAt: now - 48 * 3_600_000 });
+    const stale = trendingScore({ ...base, lastSyncedAt: now - 80 * 3_600_000 });
+    expect(fresh).toBeGreaterThan(aging);
+    expect(aging).toBeGreaterThan(0);
+    expect(stale).toBe(0);
+    expect(trendingFactors({ ...base, lastSyncedAt: now - 48 * 3_600_000 }).freshness).toBeCloseTo(0.75, 5);
+    const young = trendingScore({ ...base, lastSyncedAt: now, firstSnapshotAt: now - 3 * 86_400_000 });
+    expect(young).toBeLessThan(fresh);
+    expect(trendingFactors({ ...base, lastSyncedAt: now, firstSnapshotAt: now - 3 * 86_400_000 }).history).toBeCloseTo(0.6 + 0.4 * (3 / 14), 5);
+    expect(trendingScore({ ...base, lastSyncedAt: now, underReview: true })).toBe(0);
+    expect(trendingFactors(base).freshness).toBe(1);
+  });
+  it("is deterministic and explainable", () => {
+    const i = { newUsers: 120, prevNewUsers: 60, baseUsers: 900, activationRatePct: 55 };
+    expect(trendingScore(i)).toBe(trendingScore({ ...i }));
+    expect(explainTrending(i)).toBe("2.0× prev period · +13% relative · 55% activate");
+    expect(explainTrending({ ...i, now: 10 * 86_400_000, lastSyncedAt: 0 })).toContain("stale source");
   });
 });
 

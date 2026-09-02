@@ -12,6 +12,8 @@ import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as daily from "../daily.js";
 import type * as digest from "../digest.js";
+import type * as domain_events from "../domain/events.js";
+import type * as domain_funnel from "../domain/funnel.js";
 import type * as domain_integrations from "../domain/integrations.js";
 import type * as domain_metrics from "../domain/metrics.js";
 import type * as domain_projects from "../domain/projects.js";
@@ -83,6 +85,8 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   daily: typeof daily;
   digest: typeof digest;
+  "domain/events": typeof domain_events;
+  "domain/funnel": typeof domain_funnel;
   "domain/integrations": typeof domain_integrations;
   "domain/metrics": typeof domain_metrics;
   "domain/projects": typeof domain_projects;

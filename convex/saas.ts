@@ -5,8 +5,10 @@ import { internal } from "./_generated/api";
 import { getProfileForUser, requireProfile } from "./profiles";
 import { createProject, updateProject } from "./domain/projects";
 import { integrationView } from "./domain/integrations";
-import { percentileOf } from "./lib/benchmarks";
-import { sizeBucket } from "./lib/metrics";
+import { markLaunched } from "./domain/events";
+import { BENCHMARK_METRICS, BENCHMARK_METRIC_LABEL, MIN_SAMPLE, benchmarkInsight, medianMultiple, percentileOf, type BenchmarkMetric } from "./lib/benchmarks";
+import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
+import { CATEGORIES } from "../src/lib/categories";
 import { publicTrustLabel } from "./lib/trust";
 import { FUNNEL_TIMEFRAMES, funnelFor } from "./domain/funnel";
 
@@ -54,8 +56,9 @@ export const update = mutation({
 export const setPublic = mutation({
   args: { id: v.id("saas"), isPublic: v.boolean() },
   handler: async (ctx, { id, isPublic }) => {
-    await requireOwnedSaas(ctx, id);
+    const { saas } = await requireOwnedSaas(ctx, id);
     await ctx.db.patch(id, { isPublic });
+    if (isPublic) await markLaunched(ctx, saas);
     await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
   },
 });
@@ -120,35 +123,37 @@ export const getMine = query({
   },
 });
 
-// Percentile sentences for the owner's dashboard. Uses stored deciles only.
+// Percentile cards for the owner's dashboard. Uses stored deciles only; cohorts below MIN_SAMPLE simply do not exist.
 export const benchmarks = query({
   args: { id: v.id("saas") },
   handler: async (ctx, { id }) => {
     const { saas } = await requireOwnedSaas(ctx, id);
+    const bucket = SIZE_BUCKETS.find((b) => b.key === sizeBucket(saas.totalUsers));
     const groups = [
-      { key: "all", label: "all SaaS on UserTrack" },
-      ...(saas.category ? [{ key: `cat:${saas.category}`, label: "your category" }] : []),
-      { key: `size:${sizeBucket(saas.totalUsers)}`, label: "products your size" },
+      { key: "all", label: "all SaaS on UserTrack", short: "All SaaS" },
+      ...(saas.category ? [{ key: `cat:${saas.category}`, label: `${CATEGORIES.find((c) => c.slug === saas.category)?.label ?? saas.category} SaaS`, short: CATEGORIES.find((c) => c.slug === saas.category)?.label ?? saas.category }] : []),
+      { key: `size:${sizeBucket(saas.totalUsers)}`, label: `products with ${bucket?.label ?? "similar"} users`, short: `${bucket?.label ?? "similar"} users` },
     ];
-    const metrics: { metric: "growth30dPct" | "growth7dPct" | "newUsers30d" | "activationRatePct"; label: string }[] = [
-      { metric: "growth30dPct", label: "30-day growth" },
-      { metric: "growth7dPct", label: "7-day growth" },
-      { metric: "newUsers30d", label: "new users (30d)" },
-      { metric: "activationRatePct", label: "activation rate" },
-    ];
+    const previous: Partial<Record<BenchmarkMetric, number | undefined>> = { newUsers30d: saas.newUsersPrev30d, growth7dPct: undefined, growth30dPct: undefined, activationRatePct: undefined, trendingScore7d: undefined };
     const out = [];
     for (const g of groups) {
-      for (const m of metrics) {
-        const value = saas[m.metric];
+      for (const metric of BENCHMARK_METRICS) {
+        const value = saas[metric];
         if (value === undefined) continue;
-        const agg = await ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", g.key).eq("metric", m.metric)).unique();
+        const agg = await ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", g.key).eq("metric", metric)).unique();
         if (!agg) continue;
         const percentile = percentileOf(value, agg.deciles);
         if (percentile === null) continue;
-        out.push({ group: g.key, groupLabel: g.label, metric: m.metric, metricLabel: m.label, value, percentile, sampleSize: agg.sampleSize, median: agg.deciles[4] });
+        const median = agg.deciles[4];
+        out.push({
+          group: g.key, groupLabel: g.label, groupShort: g.short, metric, metricLabel: BENCHMARK_METRIC_LABEL[metric], value, percentile, sampleSize: agg.sampleSize, median,
+          p10: agg.deciles[0], p90: agg.deciles[8], medianMultiple: medianMultiple(value, median), previousValue: previous[metric],
+          insight: benchmarkInsight({ metricLabel: BENCHMARK_METRIC_LABEL[metric], groupLabel: g.label, percentile, value, median }),
+          computedAt: agg.computedAt,
+        });
       }
     }
-    return { eligible: saas.isPublic && saas.trust === "verified", cards: out };
+    return { eligible: saas.isPublic && saas.trust === "verified" && !saas.isDemo, minSample: MIN_SAMPLE, cards: out };
   },
 });
 

@@ -122,3 +122,43 @@ export function profileDto(p: { username: string; displayName: string; avatarUrl
     urls: { profile: `${SITE_URL}/u/${p.username}` },
   };
 }
+
+// Funnel: stages carry their own provenance so a mixed funnel is never presented as "verified".
+export function funnelDto(f: { timeframe: string; days: number; verification: string; coverageDays: number; stages: { key: string; label: string; value: number; previous?: number; changePct?: number; conversionPct?: number; previousConversionPct?: number; kind: string; source?: { provider: string; label: string; verification: string } }[] }) {
+  return {
+    timeframe: f.timeframe,
+    days: f.days,
+    verification: f.verification,
+    coverageDays: f.coverageDays,
+    stages: f.stages.map((s) => ({ key: s.key, label: s.label, value: s.value, previous: s.previous, changePct: s.changePct, conversionPct: s.conversionPct, previousConversionPct: s.previousConversionPct, kind: s.kind, source: s.source ? { provider: s.source.provider, label: s.source.label, verification: s.source.verification } : undefined })),
+  };
+}
+
+export function feedItemDto(i: { id: string; kind: string; subkind: string; at: number; title: string; detail: string; value?: number; share?: string; saas: { slug: string; name: string; logoUrl?: string; category?: string; totalUsers: number; trust: TrustLevel; trustLabel: string } }) {
+  return {
+    id: i.id,
+    kind: i.kind,
+    subkind: i.subkind,
+    at: new Date(i.at).toISOString(),
+    title: i.title,
+    detail: i.detail,
+    value: i.value,
+    saas: { slug: i.saas.slug, name: i.saas.name, logoUrl: i.saas.logoUrl, category: i.saas.category, totalUsers: i.saas.totalUsers, trust: { level: i.saas.trust, label: i.saas.trustLabel } },
+    urls: { page: `${SITE_URL}/s/${i.saas.slug}`, share: i.share ? `${SITE_URL}/s/${i.saas.slug}/${i.share}` : undefined },
+  };
+}
+
+// Compare: absolute daily totals plus an index (100 at the first day inside the window) so sizes are comparable.
+export function compareDto(items: (SaasRow & { series: { day: string; total: number; delta: number; activated?: number }[] })[], days: number) {
+  return {
+    days: days === 0 ? "all" : days,
+    products: items.map((s) => {
+      const base = s.series.find((p) => p.total > 0)?.total ?? 0;
+      return {
+        ...saasDto(s),
+        series: s.series.map((p) => ({ day: p.day, totalUsers: p.total, newUsers: p.delta, activatedUsers: p.activated, index: base > 0 ? Math.round((p.total / base) * 1000) / 10 : undefined })),
+      };
+    }),
+    urls: { page: `${SITE_URL}/compare?s=${items.map((s) => s.slug).join(",")}${days ? `&days=${days}` : "&days=all"}` },
+  };
+}

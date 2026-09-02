@@ -202,15 +202,95 @@ export const TOOLS: Tool[] = [
   }),
 ];
 
+const TOOLS_V04: Tool[] = [
+  tool({
+    name: "usertrack_get_provider_recommendation",
+    title: "Provider recommendation",
+    description: "Given what you detected in the repo (packages, env vars, framework), returns the best UserTrack integration path in priority order — Supabase, Clerk, Firebase, PostgreSQL, then the universal JSON endpoint — with reasoning and optional extras (activation, traffic, revenue). Call before creating or configuring.",
+    scope: "integrations:read",
+    readOnly: true,
+    input: {
+      detectedProviders: z.array(z.string()).optional().describe("e.g. ['@supabase/supabase-js', 'posthog-js', 'DATABASE_URL']"),
+      framework: z.string().optional(),
+    },
+    run: (auth, a) => fetchQuery(api.gateway.providerRecommendation, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_activation_setup",
+    title: "Activation setup",
+    description: "How to track activated users (the first meaningful value in the product) for a project: definition, example events, recommended source given the detected stack (PostHog event, Supabase/Postgres table or SQL, endpoint) and the exact next calls. Optional step after the users source works.",
+    scope: "integrations:read",
+    readOnly: true,
+    input: { ...ref, detectedProviders: z.array(z.string()).optional(), candidateEvents: z.array(z.string()).optional().describe("Event names found in the repo, e.g. from posthog.capture(...) calls") },
+    run: (auth, a) => fetchQuery(api.gateway.activationSetup, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_funnel",
+    title: "Get funnel",
+    description: "Visitors → Signups → Activated → Paying for one project over 7d / 30d / 90d with conversion rates, previous-window comparison and per-stage provenance. Only stages with a connected source are returned.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { ...ref, timeframe: z.enum(["7d", "30d", "90d"]).optional() },
+    run: (auth, a) => fetchQuery(api.gateway.funnel, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_trending",
+    title: "Get trending",
+    description: "The public trending board (24h / 7d / 30d, optional category) with scores, ranks, movement and a one-line explanation per product; pass a project to also get its own position and score factors.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { ...ref, window: z.enum(["24h", "7d", "30d"]).optional(), category: z.string().optional(), limit: z.number().int().min(1).max(50).optional() },
+    run: (auth, a) => fetchQuery(api.gateway.trending, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_benchmark",
+    title: "Get benchmarks",
+    description: "Where the project stands against cohorts (all SaaS, its category, products its size): percentile, median, p10–p90 range, multiple of the median and a plain-language insight per metric. Cohorts below the minimum size are omitted.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: ref,
+    run: (auth, a) => fetchQuery(api.gateway.benchmark, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_compare_projects",
+    title: "Compare projects",
+    description: "Compare 2–4 public products (any slugs, not only your own) over 7 / 30 / 90 / 365 days or all history: current metrics, window growth and daily series in absolute and indexed (100 at start) form, plus the shareable /compare URL.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { slugs: z.array(z.string()).min(2).max(4), days: z.union([z.literal(7), z.literal(30), z.literal(90), z.literal(365), z.literal(0)]).optional().describe("0 = all shared history") },
+    run: (auth, a) => fetchQuery(api.gateway.compareProjects, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_share_card",
+    title: "Share card",
+    description: "Share page + image URLs (1200×630 and 1080×1080) for a card kind — users, growth (30d), week (7d), rank, trending, activation, milestone-<id> — plus an X intent link. Everything needed to post growth on social.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { ...ref, kind: z.string().optional() },
+    run: (auth, a) => fetchQuery(api.gateway.shareCard, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_embed_code",
+    title: "Embed code",
+    description: "Copy-paste HTML and Markdown for a live badge or mini growth chart (types: users, growth, trending, verified, chart; dark/light; 7d/30d; compact). Public metrics only, cached, no API key involved.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { ...ref, type: z.enum(["users", "growth", "trending", "verified", "chart"]).optional(), theme: z.enum(["dark", "light"]).optional(), window: z.enum(["7d", "30d"]).optional(), compact: z.boolean().optional() },
+    run: (auth, a) => fetchQuery(api.gateway.embedCode, { auth, ...a }),
+  }),
+];
+TOOLS.push(...TOOLS_V04);
+
 export const SETUP_WORKFLOW = [
   "usertrack_get_account",
-  "usertrack_get_supported_integrations (pass detectedProviders + framework from the repo)",
+  "usertrack_get_provider_recommendation (pass detectedProviders + framework from the repo: Supabase → Clerk → Firebase → PostgreSQL → endpoint)",
   "usertrack_create_project (idempotent by domain)",
   "usertrack_get_integration_setup (recommended provider)",
   "edit the repo only if the instructions say so (endpoint provider)",
   "usertrack_configure_integration",
   "usertrack_verify_integration (wait ~5s, retry ≤3×)",
   "usertrack_update_project { isPublic: true }",
+  "optional: usertrack_get_activation_setup → configure an activation source (PostHog event, Supabase/Postgres table) so the funnel shows activated users",
   "usertrack_get_share_url → hand the public URL to the founder",
 ];
 

@@ -21,13 +21,21 @@ const EXPECTED = [
   "usertrack_get_rank",
   "usertrack_get_milestones",
   "usertrack_get_share_url",
+  "usertrack_get_provider_recommendation",
+  "usertrack_get_activation_setup",
+  "usertrack_get_funnel",
+  "usertrack_get_trending",
+  "usertrack_get_benchmark",
+  "usertrack_compare_projects",
+  "usertrack_get_share_card",
+  "usertrack_get_embed_code",
 ];
 
 describe("MCP tool set", () => {
-  it("exposes exactly the 15 expected tools with unique names", () => {
+  it("exposes exactly the 23 expected tools with unique names", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toEqual(EXPECTED);
-    expect(new Set(names).size).toBe(15);
+    expect(new Set(names).size).toBe(23);
   });
 
   it("gives every tool a title, description and a known scope", () => {

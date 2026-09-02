@@ -7,7 +7,7 @@ import { formatCompact, formatDelta, formatPointDate, formatTick, RANGES, type R
 import { Skeleton } from "@/components/ui/skeleton";
 
 export interface SeriesPoint { t: number; total: number; delta: number; activated?: number; visitors?: number }
-export interface Annotation { id: string; t: number; kind: "milestone" | "spike" | "activation_spike" | "traffic_spike" | "reconnect" | "source_changed"; title: string; detail: string }
+export interface Annotation { id: string; t: number; kind: "milestone" | "spike" | "activation_spike" | "traffic_spike" | "reconnect" | "source_changed" | "launched" | "verified"; title: string; detail: string }
 type Metric = "total" | "new";
 
 const WHITE = "#f4f4f5";
@@ -120,7 +120,7 @@ export function GrowthChart({
 function Marker({ kind, cx, cy }: { kind: Annotation["kind"]; cx?: number; cy?: number }) {
   if (cx === undefined || cy === undefined) return null;
   const y = cy - 14;
-  if (kind === "milestone") return <path d={`M${cx} ${y - 5} L${cx + 4.5} ${y + 2} L${cx - 4.5} ${y + 2} Z`} fill={PINK} stroke="#0b0c0e" strokeWidth={1} />;
+  if (kind === "milestone" || kind === "launched" || kind === "verified") return <path d={`M${cx} ${y - 5} L${cx + 4.5} ${y + 2} L${cx - 4.5} ${y + 2} Z`} fill={PINK} stroke="#0b0c0e" strokeWidth={1} />;
   if (kind === "reconnect" || kind === "source_changed") return <rect x={cx - 3.5} y={y - 3.5} width={7} height={7} fill="#0b0c0e" stroke={WHITE} strokeWidth={1.2} transform={`rotate(45 ${cx} ${y})`} />;
   return <circle cx={cx} cy={y} r={4} fill="#0b0c0e" stroke={PINK} strokeWidth={1.5} />;
 }

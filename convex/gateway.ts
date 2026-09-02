@@ -14,7 +14,13 @@ import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, proje
 import { connectIntegration, integrationView, listIntegrations, requestSync } from "./domain/integrations";
 import { TIMEFRAMES, metricsSummary, milestonesFor, seriesFor, shareData } from "./domain/metrics";
 import { INTEGRATION_CATALOG, integrationSetup, recommendIntegrations } from "./lib/integrationSetup";
-import { publicProfile } from "./public";
+import { publicProfile, publicSaas, sortBoard, trendingRankFor, HIDDEN_GEM_RULES } from "./public";
+import { FUNNEL_TIMEFRAMES, funnelFor } from "./domain/funnel";
+import { BENCHMARK_METRICS, BENCHMARK_METRIC_LABEL, MIN_SAMPLE, benchmarkInsight, medianMultiple, percentileOf } from "./lib/benchmarks";
+import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
+import { explainTrending, trendingFactors } from "./lib/trending";
+import { trendingInputs } from "./leaderboard";
+import { CATEGORIES } from "../src/lib/categories";
 
 export const authArg = v.object({ hash: v.string(), gateway: v.optional(v.string()) });
 type Auth = { hash: string; gateway?: string };
@@ -400,5 +406,196 @@ export const shareUrls = query({
       const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
       const list = await milestonesFor(ctx, saas._id, 5);
       return { project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic }, ...shareData(saas, profile.username, list), note: saas.isPublic ? undefined : "The project is not published yet; public URLs will 404 until usertrack_update_project sets isPublic: true." };
+    }),
+});
+
+// ---- v0.4: provider recommendation, activation setup, funnel, trending, benchmarks, compare, share, embed ----------------
+
+const ACTIVATION_EXAMPLES = ["onboarding_completed", "project_created", "first_document_created", "first_workflow_run", "first_message_sent", "first_generation_completed"];
+
+// "Which UserTrack path fits this repo?" — pure catalog logic over the detected stack, safe to call before a project exists.
+export const providerRecommendation = query({
+  args: { auth: authArg, detectedProviders: v.optional(v.array(v.string())), framework: v.optional(v.string()) },
+  handler: async (ctx, { auth, detectedProviders, framework }) => {
+    await authenticate(ctx, auth, "mcp", "integrations:read");
+    const rec = recommendIntegrations({ detectedProviders, framework });
+    return {
+      ...rec,
+      priority: ["supabase", "clerk", "firebase", "postgres", "endpoint"],
+      signals: { supabase: ["@supabase/supabase-js", "SUPABASE_URL", "SUPABASE_DB_URL"], clerk: ["@clerk/nextjs", "CLERK_SECRET_KEY"], firebase: ["firebase-admin", "GOOGLE_APPLICATION_CREDENTIALS"], postgres: ["DATABASE_URL", "pg", "prisma:postgresql", "drizzle-pg"] },
+      nextTool: "usertrack_get_integration_setup",
+    };
+  },
+});
+
+// Activation = the first meaningful value in the product. Recommends where the event can come from given the detected stack.
+export const activationSetup = query({
+  args: { auth: authArg, ...refArg, detectedProviders: v.optional(v.array(v.string())), candidateEvents: v.optional(v.array(v.string())) },
+  handler: async (ctx, { auth, projectId, slug, detectedProviders, candidateEvents }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "integrations:read");
+      const saas = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
+      const integrations = saas ? (await listIntegrations(ctx, saas._id)).map(integrationView) : [];
+      const users = integrations.find((i) => i.role === "users");
+      const existing = integrations.find((i) => i.role === "activation");
+      const rec = recommendIntegrations({ detectedProviders });
+      const kinds = new Set(rec.detected.map((d) => d.provider));
+      const options: { provider: string; role: "activation"; why: string; configShape: Record<string, string> }[] = [];
+      if (kinds.has("posthog")) options.push({ provider: "posthog", role: "activation", why: "PostHog is already in the product: count distinct persons who fired the activation event.", configShape: { host: "string", projectId: "string", apiKey: "secret string (query:read)", activationEvent: "string" } });
+      if (users?.provider === "supabase" || kinds.has("supabase")) options.push({ provider: "supabase", role: "activation", why: "Same read-only Supabase connection: a table with one row per activated user, or one SELECT count(...) WHERE created_at >= $1.", configShape: { connectionString: "secret string", table: "string (optional)", createdAtColumn: "string (optional)", sql: "string (optional)" } });
+      if (users?.provider === "postgres" || kinds.has("postgres")) options.push({ provider: "postgres", role: "activation", why: "Same read-only Postgres connection: activation table + timestamp column, or a custom aggregate SELECT with $1 = since.", configShape: { connectionString: "secret string", tableRef: "schema.table (optional)", createdAtColumn: "string (optional)", sql: "string (optional)" } });
+      options.push({ provider: "endpoint", role: "activation", why: "Universal: your own route on the product domain returning { activatedUsers, activated24h, activated7d, activated30d }.", configShape: { url: "string", token: "secret string (optional)" } });
+      return {
+        definition: "An activated user is someone who reached the first meaningful value in your product — not just an account.",
+        examples: ACTIVATION_EXAMPLES,
+        candidateEvents: (candidateEvents ?? []).map((e) => ({ event: e, looksLikeActivation: /complete|created|first|onboard|setup|run|sent|publish|deploy|invite/i.test(e) })),
+        project: saas ? { id: saas._id, slug: saas.slug, usersSource: users?.provider ?? null, activationSource: existing ? { provider: existing.provider, status: existing.status } : null } : null,
+        recommended: options[0],
+        options,
+        steps: ["Pick the event/table/query that only fires once a user has done the core action.", "Call usertrack_get_integration_setup with role: \"activation\" for the chosen provider.", "usertrack_configure_integration with role: \"activation\".", "usertrack_verify_integration with role: \"activation\" — the count must be ≤ total users."],
+        optional: true,
+        nextTool: "usertrack_get_integration_setup",
+      };
+    }),
+});
+
+export const funnel = query({
+  args: { auth: authArg, ...refArg, timeframe: v.optional(v.union(...FUNNEL_TIMEFRAMES.map((t) => v.literal(t)))) },
+  handler: async (ctx, { auth, projectId, slug, timeframe }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const f = await funnelFor(ctx, saas, timeframe ?? "30d", { includeTraffic: true, includeRevenue: true });
+      const missing = (["visitors", "signups", "activated", "paying"] as const).filter((k) => !f.stages.some((s) => s.key === k));
+      return { project: { id: saas._id, slug: saas.slug, name: saas.name }, ...f, missingStages: missing, hint: missing.includes("activated") ? "Connect an activation source (usertrack_get_activation_setup) to see signup → activation conversion." : undefined, publicUrl: `${projectUrls(saas).page}#funnel` };
+    }),
+});
+
+const trendingWindowArg = v.union(v.literal("24h"), v.literal("7d"), v.literal("30d"));
+
+// Public trending board (+ the caller's own position and factors when a project is given).
+export const trending = query({
+  args: { auth: authArg, ...refArg, window: v.optional(trendingWindowArg), category: v.optional(v.string()), limit: v.optional(v.number()) },
+  handler: async (ctx, { auth, projectId, slug, window = "7d", category, limit }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      const all = await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).collect();
+      const rows = sortBoard(all, { board: "trending", window, verifiedOnly: true, category, limit: Math.min(limit ?? 20, 50) });
+      const own = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
+      const item = (s: Doc<"saas">) => {
+        const r = trendingRankFor(s, window);
+        const p = publicSaas(s);
+        return { slug: p.slug, name: p.name, category: p.category, totalUsers: p.totalUsers, newUsers: window === "24h" ? p.newUsers24h : window === "7d" ? p.newUsers7d : p.newUsers30d, score: window === "24h" ? p.trendingScore24h : window === "7d" ? p.trendingScore7d : p.trendingScore30d, rank: r.rank, previousRank: r.prev, explain: explainTrending(trendingInputs(s)[window]), url: projectUrls(s).page };
+      };
+      return {
+        window,
+        category,
+        formula: "100 · log10(1+new)^1.5 · (1+min(new/max(base,50),2)) · (1+0.5·clamp((new−prev)/max(prev,10),−0.5,2)) · (0.5+0.5·trust/100) · (1+0.25·activation) · freshness · history",
+        rows: rows.map(item),
+        own: own ? { ...item(own), eligible: own.isPublic && own.trust === "verified" && !own.isDemo && own.trustState !== "review", factors: trendingFactors(trendingInputs(own)[window]) } : undefined,
+        boardUrl: `${siteUrlOf()}/trending?window=${window}${category ? `&category=${category}` : ""}`,
+      };
+    }),
+});
+
+const siteUrlOf = () => projectUrls({ slug: "" }).page.replace(/\/s\/$/, "");
+
+export const benchmark = query({
+  args: { auth: authArg, ...refArg },
+  handler: async (ctx, { auth, projectId, slug }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const bucket = SIZE_BUCKETS.find((b) => b.key === sizeBucket(saas.totalUsers));
+      const cohorts = [
+        { key: "all", label: "all SaaS on UserTrack" },
+        ...(saas.category ? [{ key: `cat:${saas.category}`, label: `${CATEGORIES.find((c) => c.slug === saas.category)?.label ?? saas.category} SaaS` }] : []),
+        { key: `size:${sizeBucket(saas.totalUsers)}`, label: `products with ${bucket?.label ?? "similar"} users` },
+      ];
+      const cards = [];
+      for (const c of cohorts) {
+        for (const metric of BENCHMARK_METRICS) {
+          const value = saas[metric];
+          if (value === undefined) continue;
+          const agg = await ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", c.key).eq("metric", metric)).unique();
+          if (!agg) continue;
+          const percentile = percentileOf(value, agg.deciles);
+          if (percentile === null) continue;
+          cards.push({ cohort: c.label, metric, metricLabel: BENCHMARK_METRIC_LABEL[metric], value, percentile, median: agg.deciles[4], p10: agg.deciles[0], p90: agg.deciles[8], medianMultiple: medianMultiple(value, agg.deciles[4]), sampleSize: agg.sampleSize, insight: benchmarkInsight({ metricLabel: BENCHMARK_METRIC_LABEL[metric], groupLabel: c.label, percentile, value, median: agg.deciles[4] }) });
+        }
+      }
+      const eligible = saas.isPublic && saas.trust === "verified" && !saas.isDemo;
+      return { project: { id: saas._id, slug: saas.slug, name: saas.name }, eligible, minCohortSize: MIN_SAMPLE, cards, note: !eligible ? "Benchmarks compare public, verified products; publish with a verified source first." : cards.length === 0 ? "Not enough benchmark data yet — cohorts need at least " + MIN_SAMPLE + " verified products and refresh daily." : undefined, hiddenGemRules: HIDDEN_GEM_RULES };
+    }),
+});
+
+const compareDaysArg = v.union(v.literal(7), v.literal(30), v.literal(90), v.literal(365), v.literal(0));
+
+// Compare any public products (not only the caller's). Read-only public data, same as /compare.
+export const compareProjects = query({
+  args: { auth: authArg, slugs: v.array(v.string()), days: v.optional(compareDaysArg) },
+  handler: async (ctx, { auth, slugs, days = 30 }) =>
+    run(async () => {
+      await authenticate(ctx, auth, "mcp", "metrics:read");
+      const unique = [...new Set(slugs)].slice(0, 4);
+      if (unique.length < 2) fail("bad_request", "Pass 2 to 4 slugs");
+      const since = days === 0 ? "0000-00-00" : dayKey(Date.now() - days * DAY);
+      const products = [];
+      for (const slug of unique) {
+        const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+        if (!s || !s.isPublic) continue;
+        const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).gte("day", since)).collect();
+        const base = rows.find((r) => r.totalUsers > 0)?.totalUsers ?? 0;
+        const last = rows[rows.length - 1];
+        const p = publicSaas(s);
+        products.push({
+          slug: p.slug, name: p.name, category: p.category, totalUsers: p.totalUsers, newUsers7d: p.newUsers7d, newUsers30d: p.newUsers30d, growth30dPct: p.growth30dPct, activationRatePct: p.activationRatePct, trendingScore7d: p.trendingScore7d, trendingRank: p.trendingRank, rank: p.rank, verification: p.trust,
+          windowGrowthPct: base > 0 && last ? Math.round(((last.totalUsers - base) / base) * 1000) / 10 : undefined,
+          indexEnd: base > 0 && last ? Math.round((last.totalUsers / base) * 1000) / 10 : undefined,
+          series: rows.map((r) => ({ day: r.day, totalUsers: r.totalUsers, newUsers: r.newUsers, index: base > 0 ? Math.round((r.totalUsers / base) * 1000) / 10 : undefined })),
+          url: projectUrls(s).page,
+        });
+      }
+      if (products.length < 2) fail("not_found", "Fewer than two of the requested products are public");
+      return { days: days === 0 ? "all" : days, products, url: `${siteUrlOf()}/compare?s=${products.map((p) => p.slug).join(",")}&days=${days === 0 ? "all" : days}` };
+    }),
+});
+
+export const shareCard = query({
+  args: { auth: authArg, ...refArg, kind: v.optional(v.string()) },
+  handler: async (ctx, { auth, projectId, slug, kind }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const base = projectUrls(saas).page;
+      const kinds = ["users", "growth", "week", ...(saas.rank ? ["rank"] : []), ...(saas.trendingRank ? ["trending"] : []), ...(saas.activationRatePct !== undefined ? ["activation"] : [])];
+      const milestones = await milestonesFor(ctx, saas._id, 5);
+      const card = (k: string) => ({ kind: k, page: `${base}/share/${k}`, image: `${base}/share/${k}/card`, square: `${base}/share/${k}/card?size=square`, xIntent: `https://x.com/intent/post?url=${encodeURIComponent(`${base}/share/${k}`)}` });
+      if (kind && !kinds.includes(kind) && !kind.startsWith("milestone-") && !kind.startsWith("spike-")) fail("bad_request", `kind must be one of ${kinds.join(", ")} or milestone-<id>`);
+      return { project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic }, card: kind ? card(kind) : card("users"), available: kinds.map(card), milestones: milestones.map((m) => ({ ...card(`milestone-${m.id}`), title: m.title })), note: saas.isPublic ? undefined : "Publish the project first; share images 404 for drafts." };
+    }),
+});
+
+export const embedCode = query({
+  args: { auth: authArg, ...refArg, type: v.optional(v.string()), theme: v.optional(v.string()), window: v.optional(v.string()), compact: v.optional(v.boolean()) },
+  handler: async (ctx, { auth, projectId, slug, type = "users", theme = "dark", window = "30d", compact }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const types = ["users", "growth", "trending", "verified", "chart"];
+      if (!types.includes(type)) fail("bad_request", `type must be one of ${types.join(", ")}`);
+      const urls = projectUrls(saas);
+      const qs = new URLSearchParams({ type, ...(theme === "light" ? { theme: "light" } : {}), ...(window === "7d" ? { window: "7d" } : {}), ...(compact ? { compact: "1" } : {}) });
+      const src = `${urls.badge}?${qs}`;
+      const height = type === "chart" ? (compact ? 96 : 120) : 28;
+      return {
+        project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic },
+        type, theme, window, compact: Boolean(compact),
+        imageUrl: src,
+        html: `<a href="${urls.page}"><img src="${src}" alt="${saas.name} on UserTrack" height="${height}"></a>`,
+        markdown: `[![${saas.name} on UserTrack](${src})](${urls.page})`,
+        types, cache: "Rendered on request, cached 1h at the edge; only public metrics; no key needed.",
+        note: saas.isPublic ? undefined : "Drafts render a 'not found' badge until published.",
+      };
     }),
 });
