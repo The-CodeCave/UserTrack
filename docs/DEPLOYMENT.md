@@ -7,7 +7,8 @@ Two deployables: the **Next.js app on Railway** and the **Convex backend** (func
 Browser ──► Railway (Next.js 16, node)  ──► Convex prod (handsome-warthog-21)
                  │  /api/auth/*  proxies to Convex HTTP router (Better Auth)
                  └─ OG images rendered with next/og
-Convex cron (every 4h) ──► provider APIs (Clerk / Supabase / JSON endpoint)
+Convex crons ──► provider APIs (Clerk / Supabase / Firebase / Auth0 / PostHog / Plausible / GA4 / Stripe / endpoint)
+  every 4h sync (staggered) · +20min rerank+trending · 03:30 UTC daily sweep · Mon 08:00 UTC digest
 ```
 
 ## Environments
@@ -17,7 +18,8 @@ Convex cron (every 4h) ──► provider APIs (Clerk / Supabase / JSON endpoint
 | | `NEXT_PUBLIC_CONVEX_SITE_URL` | `https://<prod>.convex.site` |
 | | `NEXT_PUBLIC_SITE_URL` | `https://usertrack-production.up.railway.app` |
 | Convex prod (`npx convex env set --prod`) | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
-| | `SITE_URL` | same as `NEXT_PUBLIC_SITE_URL` (Better Auth `baseURL` + trusted origin) |
+| | `SITE_URL` | same as `NEXT_PUBLIC_SITE_URL` (Better Auth `baseURL` + trusted origin, digest links) |
+| | `RESEND_API_KEY` · `DIGEST_FROM_EMAIL` | optional — weekly digest email (see `HUMAN_TODO.md`) |
 
 Local dev uses `.env.local` (created by `npx convex dev`) plus the dev deployment's env (`npx convex env set …` without `--prod`).
 
@@ -40,7 +42,9 @@ npx convex deploy --yes && npx convex env set --prod BETTER_AUTH_SECRET … && n
 npx convex run --prod seed:run      # optional demo data (remove with seed:clear)
 ```
 
+After a schema-changing deploy, run once: `npx convex run --prod leaderboard:rerank && npx convex run --prod daily:run`.
+
 ## Verify production
-- `GET /leaderboard` → 200, demo rows visible
+- `GET /leaderboard`, `/trending`, `/discover`, `/sitemap.xml`, `/api/v1/leaderboard`, `/api/badge/<slug>.svg` → 200
 - Sign up → onboarding → publish → `/s/<slug>` renders, `og:image` returns `image/png`
 - Convex dashboard → Crons: `sync all integrations` (4h), `rerank leaderboard`

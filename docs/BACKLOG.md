@@ -1,111 +1,70 @@
-# UserTrack MVP Backlog
+# UserTrack Backlog
 
-Planned, implemented and reviewed in "Fable 5.1" mode (single model for decomposition, acceptance criteria, ordering, code, and review — changed from the original Fable-plans / Opus-executes split on request). Status legend: ☐ todo · ◐ in progress · ☑ done.
+Status legend: ☐ todo · ◐ in progress · ☑ done. The v0.1 MVP backlog (Epics 1–13, all ☑) lives in git history (`git show b7c0cb0:docs/BACKLOG.md`).
 
-Vertical-slice ordering: each epic leaves the app in a usable state. The first four epics produce a deployable authenticated shell with the full visual identity; epics 5–9 make the core loop (create SaaS → connect → sync → chart → rank) work end to end; 10–13 make it shareable and shipped.
+## v0.2 — "Trustworthy, discoverable, shareable"
 
----
+Ordering is by vertical slice: every epic leaves the app deployable. Dependencies reference ticket IDs.
 
-## Epic 1 — Foundation
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-101 | Bootstrap Next.js 16 App Router + TS + Tailwind 4 + shadcn/ui | `pnpm build` passes; `src/` layout; `components.json` present | – | ☑ |
-| UT-102 | Convex project + Better Auth component | `npx convex dev --once` deploys; `BETTER_AUTH_SECRET`, `SITE_URL` set; `_generated` exists | 101 | ☑ |
-| UT-103 | Railway project in CodeCave workspace | `railway status` shows `usertrack` | – | ☑ |
-| UT-104 | Repo docs baseline: README, ARCHITECTURE, ASSUMPTIONS, BACKLOG, DEPLOYMENT | Files exist and reflect real state | – | ☑ |
-| UT-105 | Code quality: eslint flat config, `pnpm typecheck`, `pnpm test` (vitest) scripts | All three commands pass in CI-like run | 101 | ☑ |
+### Epic 20 — Data model & provider architecture (P0)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-2001 | Migration-safe schema extension | Add optional fields on `saas`/`integrations`/`dailyMetrics`; new tables `milestones`, `events`, `follows`, `fraudFlags`, `benchmarkAggregates`, `digests`, `syncRuns` extended. Search index on `saas`. | – | `npx convex dev --once` deploys against existing prod data with no data loss; all fields optional | ☑ |
+| UT-2002 | Provider interface v2 | `roles` (users/activation/traffic/revenue), `capabilities`, `fetch(config, role)` → normalized `ProviderMetrics`, optional `fetchHistory`. Registry + UI metadata generated from one source. | 2001 | Existing providers pass updated unit tests; no provider-specific code outside `convex/providers/` | ☑ |
+| UT-2003 | New providers | Firebase (service account → Identity Toolkit), Auth0 (M2M → Management API incl. daily stats + active users), PostHog (HogQL: activation + traffic), Plausible (stats API: traffic), GA4 (Data API: traffic), Stripe (subscriptions → paying customers + MRR). Google SA JWT helper shared. | 2002 | Validation + response parsing unit-tested; secrets never leave server; copy-paste setup instructions in UI | ☑ |
+| UT-2004 | Sync engine v2 | Multi-role integrations per SaaS, staggered scheduling, retry with backoff, `syncRuns` log with duration, last success/failure on integration, previous-window deltas, activation/traffic/revenue recording, one-time history backfill. | 2002 | Cron spreads N integrations over 10 min; failures retry ≤2×; idempotent snapshot per run | ☑ |
 
-## Epic 2 — Visual system (blueprint / graphite / pink)
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-201 | Design tokens in `globals.css`: graphite bg (#0B0C0E), panel (#121316), line (white @ 12–18%), accent #FB0184, radii, mono label font | shadcn components render on-brand with no per-component overrides | 101 | ☑ |
-| UT-202 | Typography: Geist Sans (UI) + Geist Mono (labels/stats) via `next/font` | Rendered in layout; `font-mono` used for metric labels | 201 | ☑ |
-| UT-203 | Blueprint primitives: `<Grid/>` background, `<Panel/>` with corner ticks, `<MetricCard/>`, `<TrustBadge/>`, `<SectionLabel/>` | Storybook-free: visible on `/design` dev route | 201 | ☑ |
-| UT-204 | Layout shells: public `SiteHeader`/`SiteFooter`, app `AppShell` (sidebar desktop / bottom-nav mobile) | Renders at 375px and 1440px without overflow | 203 | ☑ |
-| UT-205 | Motion: reveal/trace animations via `motion` with reduced-motion respect | `prefers-reduced-motion` disables animation | 203 | ◐ (step transitions + chart draw shipped; reduced-motion guard → ROADMAP) |
+### Epic 21 — Metrics: activation, retention, trust (P0)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-2101 | Activated users | Activation source (PostHog event / JSON endpoint / Auth0 active users) → `activatedUsers`, 24h/7d/30d, activation rate, daily history. UI: explain + configure, optional. | 2004 | Public page + dashboard show activation cards only when data exists | ☑ |
+| UT-2102 | Retention (estimated) | `activeUsers30d` from Clerk/Auth0/PostHog → retained / churned / retention rate, labelled *estimated*; *unavailable* otherwise. | 2004 | Never renders numbers without source; label states estimated vs verified | ☑ |
+| UT-2103 | Trust score + anomaly flags | Heuristics (provider, continuity, connection age, impossible jumps, drops, reconnect churn) → `trustScore`, `trustState`; `fraudFlags` table; public label (Verified / Partially verified / Under review / Self-reported). Under-review SaaS excluded from ranks. | 2004 | Unit tests for each heuristic; no public "fraud" wording | ☑ |
+| UT-2104 | Growth spike detection | ≥3× 14-day average daily new users (and ≥20) → `events` row; also activation spikes. | 2004 | Event stored once per day; visible as chart annotation | ☑ |
 
-## Epic 3 — Authentication
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-301 | Better Auth email+password wiring (client, server helpers, `/api/auth/[...all]`, provider) | Sign-up creates a user in Convex component tables | 102 | ☑ |
-| UT-302 | `/sign-in`, `/sign-up` pages with validation + errors | Bad password shows inline error; success redirects to `/app` | 301, 204 | ☑ |
-| UT-303 | Route protection via `proxy.ts` | Visiting `/app` logged-out → `/sign-in?next=/app`; logged-in `/sign-in` → `/app` | 301 | ☑ |
-| UT-304 | Sign-out + session persistence | Reload keeps session; sign-out clears and redirects to `/` | 301 | ☑ |
-| UT-305 | Forgot / reset password flow (dev sender logs link) | Request → token → new password works locally | 301 | ☑ |
+### Epic 22 — Ranking & discovery (P0/P1)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-2201 | Trending score | Documented formula (volume × growth × acceleration × trust × activation) for 24h/7d/30d; `trendingRank` + previous rank for movement. | 2004 | Tiny products don't dominate; unit tests on formula; explanation in UI | ☑ |
+| UT-2202 | Leaderboard boards + filters | Boards: trending, fastest, most-users, most-new, most-activated, activation-rate, new-rising. Filters: category, range, verification, size bucket. Server-rendered with URL state. | 2201 | Defaults sensible; mobile layout; ≤1 query per page | ☑ |
+| UT-2203 | Categories | Fixed category list on SaaS; category select in form/onboarding; `/categories/[slug]` pages. | 2001 | Category shown on cards/pages; category pages indexable | ☑ |
+| UT-2204 | Search & discover | Convex search index (name/description/tags) + profile search; `/discover` with Trending Now, Fastest This Week, New, Hidden Gems, Top Dev Tools, Top AI, Recent milestones. | 2202 | Real data only; empty sections hidden | ☑ |
+| UT-2205 | Benchmarks | Daily `benchmarkAggregates` (deciles per group: all / category / size bucket) for growth %, activation rate, new users; dashboard benchmark cards with percentile sentences; min sample 5. | 2004 | Demo rows excluded; "not enough data" state | ☑ |
+| UT-2206 | Fast-growth & SEO pages | `/trending`, `/fastest-growing-saas`, `/fastest-growing-ai-saas`, `/new-saas`, `/most-new-users`; sitemap, robots, canonical, OG/Twitter metadata, custom 404. | 2202 | Server-rendered, useful copy, internal links | ☑ |
+| UT-2207 | Compare | `/compare?s=a,b,c` (≤4) multi-series chart + metric table. | 2202 | Readable palette; mobile stacks | ☑ |
 
-## Epic 4 — Profiles
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-401 | `profiles` schema + `ensureProfile` on first authenticated load | Every authed user has exactly one profile | 102 | ☑ |
-| UT-402 | Username rules: 3–24 chars `[a-z0-9-]`, unique, reserved list | Duplicate → friendly error; live availability check | 401 | ☑ |
-| UT-403 | `/app/profile` edit form: name, username, avatar URL, bio, website/X/GitHub | Saves; validation errors inline | 402 | ☑ |
-| UT-404 | Public `/u/[username]` page: header, links, SaaS grid with sparklines | 404 for unknown user; metadata set | 403, 803 | ☑ |
+### Epic 23 — Milestones, sharing, embeds (P1)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-2301 | Automatic milestones | Thresholds (10…1M), biggest day/week, entered top 10/100, best rank, growth streak, +X% month; persisted once per key with title/copy. | 2004 | No duplicates across syncs; timeline on public page | ☑ |
+| UT-2302 | Share cards | `/s/[slug]/share/[kind]` (users, growth, rank, trending, milestone) with OG image + share buttons; dashboard share picker. | 2301 | 1200×630 PNG, brand frame, works in X/LinkedIn/Slack previews | ☑ |
+| UT-2303 | Embeddable badges | `/api/badge/[slug].svg?type=users|growth|trending|verified`, cached; copy-paste HTML/Markdown UI. | 2201 | Renders in <50ms after cache; correct numbers | ☑ |
+| UT-2304 | Chart annotations | Milestones + spikes + reconnects on the growth chart; second series toggle (activated). | 2301, 2104 | No clutter (max ~8 markers), tooltips explain | ☑ |
 
-## Epic 5 — SaaS management
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-501 | `saas` schema (name, slug, logoUrl, tagline, websiteUrl, category, tags, ownerId, published, trust) | Indexes: by_slug, by_ownerId, by_published | 401 | ☑ |
-| UT-502 | Create SaaS form + slug auto-generation + uniqueness | Creating "Acme App" → slug `acme-app`; collision → `acme-app-2` | 501 | ☑ |
-| UT-503 | `/app/saas` list + `/app/saas/[id]` manage page (edit, publish toggle, delete) | Owner-only mutations; unauthorized → error | 502 | ☑ |
-| UT-504 | Category select (fixed list) + free tags (≤5) | Displayed as chips on public page | 502 | ☑ |
+### Epic 24 — Social & digest (P1/P2)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-2401 | Follow system | Follow SaaS / founders, counts, `/app/following` feed (milestones + weekly deltas). | 2001 | Auth required; idempotent; unfollow | ☑ |
+| UT-2402 | Weekly digest | Weekly cron builds per-profile digest (own SaaS, followed movers, milestones, trending); in-app `/app/digest`; email via Resend when `RESEND_API_KEY` set. | 2401 | Digest renders without email creds; HUMAN_TODO documents Resend setup | ☑ |
+| UT-2403 | Social links | LinkedIn on profiles (X/GitHub/website exist). | – | Displayed on public profile | ☑ |
 
-## Epic 6 — Onboarding
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-601 | `/app/onboarding` 4-step wizard: Profile → SaaS → Connect → Publish | Progress rail; back/next; state persists across refresh via Convex | 403, 502, 703 | ☑ |
-| UT-602 | Connect step validates the source live ("Test connection") and records first snapshot | Success shows the fetched number before continuing | 704 | ☑ |
-| UT-603 | Success screen: confetti-free "trace" animation, share buttons, link to public page | Copy-link works; X share intent opens | 601 | ☑ |
-| UT-604 | `/app` redirects to onboarding until profile + ≥1 SaaS exist | Fresh user lands in wizard automatically | 601 | ☑ |
+### Epic 25 — Revenue, traffic, funnel (P2)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-2501 | Stripe revenue (optional) | Restricted key → paying customers, MRR/ARR; `showRevenue` opt-in. | 2003 | Never required; hidden unless opted in | ☑ |
+| UT-2502 | Traffic (opt-in) | Plausible / GA4 / PostHog visitors + sessions 30d; `showTraffic` opt-in. | 2003 | Hidden unless opted in | ☑ |
+| UT-2503 | Funnel | Visitors → Signups → Activated → Paying with conversion rates; only connected stages. | 2501, 2502, 2101 | Visual funnel on public + dashboard | ☑ |
 
-## Epic 7 — Data source architecture
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-701 | `Provider` interface: `id, label, trust, configSchema, fetchTotalUsers(config, secret)` | Type-checked registry in `convex/providers/index.ts` | 102 | ☑ |
-| UT-702 | `integrations` schema + mutations (`connect`, `disconnect`); secrets never leave server | Public queries strip `secret` | 701, 501 | ☑ |
-| UT-703 | Providers: Clerk, Supabase (table count), Custom endpoint (domain-match verification), Manual | Unit tests for response parsing + trust resolution | 701 | ☑ |
-| UT-704 | `testConnection` action returns `{ok, totalUsers}` or friendly error | Used by wizard and manage page | 703 | ☑ |
+### Epic 26 — Public API & platform (P1)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-2601 | Public API v1 | `/api/v1/saas/[slug]`, `/history`, `/milestones`, `/api/v1/leaderboard`, `/api/v1/categories`; stable DTOs; error envelope; in-process rate limit; `/developers` docs. | 2202 | Only public-safe fields; 429 on abuse; documented | ☑ |
+| UT-2602 | Dashboard overview | `/app` shows own SaaS metrics, trending rank, benchmark, milestones, digest preview. | 2205 | Replaces placeholder | ☑ |
+| UT-2603 | Onboarding polish | Category step, provider instructions, activation nudge post-publish. | 2203 | Smoke test passes desktop + mobile | ☑ |
 
-## Epic 8 — Snapshot & metrics engine
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-801 | `snapshots` (append-only), `dailyMetrics`, `saasMetrics`, `syncRuns` schemas | Indexes documented in ARCHITECTURE | 501 | ☑ |
-| UT-802 | `recordSnapshot` mutation: insert → upsert daily → recompute materialized metrics | Unit tests on metric math (24h/7d/30d deltas, growth %) | 801 | ☑ |
-| UT-803 | `public.series({slug, range})` bucketed series for 24H/7D/30D/90D/1Y/ALL | Returns ≤ 400 points for any range | 802 | ☑ |
-| UT-804 | Cron every 4h → `sync.runAll` → `syncOne` per integration; manual "Sync now" rate-limited | `crons.ts` deployed; syncRuns rows created | 802, 704 | ☑ |
-| UT-805 | Manual snapshot entry for `manual` provider (unverified) | Recorded with `trust: unverified` | 802 | ☑ |
-
-## Epic 9 — Leaderboard
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-901 | `leaderboard.rerank` assigns rank by new30d among published + verified | Deterministic tiebreak by growth % then total | 802 | ☑ |
-| UT-902 | `/leaderboard` page: rank, logo, name, total, +30d, growth %, sparkline, trust badge; period toggle 7D/30D/90D; "include unverified" toggle | Renders 50 rows < 1s; mobile card layout | 901, 203 | ☑ |
-| UT-903 | Leaderboard OG image | `/leaderboard/opengraph-image` returns 1200×630 PNG | 902, 1101 | ☑ |
-
-## Epic 10 — Public SaaS pages
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-1001 | `/s/[slug]`: hero (logo, name, tagline, trust, rank), metric cards, range-switchable chart, founder card, share CTA | 404 for unknown/unpublished; owner sees "manage" link | 803, 404 | ☑ |
-| UT-1002 | `generateMetadata` with title/description/OG/Twitter card | Validated with a metadata debugger locally | 1001 | ☑ |
-| UT-1003 | Share sheet: copy link, X intent, native share on mobile | Works at 375px | 1001 | ☑ |
-
-## Epic 11 — OG images
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-1101 | Shared OG frame component (blueprint grid, wordmark, pink accent) for `next/og` | Renders under satori constraints (flex only) | 201 | ☑ |
-| UT-1102 | `/s/[slug]/opengraph-image`: name, total, +30d, trust, sparkline | 1200×630, < 1s, cache headers | 1101, 803 | ☑ |
-| UT-1103 | `/u/[username]/opengraph-image` | Shows avatar initial, name, SaaS count, total users | 1101 | ☑ |
-
-## Epic 12 — Mobile polish & animation
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-1201 | Audit every route at 375/768/1440; fix overflow, touch targets ≥ 44px | Screenshots in PR/report | all | ☑ |
-| UT-1202 | Loading (`loading.tsx`), empty and error states for app + public routes | No unstyled flashes | all | ☑ |
-| UT-1203 | Chart polish: draw-in animation, crosshair tooltip, mobile touch | Works on iOS Safari sizes | 803 | ☑ |
-
-## Epic 13 — Deployment & docs
-| ID | Title | Acceptance criteria | Deps | Status |
-|---|---|---|---|---|
-| UT-1301 | Convex prod deployment + env; Next.js build runs `convex deploy --cmd` | Prod deployment URL live | 102 | ☑ |
-| UT-1302 | Railway service, env vars, domain; `railway up` green | Public URL responds 200; auth works in prod | 1301 | ☑ |
-| UT-1303 | Seed demo data (labelled) so leaderboard isn't empty | `internal.seed.run` idempotent | 802 | ☑ |
-| UT-1304 | Final docs: README, DEPLOYMENT, ROADMAP, CHANGELOG | Future engineer can run locally in < 10 min | all | ☑ |
+### Epic 27 — QA, docs, deploy
+| ID | Title | Status |
+|---|---|---|
+| UT-2701 | Lint / typecheck / tests / build green; smoke test; screenshots 390 & 1440 | ☑ |
+| UT-2702 | README, ARCHITECTURE, ROADMAP, ASSUMPTIONS, API docs, HUMAN_TODO, CHANGELOG | ☑ |
+| UT-2703 | Convex deploy + Railway deploy + production smoke | ☑ |

@@ -21,3 +21,22 @@ Decisions made autonomously during the CodeCraft loop. Each entry: what was assu
 | A15 | Seed/demo data: a small seeded set of demo SaaS entries flagged `isDemo` is used so the public leaderboard and landing page are never empty on day one. Demo entries are labeled and excluded from ranking once ≥5 real verified SaaS exist. | Shareability requires the product to look alive. | Remove seed via `internal.seed.clear`. |
 | A-loop | **Model orchestration**: Fable 5.1 handles PLAN, BUILD, VERIFY/REVIEW and REPAIR (originally Opus 5 was to execute tickets). | Explicit user instruction mid-loop. | n/a |
 | A16 | Chart palette: single series drawn in white (#f4f4f5, 2px) with pink (#fb0184) for area wash, end-dot and "new users" bars. The dataviz validator flags white as a categorical hue (chroma 0) — not applicable, there is one series and identity is carried by the title. CVD ΔE 34.7 and contrast ≥ 3:1 pass. | Brand direction mandates white linework + pink accent. | Add a second hue only if multi-series charts are introduced. |
+
+## v0.2 decisions
+
+| # | Assumption | Rationale | Revisit |
+|---|-----------|-----------|---------|
+| A17 | **Labelled demo rows stay in production** (they were already there) but are excluded from ranks, trending ranks, benchmarks, milestone feeds and flagged `demo: true` in the API. Removal is a one-liner and listed as a human decision. | Brief forbids seeding fake growth to look active; these predate v0.2, are visibly labelled, and prevent an empty board. | `npx convex run --prod seed:clear` |
+| A18 | **One integration per role** (users / activation / traffic / revenue) instead of unlimited sources per SaaS. | Covers every roadmap capability with a simple mental model; avoids conflicting user-count sources. | Multi-source merge if demand appears. |
+| A19 | **Canonical new-user counts are snapshot deltas** (net), uniform across providers; provider-reported gross signups only fill windows the snapshot history cannot cover yet. | Comparable across providers; new connections get real 30-day numbers immediately. | Expose gross vs net explicitly. |
+| A20 | **Retention is estimated** as `active30d − new30d` over the cohort that existed 30 days ago, and shown only when a provider exposes active users. | No connected provider exposes true cohorts; honest labelling beats fabricated precision. | Cohorts from per-user activity APIs. |
+| A21 | **First snapshot never creates threshold milestones**; it is a baseline. | A product connecting with 12,000 users has not "just crossed" 10k. | – |
+| A22 | Trending **volume term is `log10(1+new)^1.5`** after testing showed a 60→100 product beating a 100k product adding 4k/week with a plain log. 50-user floor on relative growth; < 5 new users = no signal. | Brief: tiny products must not dominate; momentum still matters. | Tune exponent with real data. |
+| A23 | **Under-review products are unranked but keep their public page**, with neutral wording ("Data under review") and auto-resolving flags. | Do not accuse; do not let anomalies drive rankings. | Manual review UI. |
+| A24 | Firebase/GA4 auth uses **WebCrypto RS256 in the default Convex runtime** (probed: works) — no Node runtime needed. | Keeps all providers in one runtime; no cold starts. | – |
+| A25 | **Boards sort the public set in one query** rather than a materialized board table; ranks and trending scores are precomputed. | Public set is small; one indexed read + in-memory sort is faster than N table writes per cycle. | Materialize past a few thousand products. |
+| A26 | Public **API rate limit is an in-process token bucket** (60/min/IP). | No Redis in the stack; single Railway replica. | Edge rules if scaled. |
+| A27 | Digest email is **Resend over HTTP** (no SDK) and silently in-app-only until credentials exist. | Zero dependencies; nothing breaks without creds. | – |
+| A28 | Traffic and revenue are **private by default** and only public with an explicit per-SaaS switch. | Brief: only expose if the owner enables it. | – |
+| A29 | Stripe MRR ignores discounts, trials and tax; `active` subscriptions only; up to 2,500 subscriptions per sync. | Simple, conservative, documented in the adapter. | Include `trialing`, discounts. |
+| A30 | **Categories are a fixed list** of 15 slugs (`src/lib/categories.ts`) used for pages, filters and benchmarks; free tags remain. | Stable SEO URLs and benchmark groups. | Add on demand. |

@@ -1,63 +1,115 @@
 # UserTrack Architecture
 
 ## TL;DR
-Next.js 16 (App Router, RSC) on Railway → Convex Cloud (DB + functions + cron + Better Auth component). Provider adapters pull user counts every 4h into immutable snapshots; derived metrics are materialized directly on the `saas` row (total, new 24h/7d/30d, growth %, rank) to power the leaderboard, charts and OG images without recomputing history.
+Next.js 16 on Railway renders public pages, share images, badges and the JSON API from Convex queries. Convex holds the data, runs Better Auth, the provider sync engine, ranking/trending, daily milestone + benchmark + trust jobs, and the weekly digest. Provider adapters live behind one interface and only ever run server-side. Snapshots are append-only; everything the UI ranks by is materialized on the `saas` row.
 
 ```
 Browser ──► Next.js (Railway)
-              ├─ RSC pages: fetchQuery(api.public.*)  ──► Convex queries
-              ├─ /api/auth/[...all] ─────────────────► Convex HTTP (Better Auth)
-              ├─ /s/[slug]/opengraph-image (next/og, vendored Geist woff) ─► Convex query
-              └─ Client: ConvexBetterAuthProvider (live queries)
+              ├─ RSC pages ─ fetchQuery(api.public.*) ──────────► Convex queries
+              ├─ /api/v1/* (DTO + rate limit) · /api/badge/*.svg ─► Convex queries
+              ├─ /api/auth/[...all] ─────────────────────────────► Convex HTTP (Better Auth)
+              ├─ opengraph-image + /s/[slug]/share/[kind]/card ──► next/og (vendored Geist)
+              └─ client: ConvexBetterAuthProvider (live queries, follow/connect mutations)
 
 Convex
-  ├─ Better Auth component  (users, sessions, accounts)
-  ├─ profiles, saas, integrations, snapshots, dailyMetrics, syncRuns
-  ├─ crons.ts: every 4h → sync.runAll → sync.runOne per integration; rerank 10 min later
-  └─ providers/: clerk | supabase | endpoint | manual  (Provider interface)
+  ├─ Better Auth component (users, sessions)
+  ├─ tables: profiles, saas, integrations, snapshots, dailyMetrics, syncRuns, milestones, events,
+  │          follows, fraudFlags, benchmarkAggregates, digests
+  ├─ crons: sync every 4h (staggered) · rerank+trending +20min · daily sweep 03:30 UTC · digest Mon 08:00 UTC
+  └─ providers/: clerk | supabase | firebase | auth0 | posthog | plausible | ga4 | stripe | endpoint | manual
 ```
 
 ## Auth
-- **Better Auth** (email + password) runs *inside Convex* via `@convex-dev/better-auth`. Auth tables live in the component; Next.js proxies `/api/auth/*` to Convex's HTTP router.
-- Server components use `fetchAuthQuery` / `isAuthenticated` from `src/lib/auth-server.ts`; client uses `authClient` + `ConvexBetterAuthProvider`.
-- `proxy.ts` redirects unauthenticated users away from `/app/*` and authenticated users away from `/sign-in`.
-- App data references users by Better Auth `userId` (string) stored on `profiles.userId`.
+Better Auth (email + password) runs inside Convex via `@convex-dev/better-auth`. Next.js proxies `/api/auth/*`; `src/proxy.ts` guards `/app/*`. App data references users by Better Auth `userId` on `profiles.userId`. The digest sender looks up emails with `authComponent.getAnyUserById`.
 
-## Data model (Convex)
-| Table | Purpose | Key indexes |
+## Data model
+| Table | Purpose | Indexes |
 |---|---|---|
-| `profiles` | display name, username, avatar, bio, links, `onboardingCompleted` | `by_userId`, `by_username` |
-| `saas` | listing + owner + slug + trust + visibility **+ derived metrics** (`totalUsers`, `newUsers24h/7d/30d`, `growth30dPct`, `rank`, `lastSyncedAt`, `firstSnapshotAt`, `isDemo`) | `by_slug`, `by_owner`, `by_public_trust_new30d`, `by_public_new30d` |
-| `integrations` | one per SaaS: provider, `config` (incl. secrets, never returned to clients), status, trust, lastError | `by_saas` |
-| `snapshots` | **append-only** `{saasId, totalUsers, capturedAt, source, trust, syncRunId}` | `by_saas_time` |
-| `dailyMetrics` | one row per SaaS per UTC day (last total of the day, new that day) — feeds 30D+ charts and sparklines | `by_saas_day` |
-| `syncRuns` | audit log per sync attempt (ok / error + message) | `by_saas_time` |
+| `profiles` | founder identity, links (website/X/GitHub/LinkedIn), `digestOptIn`, `followerCount` | `by_userId`, `by_username`, search `displayName` |
+| `saas` | listing + category + visibility + **all derived metrics**: totals, new 24h/7d/30d (+ previous windows), growth %, ranks (+ prev/best), trending scores 24h/7d/30d + rank, activation, retention (estimated), traffic/revenue (+ `showTraffic`/`showRevenue`), `trustScore`/`trustState`, `followerCount`, `streakDays` | `by_slug`, `by_owner`, `by_public_trust_new30d`, `by_public_new30d`, `by_public_category`, search `name` + `description` |
+| `integrations` | one per SaaS **per role** (`users` · `activation` · `traffic` · `revenue`); `config` holds secrets and is only read by `internal.integrations.getForSync`; status, trust, last success/failure, consecutive failures, `connectedAt`, `backfilledAt` | `by_saas`, `by_saas_role` |
+| `snapshots` | append-only `{totalUsers, capturedAt, source, trust, syncRunId, backfilled?}` | `by_saas_time` |
+| `dailyMetrics` | one row per SaaS per UTC day: `totalUsers`, `newUsers`, optional `activatedUsers`, `newActivated`, `visitors`, `sessions`, `payingUsers`, `mrr`, `activeUsers30d` | `by_saas_day` |
+| `syncRuns` | audit log per attempt: role, provider, duration, attempt, status, error | `by_saas_time` |
+| `milestones` | persisted achievements, unique `key` per SaaS, title + shareable copy | `by_saas_key`, `by_saas_time`, `by_time` |
+| `events` | chart annotations: growth/activation spikes, reconnects, source changes (one per kind per day) | `by_saas_time`, `by_saas_kind_day` |
+| `follows` | profile → saas/profile | `by_follower`, `by_target`, `by_follower_target` |
+| `fraudFlags` | internal anomaly model (kind, severity, detail, resolvedAt); never rendered verbatim publicly | `by_saas`, `by_saas_open` |
+| `benchmarkAggregates` | deciles per `(groupKey, metric)`; individual values are never stored | `by_group_metric` |
+| `digests` | weekly payload per profile, `sentAt`/`sendError` | `by_profile_week`, `by_week` |
 
-Secrets: `integrations.config` is read only by `internal.integrations.getForSync` (called from the sync action). Public/owner queries expose provider kind + status only.
+All v0.2 fields are optional so the schema migrated in place over v0.1 data. `integrations.role === undefined` is treated as `users`.
 
-## Sync engine
-1. `crons.ts` → `internal.sync.runAll` every 4 hours; `internal.leaderboard.rerank` at minute 10 of the same cycle.
-2. `runAll` lists integrations and schedules `internal.sync.runOne(integrationId)` for each (parallel actions).
-3. `runOne` (action) loads the provider adapter (`convex/providers/*`), calls `fetchTotalUsers(config)`, then:
-   - success → `internal.sync.recordSnapshot`: insert `syncRuns` + immutable `snapshots` row, upsert today's `dailyMetrics`, recompute the derived fields on `saas` from indexed lookups (snapshot at/before now−24h/7d/30d, else first snapshot), set `trust` from the provider.
-   - failure → `internal.sync.recordFailure`: log the run, mark the integration `error`; six consecutive failures demote the SaaS to `pending`.
-4. Owners can trigger `integrations.syncNow` (60s cooldown). Connecting a source runs a first sync immediately.
-5. `rerank` orders public + verified (+ non-demo) SaaS by `newUsers30d` desc, tiebreak `growth30dPct`, `totalUsers`, and writes `rank`; everything else gets `rank = undefined`. Also scheduled on publish/unpublish.
+## Provider architecture
+`convex/providers/types.ts`:
+```ts
+interface Provider<Config> {
+  kind; label; roles: Role[]; capabilities: Capability[];
+  validate(config, role) → { ok, config } | { ok: false, error }
+  trust(config, saasWebsiteUrl) → "verified" | "unverified" | "pending"
+  fetch(config, role) → ProviderMetrics        // normalized: totalUsers, newUsers24h/7d/30d, activeUsers30d,
+                                               // activatedUsers(+24h/7d/30d), visitors30d, sessions30d, visitorsPrev30d,
+                                               // payingUsers, mrr (cents), currency
+  fetchHistory?(config, role, days) → { metric, points[{day, value}] } | null
+  publicConfig(config) → masked, secret-free view for the owner UI
+}
+```
+| Provider | Roles | Reads | History |
+|---|---|---|---|
+| Clerk | users | `/v1/users/count` with `created_at_after`, `last_active_at_since` | 30 daily `created_at_before` counts |
+| Supabase | users, activation | admin users count, or PostgREST `count=exact` on a table (+ `created_at` column for ranges) | per-day counts when a created_at column exists |
+| Firebase | users | Identity Toolkit `accounts:query` (`recordsCount`) via service-account JWT (WebCrypto RS256) | – |
+| Auth0 | users | Management API totals (+ `created_at` search), `/stats/active-users`, `/stats/daily` | daily signups → totals reconstructed backwards |
+| PostHog | activation, traffic | HogQL `count(distinct person_id)` for the activation event / `$pageview` | daily activation (cumulative) / visitors |
+| Plausible | traffic | `stats/aggregate` (+ previous period) | `stats/timeseries` |
+| GA4 | traffic | Data API `runReport` activeUsers + sessions, two date ranges | daily activeUsers |
+| Stripe | revenue | active subscriptions paginated → distinct customers, MRR normalized to monthly cents | – |
+| JSON endpoint | any | `GET url` → role-specific keys; verified only when host matches the SaaS website | – |
+| Manual | users | the typed number | – |
 
-## Trust model
-| Level | Meaning | Ranked? |
-|---|---|---|
-| `verified` | Auto-synced from Clerk / Supabase, or from a JSON endpoint whose host matches the SaaS website host | Yes |
-| `unverified` | Manual snapshot entry, or endpoint on a foreign host | Listed only in the "All sources" toggle, badged |
-| `pending` | Integration saved but no successful sync yet | No |
+`ProviderError(message, retryable)` distinguishes transient (429/5xx) from configuration errors; only transient failures are retried.
 
-Provenance is stored per snapshot (`source`, `trust`, `syncRunId`), so the trust level can change over time without rewriting history.
+## Sync engine (`convex/sync.ts`)
+1. Cron every 4h → `runAll` schedules `runOne(integrationId, attempt=1)` for every integration **spread evenly over 10 minutes**.
+2. `runOne` (action) calls `provider.fetch(config, role)`.
+   - success → `recordSuccess`: `syncRuns` row, integration status/last success; by role:
+     - **users**: append `snapshots` row, upsert today's `dailyMetrics`, `recomputeDerived` (windows from indexed snapshot lookups at now−1/2/7/14/30/60 d; provider-reported window counts fill in while history is shorter than the window), threshold milestones (never on the first snapshot), spike detection (≥3× trailing 14-day average and ≥20), anomaly checks → `fraudFlags`.
+     - **activation**: activated fields + rate, daily rows, activated milestones, activation spikes, `activation_exceeds_users` flag.
+     - **traffic**: rolling 30-day visitors/sessions (+ previous period); traffic history refreshed for the last 7 days on every run.
+     - **revenue**: paying users, MRR, currency.
+     Then `refreshTrust`.
+   - first success (or every traffic run) → `provider.fetchHistory` → `recordHistory`: backfilled snapshots (`backfilled: true`) and daily rows only for days **before** the first live snapshot; derived metrics recomputed.
+   - failure → `recordFailure`: run log, `consecutiveFailures`, retry after 10/20 minutes (max 3 attempts) if retryable; 6 consecutive users-role failures demote the SaaS to `pending`.
+3. `integrations.connect` replaces the integration for that role, records a `reconnect` event (users role), marks the SaaS `pending` and triggers an immediate sync. `syncNow` has a 60 s cooldown.
+
+## Ranking & trending (`convex/leaderboard.ts`, `convex/lib/trending.ts`)
+- **Leaderboard rank**: public + `verified` + not demo + not under review, ordered by `newUsers30d`, tiebreak growth %, total. `prevRank`/`bestRank` tracked for movement and milestones.
+- **Trending score** (per window 24h/7d/30d):
+  `score = 100 · log10(1+new)^1.5 · (1 + min(new/max(base,50), 2)) · (1 + 0.5·clamp((new−prev)/max(prev,10), −0.5, 2)) · (0.5 + 0.5·trust/100) · (1 + 0.25·activationRate)`; < 5 new users → 0. `trendingRank` is the 7-day order; `prevTrendingRank` gives movement. Recomputed 20 minutes after each sync cycle.
+- **Boards** (`public.board`): trending, fastest (≥10 new users), most-users, most-new, most-activated, activation-rate (≥50 users), new-rising (first snapshot ≤30 days). Filters: window, category, size bucket, verified-only. The public set is small, so boards are field sorts over one indexed read; ranks and trending are the precomputed parts.
+
+## Trust model (`convex/lib/trust.ts`, `convex/trust.ts`)
+Score = provider base (auth 40 · analytics/endpoint 30 · foreign endpoint 10 · manual 5) + connection age (≤25 over 30 days) + sync continuity (≤20) + activation data (5) − open flags (high 15 / medium 8 / low 3).
+State: any high flag → `review`; any flag → `anomaly`; score < 35 → `low_confidence`; else `healthy`.
+Public label: `pending` → Pending · `review` → **Data under review** · `unverified` → Self-reported · score < 60 → **Partially verified** · else **Verified**. Under-review products keep their page but lose ranks until flags auto-resolve (7–14 days, daily job). Heuristics: impossible growth (>5× base in ≤24h with ≥500 users, or >max(200, 25% of base)/hour), sudden drop (≥20%), reconnect churn (≥3 reconnects/7d), source switching, activation > users, stale source (no sync 3+ days).
+
+## Milestones, spikes, benchmarks (`convex/daily.ts`)
+- Thresholds detected on each snapshot; rank/trending milestones after each rerank; best day/week, streaks (7/30/90) and monthly growth (+25/50/100 %) in the daily sweep. Keys are unique per SaaS so nothing is re-created.
+- Spikes and reconnects become `events` and render as chart annotations (`public.annotations`, capped at 8 + 8 per range).
+- Benchmarks: daily deciles for `growth30dPct`, `growth7dPct`, `newUsers30d`, `activationRatePct` per group `all`, `cat:<category>`, `size:<bucket>`; groups with < 5 verified non-demo products are dropped. Owner percentile is interpolated and rounded to 5.
+
+## Follow & digest
+`follows.toggle` is idempotent and maintains `followerCount`. `digest.generate` (Monday 08:00 UTC) builds one payload per opted-in profile (own products, followed movers, milestones, leaderboard movers, trending), stores it, then `digest.sendAll` emails through Resend if `RESEND_API_KEY` + `DIGEST_FROM_EMAIL` are set — otherwise digests are in-app only (`/app/digest`, "Preview this week" builds one on demand).
+
+## Public surface
+- **Pages** are dynamic RSC (`force-dynamic`) reading Convex; Convex caches query results.
+- **Share cards**: `/s/[slug]/share/[kind]` (`users`, `growth`, `rank`, `trending`, `activation`, `milestone-<id>`) with an `opengraph-image` and a `/card` PNG route sharing one renderer (`src/lib/og/share-card.tsx`).
+- **Badges**: `/api/badge/[slug].svg?type=users|growth|trending|verified&theme=dark|light`, `s-maxage=3600`.
+- **API**: `src/lib/api/dto.ts` maps rows field-by-field (never spreads), so internal fields (`ownerId`, `trustState`, flags, config) cannot leak. Rate limit: in-process token bucket, 60/min/IP. See `docs/API.md`.
+- **SEO**: canonical URLs, OG/Twitter metadata, JSON-LD `SoftwareApplication` on product pages, `sitemap.ts` (products, profiles, categories, boards), `robots.ts` (disallows `/app`, auth).
 
 ## Charts
-Recharts 3. `api.public.series({slug, range})` returns pre-bucketed points: 24H/7D use raw snapshots, 30D+ use `dailyMetrics`. Single-series charts: 2px white line, pink area wash and end-dot, hairline grid; "New" mode switches to pink bars (≤ 24px, 4px rounded caps). Crosshair tooltip on hover; empty state after < 2 points.
-
-## OG images
-`src/app/(public)/s/[slug]/opengraph-image.tsx` uses `next/og` `ImageResponse` with the shared blueprint frame in `src/lib/og/frame.tsx` and vendored Geist woff fonts (`public/fonts`, loaded via `fs` so rendering never hits the network). Shows name, trust badge, total users, +30d, growth % and a 30-day sparkline. `/u/[username]` and `/leaderboard` have their own images. Next appends a content hash to the image URL; always read it from the page's `og:image` meta tag.
+Recharts 3. `public.series` returns snapshots for 24H/7D and daily rows for 30D+ (with optional `activated`/`visitors`). The growth chart draws the total (white) with a pink wash, an optional dashed activated series, annotation markers snapped to the nearest point (▲ milestone, ○ spike, ◇ source change) with tooltips, "New" bar mode, and respects `prefers-reduced-motion`. `/compare` uses a 4-series line chart with an "indexed = 100" mode so products of different sizes are comparable.
 
 ## Environments
 See `docs/DEPLOYMENT.md`.
