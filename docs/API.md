@@ -1,6 +1,6 @@
 # UserTrack public API
 
-Read-only JSON API over everything that is public on UserTrack: SaaS profiles, metrics, history, milestones, leaderboards, categories and founder profiles. Plus an embeddable SVG badge.
+Read-only JSON API over everything that is public on UserTrack: SaaS profiles, metrics, history, milestones, funnels, benchmark statements, leaderboards, discovery sections + activity feed, comparisons, categories and founder profiles. Plus embeddable SVG badges and share-card images.
 
 - **Base URL:** `https://usertrack.dev/api/v1` (self-hosted: `${NEXT_PUBLIC_SITE_URL}/api/v1`)
 - **Auth:** optional API key (see below). Without a key you still get the full data set at a lower rate limit.
@@ -46,7 +46,7 @@ X-RateLimit-Window: day
 X-RateLimit-Reset: 1756857600        # unix seconds, keyed requests only
 ```
 
-Exceeding a limit returns `429 rate_limited` with a `Retry-After` header (seconds). Badge responses are not rate limited.
+Exceeding a limit returns `429 rate_limited` with a `Retry-After` header (seconds). Badges have their own bucket (120 requests/minute per IP, see below) and do not count against the API limits.
 
 ## Caching and CORS
 
@@ -236,6 +236,67 @@ curl https://usertrack.dev/api/v1/saas/acme/milestones
 
 `kind` is one of `users`, `activated`, `best_day`, `best_week`, `rank`, `top10`, `top100`, `streak`, `monthly_growth`, `trending_top10`.
 
+## `GET /api/v1/saas/{slug}/funnel`
+
+Visitors → Signups → Activated → Paying with conversion rates, the previous window of the same length and per-stage provenance. Only stages with a connected source are returned; visitors and paying appear only when the owner shares traffic / revenue. Math and fallbacks: `docs/METRICS.md`.
+
+| Param | Values | Default |
+| --- | --- | --- |
+| `timeframe` | `7d`, `30d`, `90d` | `30d` |
+
+```bash
+curl "https://usertrack.dev/api/v1/saas/acme/funnel?timeframe=30d"
+```
+
+```json
+{
+  "data": {
+    "timeframe": "30d",
+    "days": 30,
+    "verification": "verified",
+    "coverageDays": 30,
+    "stages": [
+      { "key": "visitors", "label": "Visitors", "value": 18420, "previous": 15100, "changePct": 22, "kind": "flow",
+        "source": { "provider": "plausible", "label": "Plausible", "verification": "verified" } },
+      { "key": "signups", "label": "Signups", "value": 1922, "previous": 1610, "changePct": 19.4, "conversionPct": 10.4, "previousConversionPct": 10.7, "kind": "flow",
+        "source": { "provider": "supabase", "label": "Supabase", "verification": "verified" } },
+      { "key": "activated", "label": "Activated", "value": 610, "previous": 480, "changePct": 27.1, "conversionPct": 31.7, "previousConversionPct": 29.8, "kind": "flow",
+        "source": { "provider": "posthog", "label": "PostHog", "verification": "verified" } },
+      { "key": "paying", "label": "Paying", "value": 312, "previous": 290, "changePct": 7.6, "conversionPct": 51.1, "previousConversionPct": 60.4, "kind": "stock",
+        "source": { "provider": "stripe", "label": "Stripe", "verification": "verified" } }
+    ]
+  },
+  "meta": { "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z" }
+}
+```
+
+- `kind`: `flow` stages are sums over the window (visitors, signups, activations); `paying` is a `stock` (last value in the window).
+- `conversionPct` is the stage as a percentage of the previous stage; `changePct` compares with the previous window. Both are omitted when the denominator is missing or zero.
+- `source.verification` is `verified`, `partially_verified` or `self_reported` per stage. The funnel-level `verification` is `verified` only when every stage is verified, `self_reported` when all are, `mixed` otherwise, `none` without sources.
+- `coverageDays` is the number of daily rows inside the window; when it is below 2 the numbers come from the current materialized metrics instead of daily rows.
+
+`400 bad_request` for an unknown `timeframe`, `404 not_found` for an unknown or private slug.
+
+## `GET /api/v1/saas/{slug}/benchmarks`
+
+The public benchmark statement of a product: its best top-quarter position in a cohort (category, size bucket or all SaaS). Weaker positions, cohort members and raw deciles are never exposed (policy in `docs/BENCHMARKS.md`).
+
+```bash
+curl https://usertrack.dev/api/v1/saas/acme/benchmarks
+```
+
+```json
+{
+  "data": {
+    "slug": "acme",
+    "highlight": { "statement": "Top 15% 30-day growth in Developer Tools", "metric": "growth30dPct", "cohort": "Developer Tools", "percentile": 85, "sampleSize": 23 }
+  },
+  "meta": { "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z" }
+}
+```
+
+When there is nothing to say, `highlight` is `null` and `note` explains why: `"No public benchmark statement: the product is not verified, or it is not in the top quarter of any cohort with enough members."` `metric` is one of `growth30dPct`, `activationRatePct`, `newUsers30d`; `percentile` is a multiple of 5 between 75 and 95. `404 not_found` for an unknown or private slug.
+
 ## `GET /api/v1/leaderboard`
 
 | Param | Values | Default |
@@ -309,6 +370,84 @@ curl https://usertrack.dev/api/v1/categories
 }
 ```
 
+## `GET /api/v1/discover`
+
+The discovery sections shown on `/discover` plus the activity feed. Sections are fixed at five verified products each; `category` and `limit` apply to the feed only.
+
+| Param | Values | Default |
+| --- | --- | --- |
+| `category` | any slug from `/categories` (filters the feed) | all |
+| `limit` | 1..100 (feed length) | 30 |
+
+```bash
+curl "https://usertrack.dev/api/v1/discover?category=developer-tools&limit=5"
+```
+
+```json
+{
+  "data": {
+    "sections": {
+      "trending": [ { "movement": { "kind": "up", "delta": 2 }, "slug": "acme", "name": "Acme", "...": "remaining SaaS object fields" } ],
+      "fastestToday": [ "..." ],
+      "fastestWeek": [ "..." ],
+      "newAndRising": [ "..." ],
+      "recentlyVerified": [ "..." ],
+      "biggestMovers": [ "..." ],
+      "hiddenGems": [ "..." ]
+    },
+    "hiddenGemRules": { "maxUsers": 1000, "minNew7d": 10, "minGrowth7dPct": 10, "minHistoryDays": 7, "minTrustScore": 60 },
+    "categories": [ { "slug": "developer-tools", "label": "Developer Tools", "count": 9 } ],
+    "feed": [
+      { "id": "milestone:k97…:users:10000", "kind": "milestone", "subkind": "users", "at": "2026-08-20T14:02:11.000Z",
+        "title": "10K users", "detail": "Acme just crossed 10,000 users on UserTrack.", "value": 10000,
+        "saas": { "slug": "acme", "name": "Acme", "logoUrl": "https://acme.dev/logo.png", "category": "developer-tools", "totalUsers": 12481, "trust": { "level": "verified", "label": "Verified" } },
+        "urls": { "page": "https://usertrack.dev/s/acme", "share": "https://usertrack.dev/s/acme/share/milestone-k97…" } },
+      { "id": "spike:k97…:2026-08-30", "kind": "spike", "subkind": "spike", "at": "2026-08-30T16:00:00.000Z",
+        "title": "3.4× a normal day", "detail": "Gained 96 users today vs a 28/day average.", "value": 96,
+        "saas": { "...": "" }, "urls": { "page": "https://usertrack.dev/s/acme", "share": "https://usertrack.dev/s/acme/share/spike-k98…" } }
+    ]
+  },
+  "meta": { "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z" }
+}
+```
+
+Section rows are SaaS objects plus `movement` (trending movement for the window the section uses; `null` when unranked). Feed items are a merge of stored milestones and growth events for verified, non-demo products, newest first; `kind` is `milestone`, `spike`, `activation_spike`, `launched` or `verified`; `id` is stable (`milestone:{saasId}:{key}` or `{kind}:{saasId}:{day}`) so clients can deduplicate across polls. `urls.share` is present for milestones and user spikes. `400 bad_request` for an unknown category or an out-of-range limit.
+
+## `GET /api/v1/compare`
+
+Two to four public products side by side with daily history, absolute and indexed.
+
+| Param | Values | Default |
+| --- | --- | --- |
+| `s` | 2–4 slugs, comma separated (required) | — |
+| `days` | `7`, `30`, `90`, `365`, `all` | `30` |
+
+```bash
+curl "https://usertrack.dev/api/v1/compare?s=acme,globex&days=90"
+```
+
+```json
+{
+  "data": {
+    "days": 90,
+    "products": [
+      {
+        "slug": "acme", "name": "Acme", "...": "remaining SaaS object fields",
+        "series": [
+          { "day": "2026-06-04", "totalUsers": 9800, "newUsers": 31, "activatedUsers": 3900, "index": 100 },
+          { "day": "2026-06-05", "totalUsers": 9842, "newUsers": 42, "activatedUsers": 3915, "index": 100.4 }
+        ]
+      },
+      { "slug": "globex", "name": "Globex", "...": "", "series": [ "..." ] }
+    ],
+    "urls": { "page": "https://usertrack.dev/compare?s=acme,globex&days=90" }
+  },
+  "meta": { "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z" }
+}
+```
+
+`index` is `totalUsers / first non-zero total in the window × 100` (one decimal), so products of different sizes can be plotted on one axis; `activatedUsers` is present only for products with an activation source. `days` is echoed as a number or `"all"`. Duplicate slugs are ignored, private or unknown slugs are dropped. `400 bad_request` for fewer than 2 / more than 4 slugs or an invalid `days`; `404 not_found` when fewer than two of the requested products are public.
+
 ## `GET /api/v1/users/{username}`
 
 Public founder profile plus their public SaaS projects (full SaaS objects, without milestones). Usernames are case-insensitive.
@@ -341,17 +480,22 @@ curl https://usertrack.dev/api/v1/users/jane
 
 ## Badge: `GET /api/badge/{slug}.svg`
 
-A 28px-high shields.io-style SVG. The `.svg` suffix is optional. Not rate limited; cached for 5 minutes at the client and 1 hour at the edge (`Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400`), served as `image/svg+xml` with `Access-Control-Allow-Origin: *`.
+A 28px-high shields.io-style SVG, or a 320×120 mini growth chart. The `.svg` suffix is optional. Served as `image/svg+xml` with `Access-Control-Allow-Origin: *` and `X-Content-Type-Options: nosniff`; cached for 5 minutes at the client and 1 hour at the edge (`Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400`). Public metrics only; no API key is involved. The UserTrack mark is always part of the image.
 
-| Param | Values | Default | Right segment |
+| Param | Values | Default | Rendering |
 | --- | --- | --- | --- |
 | `type` | `users` | `users` | `12,481 users` |
-| | `growth` | | `+18.2% · 30d` |
-| | `trending` | | `#4 trending` (or `— trending` when unranked) |
-| | `verified` | | trust label, e.g. `VERIFIED`, `SELF-REPORTED` |
+| | `growth` | | `+18.2% · 30d` (or `· 7d` with `window=7d`) |
+| | `trending` | | `#4 trending` (7-day trending rank; `— trending` when unranked) |
+| | `verified` | | trust label, e.g. `VERIFIED`, `PARTIALLY VERIFIED`, `SELF-REPORTED` |
+| | `chart` | | 320×120 widget: name, total users, window delta + growth %, 30-day sparkline |
 | `theme` | `dark`, `light` | `dark` | |
+| `window` | `7d`, `30d` | `30d` | affects `growth` and `chart` only |
+| `compact` | `1` | off | badges drop the word "UserTrack" (the mark stays); `chart` becomes 320×96 |
 
-Unknown slugs still return `200` with a neutral "not found" badge, so a broken embed never shows a broken image.
+Rate limit: 120 requests per minute per client IP; beyond that `429` with `Retry-After` and `Cache-Control: no-store`. Unknown or private slugs return **`404`** whose body is still a neutral "not found" SVG, so a broken embed shows a labelled badge rather than a broken image. Draft (unpublished) products render that badge until they are published.
+
+The dashboard has a configurator with live preview and copyable HTML / Markdown / image URL at `/app/saas/[id]/embed`; MCP clients get the same snippets from `usertrack_get_embed_code`.
 
 HTML:
 
@@ -365,11 +509,39 @@ Markdown:
 [![Acme users on UserTrack](https://usertrack.dev/api/badge/acme.svg?type=users)](https://usertrack.dev/s/acme)
 ```
 
-Light background, growth variant:
+Light background, growth variant, 7-day window:
 
 ```html
-<img src="https://usertrack.dev/api/badge/acme.svg?type=growth&theme=light" alt="Acme 30-day growth on UserTrack" height="28">
+<img src="https://usertrack.dev/api/badge/acme.svg?type=growth&theme=light&window=7d" alt="Acme 7-day growth on UserTrack" height="28">
 ```
+
+Mini chart:
+
+```html
+<a href="https://usertrack.dev/s/acme"><img src="https://usertrack.dev/api/badge/acme.svg?type=chart" alt="Acme on UserTrack" height="120"></a>
+```
+
+## Share-card images
+
+Every share page has a deterministic PNG rendered by the same code as its Open Graph image:
+
+```
+GET /s/{slug}/share/{kind}/card              1200×630 (OG ratio)
+GET /s/{slug}/share/{kind}/card?size=square  1080×1080
+```
+
+| `kind` | Card |
+| --- | --- |
+| `users` | total users + last 30 days |
+| `growth` | new users in the last 30 days + growth % |
+| `week` | new users in the last 7 days + 7-day growth % |
+| `rank` | leaderboard position |
+| `trending` | 7-day trending position |
+| `activation` | activation rate (only with an activation source) |
+| `milestone-{id}` | a stored milestone (`id` from `/saas/{slug}/milestones`) |
+| `spike-{id}` | a stored growth spike (`id` from the discovery feed) |
+
+Cached like badges (`max-age=300, s-maxage=3600, stale-while-revalidate=86400`). Unknown slugs, drafts, unknown kinds or ids render a "Not found" card. The share page itself is `/s/{slug}/share/{kind}`; its `opengraph-image` is the 1200×630 variant. Compare pages reference an OG image at `/compare/og?s=a,b&days=30`. These routes live outside `/api/v1` and are not rate limited by the API buckets.
 
 ---
 

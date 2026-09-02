@@ -8,34 +8,51 @@ import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { CompareChart, COMPARE_COLORS } from "@/components/charts/compare-chart";
 import { ComparePicker } from "@/components/public/compare-picker";
 import { SaasLogo } from "@/components/public/saas-card";
+import { ShareButtons } from "@/components/public/share-buttons";
 import { formatCompact, formatDelta, formatPct, formatRate } from "@/lib/format";
 import { SITE_URL } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
+type Days = 7 | 30 | 90 | 365 | 0;
+const WINDOWS: { days: Days; label: string; title: string }[] = [
+  { days: 7, label: "7D", title: "last 7 days" }, { days: 30, label: "30D", title: "last 30 days" }, { days: 90, label: "90D", title: "last 90 days" }, { days: 365, label: "1Y", title: "last year" }, { days: 0, label: "ALL", title: "all history" },
+];
 const parse = (s?: string | string[]) => (Array.isArray(s) ? s.join(",") : s ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 4);
+const parseDays = (d?: string): Days => (d === "all" ? 0 : (WINDOWS.find((w) => w.days && String(w.days) === d)?.days ?? 30));
+const daysParam = (d: Days) => (d === 0 ? "all" : String(d));
+const href = (slugs: string[], d: Days) => `/compare?s=${slugs.join(",")}&days=${daysParam(d)}`;
+// Growth over the window: last total / first total − 1 (series is already cut to the window by the query).
+const windowGrowth = (series: { total: number }[]) => (series.length >= 2 && series[0].total > 0 ? formatPct((series[series.length - 1].total / series[0].total - 1) * 100) : "—");
 
-export async function generateMetadata({ searchParams }: { searchParams: Promise<{ s?: string }> }): Promise<Metadata> {
-  const slugs = parse((await searchParams).s);
+export async function generateMetadata({ searchParams }: { searchParams: Promise<{ s?: string; days?: string }> }): Promise<Metadata> {
+  const sp = await searchParams;
+  const slugs = parse(sp.s);
+  const days = parseDays(sp.days);
   const title = slugs.length ? `Compare ${slugs.join(" vs ")}` : "Compare SaaS growth";
-  return { title, description: "Compare user growth, activation and trending scores of up to four SaaS products side by side.", alternates: { canonical: `${SITE_URL}/compare` } };
+  const description = "Compare user growth, activation and trending scores of up to four SaaS products side by side.";
+  const og = slugs.length >= 2 ? [`${SITE_URL}/compare/og?s=${slugs.join(",")}&days=${daysParam(days)}`] : undefined;
+  return { title, description, alternates: { canonical: `${SITE_URL}/compare` }, openGraph: { title, description, images: og }, twitter: { card: "summary_large_image", title, description, images: og } };
 }
 
 export default async function ComparePage({ searchParams }: { searchParams: Promise<{ s?: string; days?: string }> }) {
   const sp = await searchParams;
   const slugs = parse(sp.s);
-  const days = sp.days === "90" ? 90 : 30;
-  const items = slugs.length ? await fetchQuery(api.public.compare, { slugs }) : [];
+  const days = parseDays(sp.days);
+  const win = WINDOWS.find((w) => w.days === days)!;
+  const items = slugs.length ? await fetchQuery(api.public.compare, { slugs, days }) : [];
   const rows: { label: string; get: (s: (typeof items)[number]) => string; accent?: boolean }[] = [
     { label: "Total users", get: (s) => formatCompact(s.totalUsers), accent: true },
     { label: "New · 7d", get: (s) => formatDelta(s.newUsers7d) },
     { label: "New · 30d", get: (s) => formatDelta(s.newUsers30d) },
     { label: "Growth · 30d", get: (s) => formatPct(s.growth30dPct) },
+    { label: `Growth · ${win.title}`, get: (s) => windowGrowth(s.series) },
     { label: "Activation rate", get: (s) => formatRate(s.activationRatePct) },
     { label: "Trending score · 7d", get: (s) => (s.trendingScore7d ? String(Math.round(s.trendingScore7d)) : "—") },
     { label: "Leaderboard rank", get: (s) => (s.rank ? `#${s.rank}` : "—") },
     { label: "Trending rank", get: (s) => (s.trendingRank ? `#${s.trendingRank}` : "—") },
   ];
+  const current = items.map((i) => i.slug);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
@@ -49,10 +66,10 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
       ) : (
         <>
           <Panel className="mt-6 p-4 sm:p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <SectionLabel>Users over the last {days} days</SectionLabel>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <SectionLabel>Users · {win.title}</SectionLabel>
               <div className="flex border border-line">
-                {[30, 90].map((d) => <Link key={d} href={`/compare?s=${slugs.join(",")}&days=${d}`} className={`px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider ${days === d ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}>{d}d</Link>)}
+                {WINDOWS.map((w) => <Link key={w.days} href={href(current, w.days)} className={`px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider ${days === w.days ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}>{w.label}</Link>)}
               </div>
             </div>
             <CompareChart items={items} days={days} />
@@ -84,6 +101,10 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
               </tbody>
             </table>
           </Panel>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <SectionLabel>Share this comparison</SectionLabel>
+            <ShareButtons url={`${SITE_URL}${href(current, days)}`} text={`Comparing ${items.map((i) => i.name).join(" vs ")} on UserTrack`} />
+          </div>
         </>
       )}
     </div>

@@ -9,13 +9,14 @@ import { Input } from "@/components/ui/input";
 import { SaasLogo } from "@/components/public/saas-card";
 import { formatCompact } from "@/lib/format";
 
+// days: numeric window, 0 = all history (serialised as ?days=all).
 export function ComparePicker({ selected, days }: { selected: { slug: string; name: string; logoUrl?: string }[]; days: number }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const slugs = selected.map((s) => s.slug);
   const suggestions = useQuery(api.public.suggest, open ? { q, exclude: slugs } : "skip");
-  const go = (next: string[]) => router.push(next.length ? `/compare?s=${next.join(",")}&days=${days}` : "/compare");
+  const go = (next: string[]) => router.push(next.length ? `/compare?s=${next.join(",")}&days=${days === 0 ? "all" : days}` : "/compare");
   return (
     <div className="flex flex-wrap items-center gap-2">
       {selected.map((s) => (

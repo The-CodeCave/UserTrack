@@ -1,4 +1,4 @@
-// End-to-end smoke: sign up → onboarding (profile, SaaS, manual source, publish) → public page. Screenshots to /tmp/ut-shots.
+// End-to-end smoke: sign up → onboarding (profile, SaaS, manual source, skip activation, publish) → public page. Screenshots to /tmp/ut-shots.
 import { chromium } from "playwright-core";
 
 const base = process.argv[2] ?? "http://localhost:3000";
@@ -25,6 +25,7 @@ await step("02-onboarding-profile", async () => {
 await step("03-onboarding-saas", async () => {
   await page.fill("#username", `smoke-${tag}`);
   await page.click("button[type=submit]");
+  await page.click("text=Connect manually", { timeout: 30000 });
   await page.waitForSelector("#name", { timeout: 30000 });
   await page.fill("#name", `Smoke SaaS ${tag}`);
   await page.fill("#websiteUrl", "https://smoke.example.com");
@@ -38,20 +39,25 @@ await step("04-onboarding-source", async () => {
   await page.click("text=Manual");
   await page.fill("#totalUsers", "1234");
 });
-await step("05-onboarding-publish", async () => {
+await step("05-onboarding-activation", async () => {
   await page.click("button[type=submit]");
+  await page.waitForSelector("text=Track activation too", { timeout: 30000 });
+});
+await step("06-onboarding-publish", async () => {
+  await page.click("text=Skip for now");
   await page.waitForSelector("text=Publish your growth page", { timeout: 30000 });
   await page.waitForSelector("text=1,234", { timeout: 30000 });
 });
-await step("06-celebrate", async () => {
+await step("07-celebrate", async () => {
   await page.click("text=Publish page");
   await page.waitForSelector("text=on the board", { timeout: 30000 });
 });
-const slugLink = await page.locator("a:has-text('Open page')").getAttribute("href");
-await step("07-public-page", async () => { await page.goto(slugLink); await page.waitForSelector("text=Self-reported"); });
-await step("08-dashboard", async () => { await page.goto(`${base}/app`); await page.waitForSelector("text=Your growth at a glance", { timeout: 30000 }); });
-await step("09-manage", async () => { await page.goto(`${base}/app/saas`); await page.click(`text=Smoke SaaS ${tag}`); await page.waitForSelector("text=User count source", { timeout: 30000 }); });
-await step("10-signed-out-redirect", async () => {
+// Resolved against `base` so the script works when the dev server is not on the configured site URL.
+const slugLink = new URL(new URL(await page.locator("a:has-text('Open page')").getAttribute("href")).pathname, base).href;
+await step("08-public-page", async () => { await page.goto(slugLink); await page.waitForSelector("text=Self-reported"); });
+await step("09-dashboard", async () => { await page.goto(`${base}/app`); await page.waitForSelector("text=Your growth at a glance", { timeout: 30000 }); });
+await step("10-manage", async () => { await page.goto(`${base}/app/saas`); await page.click(`text=Smoke SaaS ${tag}`); await page.waitForSelector("text=User count source", { timeout: 30000 }); });
+await step("11-signed-out-redirect", async () => {
   await page.context().clearCookies();
   await page.goto(`${base}/app`);
   await page.waitForURL("**/sign-in**", { timeout: 30000 });

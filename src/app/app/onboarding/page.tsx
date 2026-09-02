@@ -19,11 +19,11 @@ import { ConnectSource, SourceStatus } from "@/components/app/connect-source";
 import { AiSetup, SetupChooser } from "@/components/app/ai-setup";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatCompact } from "@/lib/format";
+import { formatCompact, formatDelta, formatRate } from "@/lib/format";
 import { saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
-const STEPS = ["Profile", "Your SaaS", "Data source", "Publish"] as const;
+const STEPS = ["Profile", "Your SaaS", "Data source", "Activation", "Publish"] as const;
 const AI_STEPS = ["Profile", "Set up with AI", "Live"] as const;
 const MODE_KEY = "ut:onboarding-mode";
 type Mode = "choose" | "ai" | "manual";
@@ -48,7 +48,7 @@ export default function OnboardingPage() {
     : !me?.profile ? 0
     : !first ? 1
     : first.trust === "pending" && !first.lastSyncedAt ? 2
-    : 3;
+    : 4;
   const step = override?.step ?? derived;
   const setStep = (s: number, id?: Id<"saas">) => setOverride({ step: s, saasId: id ?? override?.saasId });
   const saas = useQuery(api.saas.getMine, saasId ? { id: saasId } : "skip");
@@ -59,7 +59,7 @@ export default function OnboardingPage() {
   const ai = mode === "ai" && step !== null && step > 0;
 
   useEffect(() => {
-    if (me?.profile?.onboardingCompleted && override?.step !== 4 && !aiDone) router.replace("/app");
+    if (me?.profile?.onboardingCompleted && override?.step !== 5 && !aiDone) router.replace("/app");
   }, [me, override, aiDone, router]);
 
   function setMode(m: Mode) {
@@ -83,7 +83,7 @@ export default function OnboardingPage() {
     await setPublic({ id: saasId, isPublic: true });
     await complete();
     toast.success("You're live!");
-    setStep(4);
+    setStep(5);
   }
 
   if (step === null || me === undefined) {
@@ -98,7 +98,7 @@ export default function OnboardingPage() {
       <div aria-hidden className="bp-grid bp-grid-fade absolute inset-0 -z-10" />
       <div className="mx-auto max-w-xl">
         <Link href="/" className="mb-8 inline-block"><Logo /></Link>
-        <ol className={cn("mb-6 grid gap-1", ai ? "grid-cols-3" : "grid-cols-4")}>
+        <ol className={cn("mb-6 grid gap-1", ai ? "grid-cols-3" : "grid-cols-5")}>
           {steps.map((s, i) => (
             <li key={s} className="space-y-1.5">
               <div className={cn("h-0.5", i < current ? "bg-pink" : i === current ? "bg-foreground" : "bg-line")} />
@@ -111,7 +111,7 @@ export default function OnboardingPage() {
           <motion.div key={ai ? "ai" : step} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
             {step === 0 && (
               <Panel className="p-6">
-                <SectionLabel>Step 1 of 4</SectionLabel>
+                <SectionLabel>Step 1 of 5</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Create your founder profile</h1>
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">This is the page your SaaS listings link back to.</p>
                 <ProfileForm compact defaultName={me?.user.name} submitLabel="Continue" onSaved={() => setStep(1)} />
@@ -120,7 +120,7 @@ export default function OnboardingPage() {
             {ai && <AiSetup onDone={finishAi} onSwitchToManual={() => pick("manual")} />}
             {!ai && step === 1 && (
               <Panel className="p-6">
-                <SectionLabel>Step 2 of 4</SectionLabel>
+                <SectionLabel>Step 2 of 5</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Add your SaaS</h1>
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">{mode === "manual" ? "You can add more products later from the dashboard." : "Pick how you want to get on the board."}</p>
                 {mode === "manual" ? (
@@ -135,15 +135,24 @@ export default function OnboardingPage() {
             )}
             {!ai && step === 2 && saasId && (
               <Panel className="p-6">
-                <SectionLabel>Step 3 of 4</SectionLabel>
+                <SectionLabel>Step 3 of 5</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Connect a data source</h1>
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">Read-only. Synced every 4 hours. Verified sources get ranked — traffic, activation and revenue can be added later.</p>
                 <ConnectSource saasId={saasId} onConnected={() => setStep(3)} />
               </Panel>
             )}
-            {!ai && step === 3 && saas && (
+            {!ai && step === 3 && saasId && (
               <Panel className="p-6">
-                <SectionLabel>Step 4 of 4</SectionLabel>
+                <SectionLabel>Step 4 of 5 · optional</SectionLabel>
+                <h1 className="mt-2 text-2xl font-semibold tracking-tight">Track activation too? (optional)</h1>
+                <p className="mb-6 mt-1 text-sm text-muted-foreground">Activation tells UserTrack how many people actually reach value in your product — e.g. onboarding_completed, project_created.</p>
+                <ConnectSource saasId={saasId} role="activation" onConnected={() => setStep(4)} />
+                <Button variant="ghost" className="mt-4 h-11 w-full sm:w-auto" onClick={() => setStep(4)}>Skip for now</Button>
+              </Panel>
+            )}
+            {!ai && step === 4 && saas && (
+              <Panel className="p-6">
+                <SectionLabel>Step 5 of 5</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Publish your growth page</h1>
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">Here is what people will see at /s/{saas.slug}.</p>
                 <div className="mb-4 border border-line p-4">
@@ -153,6 +162,11 @@ export default function OnboardingPage() {
                   </div>
                   <div className="text-label mt-3">Total users</div>
                   <div className="tabular text-4xl font-semibold text-pink">{formatCompact(saas.totalUsers)}</div>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div><div className="text-label">Recent growth</div><div className="font-mono text-sm">{formatDelta(saas.newUsers7d)} in 7d</div></div>
+                    {saas.activatedUsers !== undefined && <div><div className="text-label">Activation</div><div className="font-mono text-sm">{formatRate(saas.activationRatePct)} · {formatCompact(saas.activatedUsers)} activated</div></div>}
+                  </div>
+                  <div className="mt-3 truncate font-mono text-[11px] text-muted-foreground">{saasUrl(saas.slug)}</div>
                 </div>
                 {saas.integrations[0] && <div className="mb-6"><SourceStatus saasId={saas._id} integration={saas.integrations[0]} totalUsers={saas.totalUsers} trust={saas.trust} trustLabel={saas.trustLabel} /></div>}
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -161,7 +175,7 @@ export default function OnboardingPage() {
                 </div>
               </Panel>
             )}
-            {!ai && step === 4 && saas && <Celebrate slug={saas.slug} id={saas._id} />}
+            {!ai && step === 5 && saas && <Celebrate slug={saas.slug} id={saas._id} hasActivation={saas.integrations.some((i) => i.role === "activation")} />}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -169,7 +183,7 @@ export default function OnboardingPage() {
   );
 }
 
-function Celebrate({ slug, id }: { slug: string; id: Id<"saas"> }) {
+function Celebrate({ slug, id, hasActivation }: { slug: string; id: Id<"saas">; hasActivation: boolean }) {
   const url = saasUrl(slug);
   const [copied, setCopied] = useState(false);
   return (
@@ -187,11 +201,13 @@ function Celebrate({ slug, id }: { slug: string; id: Id<"saas"> }) {
         <Button className="h-11" render={<a href={url} target="_blank" rel="noreferrer" />}>Open page <ExternalLink className="size-4" /></Button>
         <Button variant="outline" className="h-11" render={<Link href="/app" />}>Go to dashboard</Button>
       </div>
-      <div className="mt-6 border-t border-line pt-4 text-left">
-        <div className="text-label">Next: activation (optional)</div>
-        <p className="mt-1 text-xs text-muted-foreground">Signups are a weak signal. Add an activation event (PostHog, Supabase table or your endpoint) to show activated users, activation rate and a stronger trending score.</p>
-        <Button variant="ghost" size="sm" className="mt-2 px-0 text-pink" render={<Link href={`/app/saas/${id}`} />}>Set up activation →</Button>
-      </div>
+      {!hasActivation && (
+        <div className="mt-6 border-t border-line pt-4 text-left">
+          <div className="text-label">Next: activation (optional)</div>
+          <p className="mt-1 text-xs text-muted-foreground">Signups are a weak signal. Add an activation event (PostHog, Supabase table or your endpoint) to show activated users, activation rate and a stronger trending score.</p>
+          <Button variant="ghost" size="sm" className="mt-2 px-0 text-pink" render={<Link href={`/app/saas/${id}#integrations`} />}>Set up activation →</Button>
+        </div>
+      )}
     </Panel>
   );
 }

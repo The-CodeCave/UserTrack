@@ -1,42 +1,58 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Check, Copy } from "lucide-react";
 import { badgeUrl, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
-const TYPES = [
+export const TYPES = [
   { key: "users", label: "Users" },
-  { key: "growth", label: "30-day growth" },
+  { key: "growth", label: "Growth" },
   { key: "trending", label: "Trending rank" },
   { key: "verified", label: "Verified" },
-];
+  { key: "chart", label: "Mini chart" },
+] as const;
+export type BadgeKind = (typeof TYPES)[number]["key"];
+export type Win = "7d" | "30d";
+export const hasWindow = (type: BadgeKind) => type === "growth" || type === "chart";
+
+// Badge image URL + rendered height for a given configuration (mirrors /api/badge/[slug]).
+export function badgeSrc(o: { slug: string; type: BadgeKind; theme: "dark" | "light"; window?: Win; compact?: boolean }) {
+  const src = `${badgeUrl(o.slug, o.type)}${o.theme === "light" ? "&theme=light" : ""}${hasWindow(o.type) && o.window === "7d" ? "&window=7d" : ""}${o.compact ? "&compact=1" : ""}`;
+  return { src, height: o.type === "chart" ? (o.compact ? 96 : 120) : 28 };
+}
+
+export function Seg<T extends string>({ value, options, onChange }: { value: T; options: readonly { key: T; label: string }[]; onChange: (v: T) => void }) {
+  return (
+    <div className="flex flex-wrap border border-line">
+      {options.map((o) => (
+        <button key={o.key} onClick={() => onChange(o.key)} className={cn("px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider", value === o.key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
 
 // Copy-paste embed UI. The badge itself is served by /api/badge/[slug].svg and cached at the edge.
-export function EmbedBadge({ slug, name }: { slug: string; name: string }) {
-  const [type, setType] = useState("users");
+export function EmbedBadge({ slug, name, manageHref }: { slug: string; name: string; manageHref?: string }) {
+  const [type, setType] = useState<BadgeKind>("users");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const src = `${badgeUrl(slug, type)}${theme === "light" ? "&theme=light" : ""}`;
+  const [win, setWin] = useState<Win>("30d");
+  const { src, height } = badgeSrc({ slug, type, theme, window: win });
   const page = saasUrl(slug);
-  const html = `<a href="${page}"><img src="${src}" alt="${name} on UserTrack" height="28"></a>`;
+  const html = `<a href="${page}"><img src="${src}" alt="${name} on UserTrack" height="${height}"></a>`;
   const md = `[![${name} on UserTrack](${src})](${page})`;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex border border-line">
-          {TYPES.map((t) => (
-            <button key={t.key} onClick={() => setType(t.key)} className={cn("px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider", type === t.key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{t.label}</button>
-          ))}
-        </div>
-        <div className="flex border border-line">
-          {(["dark", "light"] as const).map((t) => (
-            <button key={t} onClick={() => setTheme(t)} className={cn("px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider", theme === t ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{t}</button>
-          ))}
-        </div>
+        <Seg value={type} options={TYPES} onChange={setType} />
+        {hasWindow(type) && <Seg value={win} options={[{ key: "7d", label: "7d" }, { key: "30d", label: "30d" }] as const} onChange={setWin} />}
+        <Seg value={theme} options={[{ key: "dark", label: "dark" }, { key: "light", label: "light" }] as const} onChange={setTheme} />
+        {manageHref && <Link href={manageHref} className="ml-auto font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-pink">Full configurator →</Link>}
       </div>
-      <div className={cn("flex items-center justify-center border border-line p-6", theme === "light" ? "bg-white" : "bg-background")}>
+      <div className={cn("flex items-center justify-center overflow-x-auto border border-line p-6", theme === "light" ? "bg-white" : "bg-background")}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt={`${name} on UserTrack`} height={28} />
+        <img src={src} alt={`${name} on UserTrack`} height={height} className="max-w-none" />
       </div>
       <Snippet label="HTML" text={html} />
       <Snippet label="Markdown" text={md} />

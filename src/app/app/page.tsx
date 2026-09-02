@@ -18,6 +18,14 @@ export default function OverviewPage() {
   const digest = useQuery(api.digest.latest);
   const primary = list?.[0];
   const detail = useQuery(api.saas.getMine, primary ? { id: primary._id } : "skip");
+  // Same rules as the manage page's "Next steps", derived from state only.
+  const manage = detail ? `/app/saas/${detail._id}` : "";
+  const nextActions = !detail ? [] : [
+    ...(!detail.isPublic ? [{ label: "Publish your page", href: manage }] : []),
+    ...(!detail.integrations.some((i) => i.role === "activation") ? [{ label: "Connect an activation source", href: `${manage}#integrations` }] : []),
+    ...(detail.isPublic ? [{ label: "Add the badge to your site", href: `${manage}/embed` }, { label: "Share your growth card", href: `${manage}#sharing` }] : []),
+    ...(detail.isPublic && detail.trust === "verified" ? [{ label: "See how you compare", href: `${manage}#benchmarks` }] : []),
+  ];
   const totals = list?.reduce((a, s) => ({ users: a.users + s.totalUsers, new7: a.new7 + s.newUsers7d, new30: a.new30 + s.newUsers30d }), { users: 0, new7: 0, new30: 0 });
 
   return (
@@ -74,10 +82,17 @@ export default function OverviewPage() {
         </section>
       )}
 
+      {detail && nextActions.length > 0 && (
+        <Panel className="flex flex-wrap items-center gap-2 p-3">
+          <span className="text-label mr-1">Next actions · {detail.name}</span>
+          {nextActions.map((a) => <Link key={a.label} href={a.href} className="inline-flex items-center gap-1.5 border border-line px-2.5 py-1 text-xs transition-colors hover:border-pink hover:text-pink">{a.label} <ArrowRight className="size-3" /></Link>)}
+        </Panel>
+      )}
+
       {primary && (
         <section className="space-y-3">
           <div className="flex items-center gap-2"><SectionLabel>Benchmarks · {primary.name}</SectionLabel></div>
-          <BenchmarkCards saasId={primary._id} />
+          <BenchmarkCards saasId={primary._id} variant="compact" />
         </section>
       )}
 

@@ -25,7 +25,7 @@ export interface ProviderMeta {
 
 export const ROLE_META: Record<Role, { label: string; title: string; blurb: string; optional: boolean }> = {
   users: { label: "Users", title: "User count source", blurb: "Where your total user count comes from. Required, read-only, synced every 4 hours.", optional: false },
-  activation: { label: "Activation", title: "Activated users", blurb: "Signups are a weak signal. Tell UserTrack which event means a user really started using your product — e.g. onboarding_completed, project_created.", optional: true },
+  activation: { label: "Activation", title: "Activated users", blurb: "An activated user is someone who reached the first meaningful value in your product. Tell UserTrack which event means that — e.g. onboarding_completed, project_created.", optional: true },
   traffic: { label: "Traffic", title: "Website traffic", blurb: "Visitors and sessions for the funnel. Only shown publicly if you switch it on.", optional: true },
   revenue: { label: "Revenue", title: "Revenue (Stripe)", blurb: "Paying customers and MRR from a restricted, read-only Stripe key. Never required, only shown publicly if you switch it on.", optional: true },
 };
