@@ -2,7 +2,9 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and deployed.
 
-Last updated: 2026-09-02 (Email system · Public API keys · MCP server · AI onboarding).
+Last updated: 2026-09-02 (v0.4: providers v3, activation + funnel, trending v2 + discovery feed, share cards + embeds, benchmarks + compare, API/MCP extensions).
+
+**v0.4 needs no new human action.** Everything in this phase (PostgreSQL / Supabase / Clerk / Firebase providers, activation + funnel, Trending Score v2, discovery feed, share cards + embeds, benchmarks, compare, API + MCP) is configured and deployed. The items below are unchanged from earlier phases; the domain item is now the most important one because every share card, embed snippet and MCP config snippet renders the Railway URL until `usertrack.dev` points at production.
 
 ## Critical Before Production
 
@@ -217,7 +219,11 @@ Per-key / per-token daily quotas live in Convex (`apiUsage`, survive deploys). T
 
 ### Provider credentials for end-to-end testing
 
-Firebase, Auth0, PostHog, Plausible, GA4 and Stripe adapters are unit-tested against recorded API shapes, not live accounts. Watch the first real connection of each in the SaaS "Sync log" panel. Known assumption: Auth0 `per_page=0` on `/api/v2/users`. **Status** [ ] Optional
+Clerk, Supabase (API + read-only database mode), Firebase (createdAt scan), PostgreSQL (Node runtime, wizard introspection), Auth0, PostHog, Plausible, GA4 and Stripe adapters are unit-tested against recorded API shapes and SQL builders, not live accounts — the agent has no third-party credentials. To exercise them for real: connect one of your own products through the dashboard wizard ("Test connection" runs a live read before anything is stored) or via MCP `usertrack_verify_integration`, and watch the SaaS "Sync log" panel. Known assumptions: Auth0 `per_page=0` on `/api/v2/users`; Firebase signup windows need ≤ 100k accounts (larger projects fall back to snapshot deltas and are labelled so). **Status** [ ] Optional
+
+### Benchmarks need real cohorts
+
+Benchmark cards and the public "Top X% …" statement only appear once a cohort (all / category / size bucket) has at least 5 verified, non-demo products (`MIN_SAMPLE` in `convex/lib/benchmarks.ts`). Nothing to configure — this is a reminder that the dashboard shows "Not enough benchmark data yet" until enough founders have connected. Consider raising the threshold to 10 once the public set is larger. **Status** [ ] Nothing to do
 
 ### Legal pages
 

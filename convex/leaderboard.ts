@@ -46,11 +46,9 @@ export const rerank = internalMutation({
       const t7 = trendingRanks["7d"].get(s._id);
       const t24 = trendingRanks["24h"].get(s._id);
       const t30 = trendingRanks["30d"].get(s._id);
-      const patch: Partial<Doc<"saas">> = { trendingScore24h: sc["24h"], trendingScore7d: sc["7d"], trendingScore30d: sc["30d"] };
+      // Trending "previous" is the position at the last refresh (so a stable #1 reads "same", not "new" forever).
+      const patch: Partial<Doc<"saas">> = { trendingScore24h: sc["24h"], trendingScore7d: sc["7d"], trendingScore30d: sc["30d"], prevTrendingRank: s.trendingRank, trendingRank: t7, prevTrendingRank24h: s.trendingRank24h, trendingRank24h: t24, prevTrendingRank30d: s.trendingRank30d, trendingRank30d: t30 };
       if (s.rank !== rank) { patch.prevRank = s.rank; patch.rank = rank; }
-      if (s.trendingRank !== t7) { patch.prevTrendingRank = s.trendingRank; patch.trendingRank = t7; }
-      if (s.trendingRank24h !== t24) { patch.prevTrendingRank24h = s.trendingRank24h; patch.trendingRank24h = t24; }
-      if (s.trendingRank30d !== t30) { patch.prevTrendingRank30d = s.trendingRank30d; patch.trendingRank30d = t30; }
       if (rank && (s.bestRank === undefined || rank < s.bestRank)) patch.bestRank = rank;
       await ctx.db.patch(s._id, patch);
       if (!s.isDemo) {
