@@ -7,7 +7,7 @@ import { RANGES, type Range } from "@/lib/format";
 export const dynamic = "force-dynamic";
 export const OPTIONS = options;
 
-export const GET = withApi(async (req: Request, { params }: { params: Promise<{ slug: string }> }) => {
+export const GET = withApi("history", async (req: Request, { params }: { params: Promise<{ slug: string }> }) => {
   const { slug } = await params;
   const range = new URL(req.url).searchParams.get("range") ?? "30d";
   if (!RANGES.includes(range as Range)) return fail("bad_request", `range must be one of ${RANGES.join(", ")}`, 400);

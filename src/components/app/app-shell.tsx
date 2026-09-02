@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useQuery } from "convex/react";
-import { LayoutGrid, Boxes, Bell, Mail, UserRound, Settings, LogOut } from "lucide-react";
+import { LayoutGrid, Boxes, Bell, Mail, UserRound, Code2, Settings, LogOut } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ const NAV = [
   { href: "/app/following", label: "Following", Icon: Bell },
   { href: "/app/digest", label: "Digest", Icon: Mail },
   { href: "/app/profile", label: "Profile", Icon: UserRound },
+  { href: "/app/developer", label: "Developer", Icon: Code2 },
   { href: "/app/settings", label: "Settings", Icon: Settings },
 ];
 
@@ -68,7 +69,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <main className="flex-1 pb-20 md:pb-0">{children}</main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-line bg-background/90 backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 border-t border-line bg-background/90 backdrop-blur md:hidden">
         {NAV.map(({ href, label, Icon }) => {
           const active = href === "/app" ? pathname === href : pathname.startsWith(href);
           return (

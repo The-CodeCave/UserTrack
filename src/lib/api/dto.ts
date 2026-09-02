@@ -87,3 +87,38 @@ export function milestoneDto(m: { _id: string; kind: string; title: string; copy
 export function historyDto(points: { t: number; total: number; delta: number; activated?: number }[]) {
   return points.map((p) => ({ t: new Date(p.t).toISOString(), totalUsers: p.total, newUsers: p.delta, activatedUsers: p.activated }));
 }
+
+// Compact metrics view: the numbers a badge, widget or newsletter needs, nothing else.
+export function metricsDto(r: SaasRow) {
+  return {
+    slug: r.slug,
+    name: r.name,
+    verification: r.trust,
+    metrics: {
+      totalUsers: r.totalUsers,
+      newUsers24h: r.newUsers24h,
+      newUsers7d: r.newUsers7d,
+      newUsers30d: r.newUsers30d,
+      growth7dPercentage: r.growth7dPct,
+      growth30dPercentage: r.growth30dPct,
+      activatedUsers: r.activatedUsers,
+      activationRatePercentage: r.activationRatePct,
+      trendingRank: r.trendingRank,
+      overallRank: r.rank,
+    },
+    updatedAt: iso(r.lastSyncedAt),
+    urls: { page: `${SITE_URL}/s/${r.slug}`, badge: `${SITE_URL}/api/badge/${r.slug}.svg` },
+  };
+}
+
+export function profileDto(p: { username: string; displayName: string; avatarUrl?: string; bio?: string; website?: string; x?: string; github?: string; linkedin?: string; followerCount: number }) {
+  return {
+    username: p.username,
+    displayName: p.displayName,
+    avatarUrl: p.avatarUrl,
+    bio: p.bio,
+    links: { website: p.website, x: p.x, github: p.github, linkedin: p.linkedin },
+    followers: p.followerCount,
+    urls: { profile: `${SITE_URL}/u/${p.username}` },
+  };
+}

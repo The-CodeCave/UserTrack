@@ -16,6 +16,7 @@ import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { ProfileForm } from "@/components/app/profile-form";
 import { SaasForm } from "@/components/app/saas-form";
 import { ConnectSource, SourceStatus } from "@/components/app/connect-source";
+import { AiSetup, SetupChooser } from "@/components/app/ai-setup";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCompact } from "@/lib/format";
@@ -23,12 +24,23 @@ import { saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 const STEPS = ["Profile", "Your SaaS", "Data source", "Publish"] as const;
+const AI_STEPS = ["Profile", "Set up with AI", "Live"] as const;
+const MODE_KEY = "ut:onboarding-mode";
+type Mode = "choose" | "ai" | "manual";
+
+function readMode(): Mode {
+  if (typeof window === "undefined") return "choose";
+  const m = sessionStorage.getItem(MODE_KEY);
+  return m === "ai" || m === "manual" ? m : "choose";
+}
 
 export default function OnboardingPage() {
   const router = useRouter();
   const me = useQuery(api.profiles.me);
   const mine = useQuery(api.saas.listMine);
   const [override, setOverride] = useState<{ step: number; saasId?: Id<"saas"> } | null>(null);
+  const [mode, setModeState] = useState<Mode>(readMode);
+  const [aiDone, setAiDone] = useState(false);
   const first = mine?.[0];
   const saasId = override?.saasId ?? first?._id ?? null;
   const derived =
@@ -42,10 +54,29 @@ export default function OnboardingPage() {
   const saas = useQuery(api.saas.getMine, saasId ? { id: saasId } : "skip");
   const setPublic = useMutation(api.saas.setPublic);
   const complete = useMutation(api.profiles.completeOnboarding);
+  const track = useMutation(api.onboarding.track);
+  // The AI flow owns the screen after the profile step; the agent creates the project, so `derived` must not take over.
+  const ai = mode === "ai" && step !== null && step > 0;
 
   useEffect(() => {
-    if (me?.profile?.onboardingCompleted && override?.step !== 4) router.replace("/app");
-  }, [me, override, router]);
+    if (me?.profile?.onboardingCompleted && override?.step !== 4 && !aiDone) router.replace("/app");
+  }, [me, override, aiDone, router]);
+
+  function setMode(m: Mode) {
+    setModeState(m);
+    if (m === "choose") sessionStorage.removeItem(MODE_KEY); else sessionStorage.setItem(MODE_KEY, m);
+  }
+  function pick(m: "ai" | "manual") {
+    setMode(m);
+    void track({ event: m === "ai" ? "onboarding_ai_setup_selected" : "manual_setup_selected" });
+  }
+  async function finishAi() {
+    setAiDone(true);
+    sessionStorage.removeItem(MODE_KEY);
+    await complete();
+    await track({ event: "mcp_setup_completed" });
+    toast.success("You're live!");
+  }
 
   async function publish() {
     if (!saasId) return;
@@ -59,22 +90,25 @@ export default function OnboardingPage() {
     return <div className="mx-auto max-w-xl p-6"><Skeleton className="h-8 w-48" /><Skeleton className="mt-6 h-72 w-full" /></div>;
   }
 
+  const steps = ai ? AI_STEPS : STEPS;
+  const current = ai ? (aiDone ? 2 : 1) : step;
+
   return (
     <main className="relative min-h-full flex-1 px-4 py-8 sm:py-14">
       <div aria-hidden className="bp-grid bp-grid-fade absolute inset-0 -z-10" />
       <div className="mx-auto max-w-xl">
         <Link href="/" className="mb-8 inline-block"><Logo /></Link>
-        <ol className="mb-6 grid grid-cols-4 gap-1">
-          {STEPS.map((s, i) => (
+        <ol className={cn("mb-6 grid gap-1", ai ? "grid-cols-3" : "grid-cols-4")}>
+          {steps.map((s, i) => (
             <li key={s} className="space-y-1.5">
-              <div className={cn("h-0.5", i < step ? "bg-pink" : i === step ? "bg-foreground" : "bg-line")} />
-              <div className={cn("font-mono text-[10px] uppercase tracking-wider", i === step ? "text-foreground" : "text-muted-foreground")}>{s}</div>
+              <div className={cn("h-0.5", i < current ? "bg-pink" : i === current ? "bg-foreground" : "bg-line")} />
+              <div className={cn("font-mono text-[10px] uppercase tracking-wider", i === current ? "text-foreground" : "text-muted-foreground")}>{s}</div>
             </li>
           ))}
         </ol>
 
         <AnimatePresence mode="wait">
-          <motion.div key={step} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+          <motion.div key={ai ? "ai" : step} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
             {step === 0 && (
               <Panel className="p-6">
                 <SectionLabel>Step 1 of 4</SectionLabel>
@@ -83,15 +117,23 @@ export default function OnboardingPage() {
                 <ProfileForm compact defaultName={me?.user.name} submitLabel="Continue" onSaved={() => setStep(1)} />
               </Panel>
             )}
-            {step === 1 && (
+            {ai && <AiSetup onDone={finishAi} onSwitchToManual={() => pick("manual")} />}
+            {!ai && step === 1 && (
               <Panel className="p-6">
                 <SectionLabel>Step 2 of 4</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Add your SaaS</h1>
-                <p className="mb-6 mt-1 text-sm text-muted-foreground">You can add more products later from the dashboard.</p>
-                <SaasForm submitLabel="Continue" onSaved={(id) => setStep(2, id)} />
+                <p className="mb-6 mt-1 text-sm text-muted-foreground">{mode === "manual" ? "You can add more products later from the dashboard." : "Pick how you want to get on the board."}</p>
+                {mode === "manual" ? (
+                  <>
+                    <SaasForm submitLabel="Continue" onSaved={(id) => setStep(2, id)} />
+                    <button type="button" onClick={() => pick("ai")} className="mt-4 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">Set up with AI instead</button>
+                  </>
+                ) : (
+                  <SetupChooser onPick={pick} />
+                )}
               </Panel>
             )}
-            {step === 2 && saasId && (
+            {!ai && step === 2 && saasId && (
               <Panel className="p-6">
                 <SectionLabel>Step 3 of 4</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Connect a data source</h1>
@@ -99,7 +141,7 @@ export default function OnboardingPage() {
                 <ConnectSource saasId={saasId} onConnected={() => setStep(3)} />
               </Panel>
             )}
-            {step === 3 && saas && (
+            {!ai && step === 3 && saas && (
               <Panel className="p-6">
                 <SectionLabel>Step 4 of 4</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Publish your growth page</h1>
@@ -119,7 +161,7 @@ export default function OnboardingPage() {
                 </div>
               </Panel>
             )}
-            {step === 4 && saas && <Celebrate slug={saas.slug} id={saas._id} />}
+            {!ai && step === 4 && saas && <Celebrate slug={saas.slug} id={saas._id} />}
           </motion.div>
         </AnimatePresence>
       </div>

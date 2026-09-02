@@ -17,6 +17,7 @@ export const providerKind = v.union(
 export const integrationRole = v.union(v.literal("users"), v.literal("activation"), v.literal("traffic"), v.literal("revenue"));
 export const syncStatus = v.union(v.literal("ok"), v.literal("error"), v.literal("running"));
 export const trustState = v.union(v.literal("healthy"), v.literal("anomaly"), v.literal("review"), v.literal("low_confidence"));
+export const tokenType = v.union(v.literal("api"), v.literal("mcp"));
 
 export default defineSchema({
   profiles: defineTable({
@@ -254,4 +255,43 @@ export default defineSchema({
   })
     .index("by_profile_week", ["profileId", "weekKey"])
     .index("by_week", ["weekKey"]),
+
+  // Developer credentials (public API keys + MCP tokens). Only the SHA-256 hash of the secret is stored.
+  developerTokens: defineTable({
+    profileId: v.id("profiles"),
+    type: tokenType,
+    name: v.string(),
+    prefix: v.string(),
+    hash: v.string(),
+    scopes: v.array(v.string()),
+    origin: v.optional(v.union(v.literal("settings"), v.literal("onboarding"))),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+  })
+    .index("by_hash", ["hash"])
+    .index("by_profile", ["profileId"]),
+
+  // Bucketed usage counters (one row per token, UTC day and endpoint category) for quotas and the usage dashboard.
+  apiUsage: defineTable({
+    tokenId: v.id("developerTokens"),
+    day: v.string(),
+    category: v.string(),
+    count: v.number(),
+    updatedAt: v.number(),
+  }).index("by_token_day", ["tokenId", "day"]),
+
+  // Audit trail for token-authenticated writes and onboarding funnel events. Never contains secrets or configs.
+  auditLogs: defineTable({
+    profileId: v.id("profiles"),
+    tokenId: v.optional(v.id("developerTokens")),
+    action: v.string(),
+    saasId: v.optional(v.id("saas")),
+    ok: v.boolean(),
+    detail: v.optional(v.string()),
+    at: v.number(),
+  })
+    .index("by_token_time", ["tokenId", "at"])
+    .index("by_profile_time", ["profileId", "at"]),
 });

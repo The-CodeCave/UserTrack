@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { RANGE_MS, RANGES, DAY, dayKey } from "./lib/time";
-import { toSeries, SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
+import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
+import { seriesFor } from "./domain/metrics";
 import { publicTrustLabel } from "./lib/trust";
 import { explainTrending } from "./lib/trending";
 import { getProvider } from "./providers";
@@ -157,14 +158,7 @@ export const series = query({
   handler: async (ctx, { slug, range }) => {
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
     if (!s || !s.isPublic) return null;
-    const ms = RANGE_MS[range];
-    const cutoff = ms === null ? 0 : Date.now() - ms;
-    if (range === "24h" || range === "7d") {
-      const rows = await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", s._id).gte("capturedAt", cutoff)).collect();
-      return toSeries(rows);
-    }
-    const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).gte("day", dayKey(cutoff))).collect();
-    return rows.map((r) => ({ t: Date.parse(`${r.day}T12:00:00Z`), total: r.totalUsers, delta: r.newUsers, activated: r.activatedUsers, visitors: s.showTraffic ? r.visitors : undefined }));
+    return seriesFor(ctx, s, range);
   },
 });
 

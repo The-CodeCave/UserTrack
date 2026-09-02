@@ -2,7 +2,7 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, or a human decision. Developer work is **not** listed here — it is done.
 
-Last updated: 2026-09-02 (Google sign-in + usertrack.dev).
+Last updated: 2026-09-02 (Public API keys + MCP server + AI onboarding).
 
 ## Critical Before Production
 
@@ -56,7 +56,7 @@ Convex dashboard → usertrack → Development *and* Production → Settings →
 ### Point usertrack.dev at production
 
 **Why this is needed**
-The domain is decided: `usertrack.dev`. Public pages, OG images, badges, the API and — new — the Google OAuth redirect URI all depend on it. Until this is done the app lives on `usertrack-production.up.railway.app` and Google sign-in on production cannot be configured correctly.
+The domain is decided: `usertrack.dev`. Public pages, OG images, badges, the API, the MCP endpoint (`https://usertrack.dev/mcp`, printed in every agent config snippet) and the Google OAuth redirect URI all depend on it. As of 2026-09-02 `usertrack.dev` does not resolve at all (no DNS records), so the app — including `/api/v1`, `/mcp` and `/developers` — is only reachable on `usertrack-production.up.railway.app`. The docs and the OpenAPI/MCP discovery documents render whatever `NEXT_PUBLIC_SITE_URL` is set to, so they will be correct automatically once the variables below are changed.
 
 **Where**
 Railway → project `usertrack` → service `usertrack` → Settings → Networking → Custom Domain; your DNS provider (registrar for `usertrack.dev`).
@@ -67,6 +67,7 @@ Railway → project `usertrack` → service `usertrack` → Settings → Network
 3. Convex prod: `npx convex env set --prod SITE_URL https://usertrack.dev` (Better Auth base URL, trusted origin, OAuth redirect, digest links).
 4. Redeploy so the URL is baked into the client bundle: `railway up --service usertrack --ci`.
 5. Google Search Console → add property `usertrack.dev` → submit `https://usertrack.dev/sitemap.xml`.
+6. Re-run the smoke test on the new domain: `curl https://usertrack.dev/api/v1/leaderboard?limit=1`, `curl https://usertrack.dev/mcp` (JSON discovery), open `https://usertrack.dev/developers`.
 
 **Value to provide**
 Nothing — just perform the steps.
@@ -80,6 +81,34 @@ Railway → usertrack → Variables (`NEXT_PUBLIC_SITE_URL`); Convex prod env (`
 ---
 
 ## Recommended
+
+### Submit the UserTrack MCP server to agent directories
+
+**Why this is needed**
+The MCP server is live (`/mcp`, Streamable HTTP, Bearer `ut_mcp_…` tokens) and documented at `/developers#mcp` and `docs/MCP.md`. Listings in the public MCP registries make "Add UserTrack MCP" a one-click action in Cursor/Claude/VS Code and are a real acquisition channel — but every registry requires a human-owned account, a GitHub login or a manual review, so the agent cannot submit.
+
+**Where**
+- Official MCP Registry → https://registry.modelcontextprotocol.io (publish via `mcp-publisher` CLI with a GitHub login)
+- Cursor MCP directory → https://cursor.com/directory (submission form)
+- Smithery → https://smithery.ai (GitHub login)
+- Glama / PulseMCP / mcp.so — submission forms
+
+**Steps**
+1. Wait until `usertrack.dev` points at production (item above) so the endpoint URL is final.
+2. Use these values in every listing: name `UserTrack`, endpoint `https://usertrack.dev/mcp`, transport `streamable-http`, auth `Bearer token` (create at `https://usertrack.dev/app/developer`), docs `https://usertrack.dev/developers#mcp`, description "The growth data layer for SaaS: let your coding agent add your SaaS to UserTrack, configure verified user tracking and read growth metrics, ranks and milestones."
+3. For the official registry: `npm i -g @modelcontextprotocol/publisher` (or the `mcp-publisher` binary) → `mcp-publisher login github` → create `server.json` with the remote entry above (`"remotes": [{ "type": "streamable-http", "url": "https://usertrack.dev/mcp" }]`) → `mcp-publisher publish`.
+4. Paste the resulting listing URLs into `docs/MCP.md` under "Where to find it".
+
+**Values required**
+GitHub account with rights to publish under a `io.github.<org>/usertrack` (or DNS-verified `dev.usertrack/…`) namespace.
+
+**Where to enter them**
+The registry CLIs / web forms above (nothing in the codebase).
+
+**Status**
+* [ ] Pending
+
+---
 
 ### Enable weekly digest emails (Resend)
 
@@ -142,9 +171,9 @@ Today Convex production is deployed from a logged-in laptop (`npx convex deploy`
 
 **Value to provide** `CONVEX_DEPLOY_KEY` · **Where** Railway variables · **Status** [ ] Optional
 
-### Edge rate limiting for the public API
+### Edge rate limiting for the public API and MCP
 
-The API has an in-process token bucket (60 req/min/IP). It resets on deploy and is per instance, which is fine for one Railway replica. If you scale to multiple replicas or get abused, put Cloudflare (or Railway's proxy rules) in front of `/api/v1/*`. No code change needed. **Status** [ ] Optional
+Per-key / per-token daily quotas live in Convex (`apiUsage`, survives deploys). The burst buckets (60 req/min per IP anonymous, 120/min per API key, 60 tool calls/min per MCP token) are in-process and reset on deploy, which is fine for one Railway replica. If you scale to multiple replicas or get abused, put Cloudflare (or Railway's proxy rules) in front of `/api/v1/*` and `/mcp`. No code change needed. **Status** [ ] Optional
 
 ### Provider credentials for end-to-end testing
 

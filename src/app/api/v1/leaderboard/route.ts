@@ -15,7 +15,7 @@ const BOOLS = ["true", "false"] as const;
 const oneOf = <T extends string>(v: string | null, list: readonly T[]): T | undefined | null => (v === null ? undefined : (list as readonly string[]).includes(v) ? (v as T) : null);
 const bad = (name: string, list: readonly string[]) => fail("bad_request", `${name} must be one of ${list.join(", ")}`, 400);
 
-export const GET = withApi(async (req: Request) => {
+export const GET = withApi("leaderboard", async (req: Request) => {
   const q = new URL(req.url).searchParams;
   const board = oneOf(q.get("board"), BOARDS);
   if (board === null) return bad("board", BOARDS);

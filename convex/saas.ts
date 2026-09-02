@@ -3,9 +3,8 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { getProfileForUser, requireProfile } from "./profiles";
-import { slugify, RESERVED } from "../src/lib/slug";
-import { CATEGORY_SLUGS } from "../src/lib/categories";
-import { getProvider } from "./providers";
+import { createProject, updateProject } from "./domain/projects";
+import { integrationView } from "./domain/integrations";
 import { percentileOf } from "./lib/benchmarks";
 import { sizeBucket } from "./lib/metrics";
 import { publicTrustLabel } from "./lib/trust";
@@ -17,17 +16,6 @@ export async function requireOwnedSaas(ctx: QueryCtx | MutationCtx, id: Id<"saas
   return { profile, saas };
 }
 
-async function uniqueSlug(ctx: MutationCtx, base: string, ignore?: Id<"saas">) {
-  const root = slugify(base) || "saas";
-  for (let i = 0; i < 50; i++) {
-    const slug = i === 0 ? root : `${root}-${i + 1}`;
-    if (RESERVED.has(slug)) continue;
-    const hit = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
-    if (!hit || hit._id === ignore) return slug;
-  }
-  throw new Error("Could not find a free slug");
-}
-
 const editable = {
   name: v.string(),
   description: v.string(),
@@ -37,38 +25,11 @@ const editable = {
   tags: v.array(v.string()),
 };
 
-function normalize(args: { name: string; description: string; websiteUrl: string; tags: string[]; logoUrl?: string; category?: string }) {
-  const name = args.name.trim();
-  if (name.length < 2) throw new Error("Name is too short");
-  if (!/^https?:\/\//.test(args.websiteUrl.trim())) throw new Error("Website must start with https://");
-  if (args.category && !CATEGORY_SLUGS.has(args.category)) throw new Error("Unknown category");
-  return {
-    name,
-    description: args.description.trim().slice(0, 160),
-    websiteUrl: args.websiteUrl.trim(),
-    logoUrl: args.logoUrl?.trim() || undefined,
-    category: args.category || undefined,
-    tags: [...new Set(args.tags.map((t) => t.trim().toLowerCase()).filter(Boolean))].slice(0, 5),
-  };
-}
-
 export const create = mutation({
   args: editable,
   handler: async (ctx, args) => {
     const { profile } = await requireProfile(ctx);
-    const data = normalize(args);
-    return ctx.db.insert("saas", {
-      ...data,
-      ownerId: profile._id,
-      slug: await uniqueSlug(ctx, data.name),
-      isPublic: false,
-      trust: "pending",
-      totalUsers: 0,
-      newUsers24h: 0,
-      newUsers7d: 0,
-      newUsers30d: 0,
-      growth30dPct: 0,
-    });
+    return createProject(ctx, profile._id, args);
   },
 });
 
@@ -76,10 +37,7 @@ export const update = mutation({
   args: { id: v.id("saas"), ...editable, slug: v.optional(v.string()) },
   handler: async (ctx, { id, slug, ...args }) => {
     const { saas } = await requireOwnedSaas(ctx, id);
-    const data = normalize(args);
-    const patch: Partial<Doc<"saas">> = data;
-    if (slug && slugify(slug) !== saas.slug) patch.slug = await uniqueSlug(ctx, slug, id);
-    await ctx.db.patch(id, patch);
+    await updateProject(ctx, saas, { ...args, slug });
   },
 });
 
@@ -143,20 +101,7 @@ export const getMine = query({
     return {
       ...saas,
       trustLabel: publicTrustLabel(saas.trust, saas.trustState, saas.trustScore),
-      integrations: integrations.map((i) => ({
-        _id: i._id,
-        role: i.role ?? ("users" as const),
-        provider: i.provider,
-        status: i.status,
-        trust: i.trust,
-        lastError: i.lastError,
-        lastSyncAt: i.lastSyncAt,
-        lastSuccessAt: i.lastSuccessAt,
-        lastFailureAt: i.lastFailureAt,
-        consecutiveFailures: i.consecutiveFailures ?? 0,
-        connectedAt: i.connectedAt ?? i._creationTime,
-        publicConfig: getProvider(i.provider).publicConfig(i.config),
-      })),
+      integrations: integrations.map((i) => ({ _id: i._id, ...integrationView(i) })),
       // Neutral wording only; the owner sees that something is being reviewed, not an accusation.
       review: flags.length ? { count: flags.length, kinds: flags.map((f) => f.kind) } : null,
       milestones: milestones.map((m) => ({ _id: m._id, key: m.key, kind: m.kind, title: m.title, copy: m.copy, value: m.value, achievedAt: m.achievedAt })),

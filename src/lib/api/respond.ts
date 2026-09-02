@@ -1,14 +1,13 @@
+import { PLANS } from "@convex/lib/tokens";
 import { LIMIT, take } from "./rate-limit";
+import { authorize, bearer, hashSecret, STATUS, toFailure, type GatewayCode } from "./gateway";
 
-export type ErrorCode = "not_found" | "bad_request" | "rate_limited" | "internal";
+export type ErrorCode = GatewayCode | "internal";
 
-const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key" };
 
-export function ok(data: unknown, extra: Record<string, unknown> = {}) {
-  return Response.json(
-    { data, meta: { version: "v1", generatedAt: new Date().toISOString(), ...extra } },
-    { headers: { ...CORS, "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } },
-  );
+export function ok(data: unknown, extra: Record<string, unknown> = {}, cache = "public, s-maxage=300, stale-while-revalidate=600") {
+  return Response.json({ data, meta: { version: "v1", generatedAt: new Date().toISOString(), ...extra } }, { headers: { ...CORS, "Cache-Control": cache } });
 }
 
 export function fail(code: ErrorCode, message: string, status: number, headers: Record<string, string> = {}) {
@@ -19,22 +18,47 @@ export function options() {
   return new Response(null, { status: 204, headers: { ...CORS, "Access-Control-Max-Age": "86400" } });
 }
 
-export function withApi<C>(handler: (req: Request, ctx: C) => Promise<Response>) {
+type Limits = { limit: number; remaining: number; window: "minute" | "day"; resetAt?: number };
+
+// Anonymous callers share an IP bucket; API keys (ut_api_) get the per-key daily quota plus a burst bucket. Same handler either way.
+export function withApi<C>(category: string, handler: (req: Request, ctx: C) => Promise<Response>) {
   return async (req: Request, ctx: C) => {
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
-    const rl = take(ip);
+    const key = bearer(req);
     let res: Response;
-    if (!rl.allowed) res = fail("rate_limited", `Rate limit of ${LIMIT} requests per minute exceeded`, 429, { "Retry-After": String(rl.retryAfterSec) });
-    else {
+    let limits: Limits;
+    if (key) {
+      const burst = PLANS.free.api.burstPerMinute;
+      const b = take(`key:${hashSecret(key)}`, Date.now(), burst);
+      if (!b.allowed) return finish(fail("rate_limited", `Burst limit of ${burst} requests per minute exceeded`, 429, { "Retry-After": String(b.retryAfterSec) }), { limit: burst, remaining: 0, window: "minute" });
       try {
-        res = await handler(req, ctx);
+        const a = await authorize(key, "api", category);
+        limits = { limit: a.limit.perDay, remaining: a.limit.remaining, window: "day", resetAt: a.limit.resetAt };
       } catch (e) {
-        console.error("[api]", e);
-        res = fail("internal", "Internal error", 500);
+        const f = toFailure(e);
+        if (!f) throw e;
+        return finish(fail(f.code, f.message, STATUS[f.code], f.retryAfterSec ? { "Retry-After": String(f.retryAfterSec) } : {}), { limit: f.limit ?? PLANS.free.api.perDay, remaining: 0, window: "day", resetAt: f.resetAt });
       }
+    } else {
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
+      const rl = take(`ip:${ip}`);
+      limits = { limit: LIMIT, remaining: rl.remaining, window: "minute" };
+      if (!rl.allowed) return finish(fail("rate_limited", `Rate limit of ${LIMIT} requests per minute exceeded. Use an API key for 1,000 requests per day.`, 429, { "Retry-After": String(rl.retryAfterSec) }), limits);
     }
-    res.headers.set("X-RateLimit-Limit", String(LIMIT));
-    res.headers.set("X-RateLimit-Remaining", String(rl.remaining));
-    return res;
+    try {
+      res = await handler(req, ctx);
+    } catch (e) {
+      console.error("[api]", e);
+      res = fail("internal", "Internal error", 500);
+    }
+    if (key) res.headers.set("Cache-Control", "private, no-store");
+    return finish(res, limits);
   };
+}
+
+function finish(res: Response, l: Limits) {
+  res.headers.set("X-RateLimit-Limit", String(l.limit));
+  res.headers.set("X-RateLimit-Remaining", String(Math.max(0, l.remaining)));
+  res.headers.set("X-RateLimit-Window", l.window);
+  if (l.resetAt) res.headers.set("X-RateLimit-Reset", String(Math.floor(l.resetAt / 1000)));
+  return res;
 }
