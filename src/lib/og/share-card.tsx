@@ -1,8 +1,6 @@
-import { ImageResponse } from "next/og";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
-import { ogWordmark, OgFrame, OgSpark, OgBadge, PINK, MUTED } from "@/lib/og/frame";
-import { ogFonts } from "@/lib/og/fonts";
+import { OgFrame, OgChart, OgEyebrow, OgLogo, OgBadge, ogImage, ogWordmark, remoteImage, truncate, PINK, MUTED, INK, HOST } from "@/lib/og/frame";
 import { parseShareKind, shareCopy, SHARE_SIZES, type ShareEvent, type ShareSize } from "@/lib/share";
 
 export async function loadShare(slug: string, kindRaw: string) {
@@ -25,25 +23,53 @@ export async function renderShareCard(slug: string, kind: string, size: ShareSiz
   const d = await loadShare(slug, kind);
   const base = d ? await fetchQuery(api.public.saasBySlug, { slug }) : null;
   const c = d && base ? shareCopy(base, d.kind, d.m) : { eyebrow: "USERTRACK", value: "Not found", sub: "" };
+  const logo = await remoteImage(base?.logoUrl);
   const square = size === "square";
-  const big = c.value.length <= 8;
-  const valueSize = square ? (big ? 190 : d?.m ? 72 : 120) : big ? 150 : d?.m ? 64 : 96;
-  return new ImageResponse(
-    (
-      <OgFrame wordmark={await ogWordmark()} footer={c.eyebrow}>
-        <div style={{ display: "flex", flexDirection: square ? "column" : "row", justifyContent: "space-between", alignItems: square ? "flex-start" : "flex-end", gap: 40 }}>
-          <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <div style={{ display: "flex", fontSize: 40, letterSpacing: -1, color: MUTED, maxWidth: square ? 900 : 640, overflow: "hidden" }}>{base?.name ?? ""}</div>
-              {base && <OgBadge trust={base.trust} />}
-            </div>
-            <div style={{ display: "flex", marginTop: 8, fontSize: valueSize, lineHeight: 1.05, letterSpacing: big ? -6 : -2, color: PINK, maxWidth: square ? 960 : 760 }}>{c.value}</div>
-            <div style={{ display: "flex", marginTop: 16, fontSize: square ? 30 : 26, color: "#f4f4f5", maxWidth: square ? 960 : 720 }}>{c.sub}</div>
-          </div>
-          <div style={{ display: "flex" }}>{base && <OgSpark values={base.spark} width={square ? 960 : 340} height={square ? 220 : 130} />}</div>
-        </div>
-      </OgFrame>
-    ),
-    { ...SHARE_SIZES[size], fonts: await ogFonts(), headers: { "Cache-Control": "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400" } },
+  const dim = SHARE_SIZES[size];
+  const short = c.value.length <= 9;
+  const value = square ? (short ? 210 : 78) : short ? 168 : 66;
+
+  const head = (
+    <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+      <OgLogo name={base?.name ?? "?"} src={logo} size={square ? 82 : 62} radius={14} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ display: "flex", fontSize: square ? 46 : 38, fontWeight: 600, letterSpacing: -1.2, color: INK }}>{truncate(base?.name ?? "Not found", 26)}</div>
+        {square && <div style={{ display: "flex", fontSize: 25, color: MUTED }}>{truncate(base?.description ?? "", 52)}</div>}
+      </div>
+    </div>
+  );
+
+  return ogImage(
+    <OgFrame
+      wordmark={await ogWordmark()}
+      square={square}
+      chips={base ? <OgBadge trust={base.trust} /> : null}
+      top={square ? head : undefined}
+      chartFloat
+      chart={<OgChart values={base?.spark ?? []} width={dim.width} height={square ? 400 : 268} fade />}
+      footerLeft={`${HOST}/s/${slug}`}
+      footerRight={base?.rank ? `#${base.rank} on the leaderboard` : "Verified user growth"}
+    >
+      {!square && head}
+      <div style={{ display: "flex", marginTop: square ? 0 : 30 }}>
+        <OgEyebrow>{c.eyebrow}</OgEyebrow>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          marginTop: 6,
+          fontSize: value,
+          fontWeight: 700,
+          lineHeight: 1.04,
+          letterSpacing: short ? -8 : -2.4,
+          color: PINK,
+          maxWidth: square ? 940 : 1060,
+        }}
+      >
+        {truncate(c.value, 46)}
+      </div>
+      <div style={{ display: "flex", marginTop: 14, fontSize: square ? 34 : 30, color: MUTED, maxWidth: square ? 930 : 1000 }}>{truncate(c.sub, 84)}</div>
+    </OgFrame>,
+    dim,
   );
 }

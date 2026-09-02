@@ -3,16 +3,16 @@ import { OG_SIZE } from "@/lib/og/frame";
 
 export const size = OG_SIZE;
 export const contentType = "image/png";
-export const alt = "UserTrack leaderboard";
+export const alt = "SaaS with the most new users";
 export const revalidate = 300;
 
 export default async function Image() {
   return renderBoardOg({
     board: "most-new",
     window: "30d",
-    eyebrow: "Leaderboard · 30 days",
-    path: "/leaderboard",
-    title: "Who is gaining users right now",
-    sub: "Every SaaS on the board is ranked by verified new users, pulled read-only from its own auth provider.",
+    eyebrow: "Most new users · 30 days",
+    path: "/most-new-users",
+    title: "SaaS with the most new users",
+    sub: "Absolute verified new users in the window. Size-neutral boards: trending and fastest growing.",
   });
 }

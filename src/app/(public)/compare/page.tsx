@@ -31,8 +31,9 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
   const days = parseDays(sp.days);
   const title = slugs.length ? `Compare ${slugs.join(" vs ")}` : "Compare SaaS growth";
   const description = "Compare user growth, activation and trending scores of up to four SaaS products side by side.";
-  const og = slugs.length >= 2 ? [`${SITE_URL}/compare/og?s=${slugs.join(",")}&days=${daysParam(days)}`] : undefined;
-  return { title, description, alternates: { canonical: `${SITE_URL}/compare` }, openGraph: { title, description, images: og }, twitter: { card: "summary_large_image", title, description, images: og } };
+  // Only set `images` when there is a live comparison — an explicit `undefined` would suppress the opengraph-image file.
+  const images = slugs.length >= 2 ? { images: [`${SITE_URL}/compare/og?s=${slugs.join(",")}&days=${daysParam(days)}`] } : {};
+  return { title, description, alternates: { canonical: `${SITE_URL}/compare` }, openGraph: { title, description, ...images }, twitter: { card: "summary_large_image", title, description, ...images } };
 }
 
 export default async function ComparePage({ searchParams }: { searchParams: Promise<{ s?: string; days?: string }> }) {
