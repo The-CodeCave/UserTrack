@@ -33,9 +33,18 @@ export interface SaasRow {
   visitors30d?: number;
   sessions30d?: number;
   visitorsPrev30d?: number;
-  payingUsers?: number;
-  mrr?: number;
-  currency?: string;
+  trialUsers?: number;
+  convertedUsers?: number;
+  newConverted7d?: number;
+  newConverted30d?: number;
+  convertedGrowth30dPct?: number;
+  signupToConvertedPct?: number;
+  activatedToConvertedPct?: number;
+  trialToConvertedPct?: number;
+  identityQuality?: "aggregate_only" | "partially_mapped" | "cohort_verified";
+  projectType?: "web" | "mobile" | "hybrid";
+  appStoreUrl?: string;
+  playStoreUrl?: string;
   rank?: number;
   prevRank?: number;
   trendingRank?: number;
@@ -59,6 +68,8 @@ export function saasDto(r: SaasRow) {
     category: r.category,
     tags: r.tags,
     demo: r.isDemo === true,
+    projectType: r.projectType,
+    stores: r.appStoreUrl || r.playStoreUrl ? { appStore: r.appStoreUrl, googlePlay: r.playStoreUrl } : undefined,
     trust: { level: r.trust, label: r.trustLabel, score: r.trust === "verified" ? r.trustScore : undefined },
     metrics: {
       totalUsers: r.totalUsers,
@@ -70,8 +81,11 @@ export function saasDto(r: SaasRow) {
       activated: r.activatedUsers === undefined ? undefined : { total: r.activatedUsers, last24h: r.activated24h, last7d: r.activated7d, last30d: r.activated30d, ratePct: r.activationRatePct },
       retention: r.retentionRatePct === undefined ? undefined : { retainedUsers: r.retainedUsers ?? 0, churnedUsers: r.churnedUsers ?? 0, ratePct: r.retentionRatePct, source: r.retentionSource ?? "estimated" },
       traffic: r.visitors30d === undefined ? undefined : { visitors30d: r.visitors30d, sessions30d: r.sessions30d, visitorsPrev30d: r.visitorsPrev30d },
-      revenue: r.payingUsers === undefined ? undefined : { payingUsers: r.payingUsers, mrr: r.mrr, currency: r.currency },
+      conversion: conversionMetrics(r),
+      // Deprecated alias kept for v1 clients; amounts are never exposed.
+      revenue: r.convertedUsers === undefined ? undefined : { payingUsers: r.convertedUsers },
     },
+    identityQuality: r.identityQuality,
     ranks: { leaderboard: r.rank, previousLeaderboard: r.prevRank, trending: r.trendingRank, previousTrending: r.prevTrendingRank, trendingScore7d: r.trendingScore7d },
     followers: r.followerCount ?? 0,
     owner: r.owner ? { username: r.owner.username, displayName: r.owner.displayName } : undefined,
@@ -123,14 +137,72 @@ export function profileDto(p: { username: string; displayName: string; avatarUrl
   };
 }
 
-// Funnel: stages carry their own provenance so a mixed funnel is never presented as "verified".
-export function funnelDto(f: { timeframe: string; days: number; verification: string; coverageDays: number; stages: { key: string; label: string; value: number; previous?: number; changePct?: number; conversionPct?: number; previousConversionPct?: number; kind: string; source?: { provider: string; label: string; verification: string } }[] }) {
+// Conversion group: only present when the owner published a conversion rate or count (visibility gating happens server-side).
+function conversionMetrics(r: SaasRow) {
+  if (r.signupToConvertedPct === undefined && r.convertedUsers === undefined && r.trialToConvertedPct === undefined) return undefined;
+  return {
+    convertedUsers: r.convertedUsers,
+    newConverted7d: r.newConverted7d,
+    newConverted30d: r.newConverted30d,
+    convertedGrowth30dPct: r.convertedGrowth30dPct,
+    trialUsers: r.trialUsers,
+    signupToConvertedPct: r.signupToConvertedPct,
+    activatedToConvertedPct: r.activatedToConvertedPct,
+    trialToConvertedPct: r.trialToConvertedPct,
+  };
+}
+
+export function conversionDto(r: SaasRow) {
+  const c = conversionMetrics(r);
+  return { slug: r.slug, name: r.name, verification: r.trust, basis: "aggregate" as const, identityQuality: r.identityQuality ?? "aggregate_only", conversion: c ?? null, note: c ? undefined : "The owner has not published conversion metrics.", updatedAt: iso(r.lastSyncedAt), urls: { page: `${SITE_URL}/s/${r.slug}#conversion` } };
+}
+
+export function engagementDto(r: SaasRow) {
+  const e = r.activatedUsers === undefined ? null : { activatedUsers: r.activatedUsers, activated7d: r.activated7d, activated30d: r.activated30d, activationRatePct: r.activationRatePct, retention: r.retentionRatePct === undefined ? undefined : { retainedUsers: r.retainedUsers ?? 0, churnedUsers: r.churnedUsers ?? 0, ratePct: r.retentionRatePct, source: r.retentionSource ?? "estimated" } };
+  return { slug: r.slug, name: r.name, verification: r.trust, engagement: e, note: e ? undefined : "No activation source connected, or the owner has not published the activation rate.", updatedAt: iso(r.lastSyncedAt), urls: { page: `${SITE_URL}/s/${r.slug}#engagement` } };
+}
+
+type FunnelSourceIn = { provider: string; label: string; verification: string; updatedAt?: number; status?: string; trial?: boolean; identity?: boolean };
+type FunnelIn = {
+  timeframe: string; days: number; verification: string; coverageDays: number; basis?: string; identityQuality?: string;
+  stages: { key: string; label: string; value: number | null; previous?: number; changePct?: number; conversionPct?: number; previousConversionPct?: number; kind: string; source?: FunnelSourceIn; updatedAt?: number; health?: string }[];
+  rates?: { from: string; to: string; label: string; pct?: number; previousPct?: number; adjacent: boolean }[];
+};
+
+// Funnel: stages carry their own provenance so a mixed funnel is never presented as "verified". value is null when the owner shares the rate but not the count.
+export function funnelDto(f: FunnelIn) {
   return {
     timeframe: f.timeframe,
     days: f.days,
     verification: f.verification,
     coverageDays: f.coverageDays,
-    stages: f.stages.map((s) => ({ key: s.key, label: s.label, value: s.value, previous: s.previous, changePct: s.changePct, conversionPct: s.conversionPct, previousConversionPct: s.previousConversionPct, kind: s.kind, source: s.source ? { provider: s.source.provider, label: s.source.label, verification: s.source.verification } : undefined })),
+    basis: f.basis ?? "aggregate",
+    identityQuality: f.identityQuality ?? "aggregate_only",
+    stages: f.stages.map((s) => ({
+      key: s.key, label: s.label, value: s.value, previous: s.previous, changePct: s.changePct, conversionPct: s.conversionPct, previousConversionPct: s.previousConversionPct, kind: s.kind,
+      verified: s.source?.verification === "verified",
+      health: s.health,
+      updatedAt: iso(s.updatedAt),
+      source: s.source ? { provider: s.source.provider, label: s.source.label, verification: s.source.verification } : undefined,
+    })),
+    rates: (f.rates ?? []).map((r) => ({ from: r.from, to: r.to, label: r.label, pct: r.pct, previousPct: r.previousPct, adjacent: r.adjacent })),
+  };
+}
+
+type CohortRow = { cohort: string; signedUp: number | null; activated: number | null; activationPct?: number; activatedD7Pct?: number; trial?: number | null; trialPct?: number; converted?: number | null; convertedPct?: number; convertedD30Pct?: number; trialToConvertedPct?: number; medianTimeToActivationMs?: number; medianTimeToConversionMs?: number; computedAt: number };
+export function cohortsDto(slug: string, c: { identityQuality: string; label: string; explanation: string; basis: string; cohorts: CohortRow[] }) {
+  return {
+    slug,
+    basis: c.basis,
+    identityQuality: c.identityQuality,
+    identityQualityLabel: c.label,
+    explanation: c.explanation,
+    cohorts: c.cohorts.map((r) => ({
+      cohort: r.cohort, signedUp: r.signedUp, activated: r.activated, activationPct: r.activationPct, activatedD7Pct: r.activatedD7Pct,
+      trial: r.trial, trialPct: r.trialPct, converted: r.converted, convertedPct: r.convertedPct, convertedD30Pct: r.convertedD30Pct, trialToConvertedPct: r.trialToConvertedPct,
+      medianTimeToActivationMs: r.medianTimeToActivationMs, medianTimeToConversionMs: r.medianTimeToConversionMs, computedAt: iso(r.computedAt),
+    })),
+    note: c.cohorts.length ? undefined : "No cohorts yet: cohorts need pseudonymous identities from at least two connected stages.",
   };
 }
 

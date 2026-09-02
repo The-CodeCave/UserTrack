@@ -5,7 +5,7 @@ Momentum, not size. The score answers "which products are growing unusually righ
 ## Formula
 
 ```
-score = 100 · volume · growth · acceleration · trust · activation · freshness · history      (rounded to 0.1)
+score = 100 · volume · growth · acceleration · trust · activation · conversion · freshness · history      (rounded to 0.1)
 ```
 
 | Factor | Definition | Range | Why |
@@ -15,6 +15,7 @@ score = 100 · volume · growth · acceleration · trust · activation · freshn
 | `acceleration` | `1 + 0.5 · clamp((new − prev) / max(prev, 10), −0.5, 2)` | 0.75 … 2 | This window vs the previous one; the 10-user floor keeps `0 → 3` from counting as infinite acceleration |
 | `trust` | `0.5 + 0.5 · clamp(trustScore, 0, 100) / 100` (default score 60) | 0.5 … 1 | Low-confidence sources are discounted, never boosted |
 | `activation` | `1 + 0.25 · activationRatePct / 100`, `1` when there is no activation source | 1 … 1.25 | Small lift for products whose users actually activate |
+| `conversion` | `1 + 0.10 · clamp(signupToConvertedPct, 0, 25) / 25`, `1` without a conversion source | 1 … 1.10 | Optional quality multiplier only: a product that converts users gets a small lift, never a board of its own — trending stays about verified new users and velocity |
 | `freshness` | `1` while the last successful sync is ≤ 24 h old, linear down to `0.5` at 72 h, `0` after | 0 … 1 | A stale source is not evidence of anything |
 | `history` | `0.6 + 0.4 · min(1, trackedDays / 14)`; `1` when `firstSnapshotAt` is unknown | 0.6 … 1 | Full weight needs two weeks of continuous history; backfilled days count |
 

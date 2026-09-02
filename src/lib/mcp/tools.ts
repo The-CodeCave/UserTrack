@@ -7,8 +7,18 @@ import { TIMEFRAMES } from "@convex/domain/metrics";
 import type { Scope } from "@convex/lib/tokens";
 
 type Auth = { hash: string; gateway?: string };
-const ROLES = ["users", "activation", "traffic", "revenue"] as const;
-const PROVIDERS = ["clerk", "supabase", "firebase", "auth0", "posthog", "plausible", "ga4", "stripe", "postgres", "endpoint", "manual"] as const;
+const ROLES = ["users", "activation", "traffic", "conversion"] as const;
+const PROVIDERS = ["clerk", "supabase", "firebase", "auth0", "posthog", "plausible", "ga4", "stripe", "revenuecat", "paddle", "lemonsqueezy", "chargebee", "postgres", "endpoint", "manual"] as const;
+const PROJECT_TYPES = ["web", "mobile", "hybrid"] as const;
+
+const detectInput = {
+  detectedProviders: z.array(z.string()).optional().describe("Packages / env var names found in the repo, e.g. ['@supabase/supabase-js', 'posthog-js', 'DATABASE_URL']"),
+  framework: z.string().optional().describe("e.g. 'nextjs', 'express', 'react-native', 'expo', 'flutter', 'swiftui'"),
+  projectType: z.enum(PROJECT_TYPES).optional().describe("web (default) | mobile (iOS / Android app) | hybrid"),
+  detectedAuth: z.array(z.string()).optional().describe("Auth SDKs and sign-in methods, e.g. ['@react-native-firebase/auth', 'expo-apple-authentication', 'google-signin']. Sign in with Apple / Google are classified as auth methods, never as the users source."),
+  detectedAnalytics: z.array(z.string()).optional().describe("Product analytics SDKs, e.g. ['posthog-react-native', 'posthog-ios', 'amplitude', 'mixpanel']"),
+  detectedPayments: z.array(z.string()).optional().describe("Billing / subscription SDKs, e.g. ['react-native-purchases', 'purchases_flutter', 'stripe', '@paddle/paddle-js', 'StoreKit']. Read for conversion state only, never revenue."),
+};
 
 const ref = {
   projectId: z.string().optional().describe("UserTrack project id (from usertrack_get_projects)"),
@@ -94,13 +104,10 @@ export const TOOLS: Tool[] = [
   tool({
     name: "usertrack_get_supported_integrations",
     title: "Supported integrations",
-    description: "Catalog of supported data sources (Supabase, Clerk, Firebase, Auth0, PostgreSQL read-only, PostHog, Plausible, GA4, Stripe, JSON endpoint, manual) with roles, trust level, required credentials and what is read. Pass what you detected to get a recommendation.",
+    description: "Catalog of supported data sources (Supabase, Clerk, Firebase, Auth0, PostgreSQL read-only, PostHog, Plausible, GA4, Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee, JSON endpoint, manual) with roles (users | activation | traffic | conversion), trust level, required credentials and what is read. Pass what you detected to get a lifecycle recommendation.",
     scope: "integrations:read",
     readOnly: true,
-    input: {
-      detectedProviders: z.array(z.string()).optional().describe("e.g. ['supabase', 'posthog', 'prisma']"),
-      framework: z.string().optional().describe("e.g. 'nextjs', 'express', 'rails'"),
-    },
+    input: detectInput,
     run: (auth, a) => fetchQuery(api.gateway.supportedIntegrations, { auth, ...a }),
   }),
   tool({
@@ -112,7 +119,7 @@ export const TOOLS: Tool[] = [
     input: {
       ...ref,
       provider: z.enum(PROVIDERS),
-      role: z.enum(ROLES).optional().describe("users (default) | activation | traffic | revenue"),
+      role: z.enum(ROLES).optional().describe("users (default) | activation | traffic | conversion"),
       framework: z.string().optional(),
       detectedProviders: z.array(z.string()).optional(),
     },
@@ -206,19 +213,16 @@ const TOOLS_V04: Tool[] = [
   tool({
     name: "usertrack_get_provider_recommendation",
     title: "Provider recommendation",
-    description: "Given what you detected in the repo (packages, env vars, framework), returns the best UserTrack integration path in priority order — Supabase, Clerk, Firebase, PostgreSQL, then the universal JSON endpoint — with reasoning and optional extras (activation, traffic, revenue). Call before creating or configuring.",
+    description: "Given what you detected in the repo (packages, env vars, framework, project type), returns the lifecycle composition: the users source in priority order (Supabase, Clerk, Firebase, Auth0, PostgreSQL, then the universal JSON endpoint) plus optional activation, traffic and conversion sources, with reasoning, detected auth methods and the stages that will be available. Mobile example: Firebase Auth + Sign in with Apple + PostHog + RevenueCat → Signed up: Firebase, Activated: PostHog, Trial/Converted: RevenueCat (Sign in with Apple is an auth method, never the users source). Call before creating or configuring.",
     scope: "integrations:read",
     readOnly: true,
-    input: {
-      detectedProviders: z.array(z.string()).optional().describe("e.g. ['@supabase/supabase-js', 'posthog-js', 'DATABASE_URL']"),
-      framework: z.string().optional(),
-    },
+    input: detectInput,
     run: (auth, a) => fetchQuery(api.gateway.providerRecommendation, { auth, ...a }),
   }),
   tool({
     name: "usertrack_get_activation_setup",
     title: "Activation setup",
-    description: "How to track activated users (the first meaningful value in the product) for a project: definition, example events, recommended source given the detected stack (PostHog event, Supabase/Postgres table or SQL, endpoint) and the exact next calls. Optional step after the users source works.",
+    description: "How to track activated users (the first meaningful value in the product) for a project: definition, example events, a ranking of your candidateEvents (outcome events such as first_*, *_created, *_completed, onboarding_completed win; $pageview, app_open, session_start, login, signup, $identify, click, screen_view are rejected with a reason), the recommended source given the detected stack (PostHog event, Supabase/Postgres table or SQL, endpoint) and the exact next calls. Optional step after the users source works.",
     scope: "integrations:read",
     readOnly: true,
     input: { ...ref, detectedProviders: z.array(z.string()).optional(), candidateEvents: z.array(z.string()).optional().describe("Event names found in the repo, e.g. from posthog.capture(...) calls") },
@@ -227,7 +231,7 @@ const TOOLS_V04: Tool[] = [
   tool({
     name: "usertrack_get_funnel",
     title: "Get funnel",
-    description: "Visitors → Signups → Activated → Paying for one project over 7d / 30d / 90d with conversion rates, previous-window comparison and per-stage provenance. Only stages with a connected source are returned.",
+    description: "Lifecycle funnel Reached → Signed up → Activated → Trial → Converted for one project over 7d / 30d / 90d: per-stage counts, conversion from the previous stage, previous-window comparison, strategic rates (Signup → Converted, Activated → Converted, Trial → Converted), per-stage provenance, freshness and health. basis is 'aggregate' (period ratios); identityQuality (aggregate_only | partially_mapped | cohort_verified) says whether the same users can be traced across stages — use usertrack_get_cohorts for the cohort view. Only stages with a connected source are returned; missingStages + hint say what to connect next.",
     scope: "metrics:read",
     readOnly: true,
     input: { ...ref, timeframe: z.enum(["7d", "30d", "90d"]).optional() },
@@ -281,9 +285,49 @@ const TOOLS_V04: Tool[] = [
 ];
 TOOLS.push(...TOOLS_V04);
 
+const TOOLS_LIFECYCLE: Tool[] = [
+  tool({
+    name: "usertrack_get_conversion_setup",
+    title: "Conversion setup",
+    description: "How to add the Trial and Converted stages from a payment provider (Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee or a JSON endpoint): the recommended definition of 'converted' (active_paid default, ever_paid, first_payment), least-privilege read-only credential, identity matching (metadata.userId / app_user_id / custom_data.userId), privacy rules and the exact configure + verify calls with role 'conversion'. Payment providers are read for conversion state only — never amounts, prices, invoices or MRR. Optional; private by default.",
+    scope: "integrations:read",
+    readOnly: true,
+    input: { ...ref, provider: z.enum(["stripe", "revenuecat", "paddle", "lemonsqueezy", "chargebee", "endpoint"]).optional().describe("Omit to pick from detectedProviders (revenuecat > stripe > paddle > lemonsqueezy > chargebee > endpoint)"), detectedProviders: z.array(z.string()).optional(), projectType: z.enum(PROJECT_TYPES).optional() },
+    run: (auth, a) => fetchQuery(api.gateway.conversionSetup, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_identity_mapping",
+    title: "Identity mapping",
+    description: "How to carry one stable user id across the identity source (Firebase uid, Supabase auth id, Clerk userId…), the analytics source (posthog.identify) and the conversion source (Stripe metadata.userId, RevenueCat app_user_id, Paddle custom_data.userId, Chargebee meta_data.userId) so UserTrack can trace signup cohorts to activation and conversion. Explains how ids are salted + hashed, the identity quality levels and the Cohort Verified thresholds. Never send emails, names or phone numbers.",
+    scope: "integrations:read",
+    readOnly: true,
+    input: { ...ref, identitySource: z.string().optional().describe("Defaults to the project's users source"), analyticsSource: z.string().optional(), conversionSource: z.string().optional(), projectType: z.enum(PROJECT_TYPES).optional() },
+    run: (auth, a) => fetchQuery(api.gateway.identityMapping, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_funnel_history",
+    title: "Funnel history",
+    description: "Daily history of the strategic rates (Signup → Activated, Signup → Converted, Activated → Converted, Trial → Converted) as trailing-7-day ratios for 14–365 days. Graph-ready.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { ...ref, days: z.number().int().min(14).max(365).optional().describe("Default 90") },
+    run: (auth, a) => fetchQuery(api.gateway.funnelHistory, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_cohorts",
+    title: "Get cohorts",
+    description: "Monthly signup cohorts traced through the lifecycle from pseudonymous identities: signed up, activated (+ D7), trial, converted (+ D30), rates, median time to activation / conversion, plus identityQuality, coverage and an explanation. Empty until sources report identities (see usertrack_get_identity_mapping).",
+    scope: "metrics:read",
+    readOnly: true,
+    input: ref,
+    run: (auth, a) => fetchQuery(api.gateway.cohorts, { auth, ...a }),
+  }),
+];
+TOOLS.push(...TOOLS_LIFECYCLE);
+
 export const SETUP_WORKFLOW = [
   "usertrack_get_account",
-  "usertrack_get_provider_recommendation (pass detectedProviders + framework from the repo: Supabase → Clerk → Firebase → PostgreSQL → endpoint)",
+  "usertrack_get_provider_recommendation (pass detectedProviders / detectedAuth / detectedAnalytics / detectedPayments + framework + projectType from the repo: Supabase → Clerk → Firebase → PostgreSQL → endpoint for users; Sign in with Apple / Google are auth methods, never the users source)",
   "usertrack_create_project (idempotent by domain)",
   "usertrack_get_integration_setup (recommended provider)",
   "edit the repo only if the instructions say so (endpoint provider)",
@@ -291,12 +335,16 @@ export const SETUP_WORKFLOW = [
   "usertrack_verify_integration (wait ~5s, retry ≤3×)",
   "usertrack_update_project { isPublic: true }",
   "optional: usertrack_get_activation_setup → configure an activation source (PostHog event, Supabase/Postgres table) so the funnel shows activated users",
+  "optional: usertrack_get_conversion_setup → configure a conversion source with role \"conversion\" (Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee or endpoint) for Trial → Converted — payment providers are read for conversion state only, never revenue; private until the founder publishes it",
+  "optional: usertrack_get_identity_mapping → carry one user id across sources so cohorts become Cohort Verified",
   "usertrack_get_share_url → hand the public URL to the founder",
 ];
 
-export const SERVER_INSTRUCTIONS = `UserTrack is the growth data layer for SaaS: public growth pages, leaderboards and metrics fed by read-only data sources.
+export const SERVER_INSTRUCTIONS = `UserTrack is the growth data layer for SaaS and apps: public growth pages, leaderboards and lifecycle metrics (Reached → Signed up → Activated → Trial → Converted) fed by read-only data sources. UserTrack tracks users, not revenue.
 
 To add a SaaS repository to UserTrack, run this workflow in order:
 ${SETUP_WORKFLOW.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 
-Rules: never print or log credentials; prefer verified providers over manual numbers; only aggregate counts are ever sent to UserTrack; ask the founder for any credential you cannot find in the repo's env files.`;
+Mobile flow ("Add this iOS app to UserTrack"): projectType "mobile"; users from where accounts are stored (Firebase Auth, Supabase, Auth0, a database or a backend JSON endpoint) — Sign in with Apple / Google are auth methods, never the users source; activation from PostHog (identify(uid) + an outcome event); Trial / Converted from RevenueCat (or Stripe / endpoint); then usertrack_update_project with projectType, appStoreUrl / playStoreUrl and authMethods.
+
+Rules: never print or log credentials; prefer verified providers over manual numbers; only aggregate counts are ever sent to UserTrack; payment providers are read for conversion state only, never revenue (no amounts, prices, invoices or MRR); never send emails, names or phone numbers — identities are stable ids only; ask the founder for any credential you cannot find in the repo's env files.`;

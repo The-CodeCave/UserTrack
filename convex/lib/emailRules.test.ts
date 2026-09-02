@@ -106,12 +106,29 @@ describe("monthly report", () => {
     const noBefore = projectReport(saas, null, [{ day: "2026-08-10", totalUsers: 500, newUsers: 20 }, { day: "2026-08-11", totalUsers: 530, newUsers: 30 }], []);
     expect(noBefore).toMatchObject({ usersStart: 500, usersEnd: 530, newUsers: 50 });
   });
+  it("adds conversion (user counts only) and flags major funnel moves", () => {
+    const before = { day: "2026-07-31", totalUsers: 1000, newUsers: 10, activatedUsers: 400, convertedUsers: 50, trialUsers: 30 };
+    const rows = [
+      { day: "2026-08-01", totalUsers: 1100, newUsers: 100, activatedUsers: 500, convertedUsers: 60, newConverted: 10 },
+      { day: "2026-08-31", totalUsers: 1300, newUsers: 200, activatedUsers: 620, convertedUsers: 95, newConverted: 35 },
+    ];
+    const p = projectReport({ ...saas, trialToConvertedPct: 41.5, conversionPublic: true }, before, rows, []);
+    expect(p).toMatchObject({ convertedStart: 50, convertedEnd: 95, newConverted: 45, signupToConvertedPct: 7.3, trialToConvertedPct: 41.5, conversionPublic: true });
+    expect(p.funnelChanges).toEqual(["Activation rate 40% → 47.7% (+7.7 pts)", "Signup → converted 5% → 7.3% (+2.3 pts)"]);
+    expect(JSON.stringify(p)).not.toMatch(/mrr|revenue|paying/i);
+    const quiet = projectReport(saas, before, [{ day: "2026-08-31", totalUsers: 1050, newUsers: 50, activatedUsers: 430, convertedUsers: 56 }], []);
+    expect(quiet).toMatchObject({ newConverted: 6, conversionPublic: false, funnelChanges: [] });
+    expect(projectReport(saas, null, [{ day: "2026-08-10", totalUsers: 500, newUsers: 20 }], [])).toMatchObject({ convertedEnd: undefined, newConverted: undefined, signupToConvertedPct: undefined, funnelChanges: [] });
+    const s = monthlySummary("2026-08", [p, quiet], 0);
+    expect(s.summary.totalNewConverted).toBe(51);
+    expect(monthlySummary("2026-08", [projectReport(saas, null, [{ day: "2026-08-10", totalUsers: 500, newUsers: 20 }], [])], 0).summary.totalNewConverted).toBeUndefined();
+  });
   it("summarises multiple projects", () => {
     const a = projectReport(saas, { day: "2026-07-31", totalUsers: 1000, newUsers: 0 }, [{ day: "2026-08-31", totalUsers: 1300, newUsers: 300 }], [{ title: "1,000 users", achievedAt: 5 }]);
     const b = projectReport({ ...saas, _id: "s2", name: "Beta", slug: "beta" }, { day: "2026-07-31", totalUsers: 100, newUsers: 0 }, [{ day: "2026-08-31", totalUsers: 120, newUsers: 20 }], []);
     const c = projectReport({ ...saas, _id: "s3", name: "Gamma", slug: "gamma" }, null, [], []);
     const s = monthlySummary("2026-08", [a, b, c], 0);
-    expect(s.summary).toEqual({ totalNewUsers: 320, totalUsersEnd: 1420, strongest: "Acme", biggestMilestone: "Acme: 1,000 users", aggregateGrowthPct: 29.1 });
+    expect(s.summary).toEqual({ totalNewUsers: 320, totalUsersEnd: 1420, totalNewConverted: undefined, strongest: "Acme", biggestMilestone: "Acme: 1,000 users", aggregateGrowthPct: 29.1 });
     expect(s.label).toBe("August 2026");
   });
 });

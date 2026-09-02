@@ -2,7 +2,7 @@ export const USER_THRESHOLDS = [10, 100, 500, 1_000, 5_000, 10_000, 50_000, 100_
 
 export interface Milestone {
   key: string;
-  kind: "users" | "activated" | "best_day" | "best_week" | "rank" | "top10" | "top100" | "streak" | "monthly_growth" | "trending_top10";
+  kind: "users" | "activated" | "converted" | "best_day" | "best_week" | "rank" | "top10" | "top100" | "streak" | "monthly_growth" | "trending_top10";
   metric: string;
   value: number;
   title: string;
@@ -12,12 +12,12 @@ export interface Milestone {
 const fmt = (n: number) => new Intl.NumberFormat("en").format(n);
 
 // Threshold milestones crossed between two totals. `prev === null` treats the first snapshot as crossing everything below it.
-export function thresholdMilestones(prev: number | null, next: number, name: string, kind: "users" | "activated" = "users"): Milestone[] {
-  const noun = kind === "users" ? "users" : "activated users";
+export function thresholdMilestones(prev: number | null, next: number, name: string, kind: "users" | "activated" | "converted" = "users"): Milestone[] {
+  const noun = kind === "users" ? "users" : kind === "activated" ? "activated users" : "converted users";
   return USER_THRESHOLDS.filter((t) => next >= t && (prev === null || prev < t)).map((t) => ({
     key: `${kind}:${t}`,
     kind,
-    metric: kind === "users" ? "totalUsers" : "activatedUsers",
+    metric: kind === "users" ? "totalUsers" : kind === "activated" ? "activatedUsers" : "convertedUsers",
     value: t,
     title: `${fmt(t)} ${noun}`,
     copy: `${name} just crossed ${fmt(t)} ${noun} on UserTrack.`,

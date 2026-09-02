@@ -19,6 +19,9 @@ export class DomainError extends Error {
   }
 }
 
+export type ProjectType = "web" | "mobile" | "hybrid";
+export const AUTH_METHODS = ["apple", "google", "email", "phone", "github", "microsoft", "other"] as const;
+
 export interface ProjectInput {
   name: string;
   description: string;
@@ -26,7 +29,19 @@ export interface ProjectInput {
   logoUrl?: string;
   category?: string;
   tags: string[];
+  projectType?: ProjectType;
+  appStoreUrl?: string;
+  playStoreUrl?: string;
+  // Informational: how users authenticate (Sign in with Apple, Google…). Never a metric source.
+  authMethods?: string[];
 }
+
+const storeUrl = (v: string | undefined, host: RegExp, what: string) => {
+  const url = v?.trim();
+  if (!url) return undefined;
+  if (!/^https:\/\//i.test(url) || !host.test(url)) throw new DomainError("bad_request", `${what} must be an https URL on the store domain`);
+  return url;
+};
 
 export function normalizeProjectInput(args: ProjectInput) {
   const name = args.name.trim();
@@ -42,6 +57,10 @@ export function normalizeProjectInput(args: ProjectInput) {
     logoUrl: args.logoUrl?.trim() || undefined,
     category: args.category || undefined,
     tags: [...new Set(args.tags.map((t) => t.trim().toLowerCase()).filter(Boolean))].slice(0, 5),
+    projectType: args.projectType,
+    appStoreUrl: storeUrl(args.appStoreUrl, /apps\.apple\.com/i, "App Store URL"),
+    playStoreUrl: storeUrl(args.playStoreUrl, /play\.google\.com/i, "Google Play URL"),
+    authMethods: args.authMethods ? [...new Set(args.authMethods.map((m) => m.trim().toLowerCase()).filter((m) => (AUTH_METHODS as readonly string[]).includes(m)))] : undefined,
   };
 }
 
@@ -95,6 +114,10 @@ export async function updateProject(ctx: MutationCtx, saas: Doc<"saas">, patch: 
     logoUrl: patch.logoUrl !== undefined ? patch.logoUrl : saas.logoUrl,
     category: patch.category !== undefined ? patch.category : saas.category,
     tags: patch.tags ?? saas.tags,
+    projectType: patch.projectType ?? saas.projectType,
+    appStoreUrl: patch.appStoreUrl !== undefined ? patch.appStoreUrl : saas.appStoreUrl,
+    playStoreUrl: patch.playStoreUrl !== undefined ? patch.playStoreUrl : saas.playStoreUrl,
+    authMethods: patch.authMethods ?? saas.authMethods,
   });
   const next: Partial<Doc<"saas">> = merged;
   if (patch.slug && slugify(patch.slug) !== saas.slug) next.slug = await uniqueSlug(ctx, patch.slug, saas._id);
@@ -124,7 +147,7 @@ export function projectUrls(s: Pick<Doc<"saas">, "slug">, username?: string) {
     profile: username ? `${base}/u/${username}` : undefined,
     badge: `${base}/api/badge/${s.slug}.svg`,
     ogImage: `${base}/s/${s.slug}/opengraph-image`,
-    share: Object.fromEntries(["users", "growth", "week", "rank", "trending", "activation"].map((k) => [k, `${base}/s/${s.slug}/share/${k}`])) as Record<string, string>,
+    share: Object.fromEntries(["users", "growth", "week", "rank", "trending", "activation", "conversion"].map((k) => [k, `${base}/s/${s.slug}/share/${k}`])) as Record<string, string>,
     api: `${base}/api/v1/saas/${s.slug}`,
   };
 }
@@ -140,6 +163,10 @@ export function projectSummary(s: Doc<"saas">) {
     logoUrl: s.logoUrl,
     category: s.category,
     tags: s.tags,
+    projectType: s.projectType ?? "web",
+    appStoreUrl: s.appStoreUrl,
+    playStoreUrl: s.playStoreUrl,
+    authMethods: s.authMethods,
     isPublic: s.isPublic,
     verification: { level: s.trust, label: publicTrustLabel(s.trust, s.trustState, s.trustScore), score: s.trustScore },
     metrics: {
@@ -151,6 +178,12 @@ export function projectSummary(s: Doc<"saas">) {
       growth30dPct: s.growth30dPct,
       activatedUsers: s.activatedUsers,
       activationRatePct: s.activationRatePct,
+      trialUsers: s.trialUsers,
+      convertedUsers: s.convertedUsers,
+      signupToConvertedPct: s.signupToConvertedPct,
+      activatedToConvertedPct: s.activatedToConvertedPct,
+      trialToConvertedPct: s.trialToConvertedPct,
+      identityQuality: s.identityQuality ?? "aggregate_only",
     },
     ranks: { leaderboard: s.rank, previousLeaderboard: s.prevRank, best: s.bestRank, trending: s.trendingRank, previousTrending: s.prevTrendingRank },
     lastSyncedAt: s.lastSyncedAt ? new Date(s.lastSyncedAt).toISOString() : undefined,

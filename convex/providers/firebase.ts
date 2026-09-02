@@ -61,7 +61,7 @@ export const firebase: Provider<FirebaseConfig> = {
   trust: () => "verified",
   describe(cfg, role): ProviderCapabilities {
     const scan = cfg.scanSignups !== false;
-    return { totalUsers: role === "users", createdUsers: scan, historicalUsers: scan, activationEvents: false, retention: false, traffic: false, revenue: false };
+    return { totalUsers: role === "users", createdUsers: scan, historicalUsers: scan, activationEvents: false, retention: false, traffic: false, trial: false, converted: false, identity: false };
   },
   async fetch(cfg): Promise<ProviderMetrics> {
     const token = await googleAccessToken(parseServiceAccount(cfg.serviceAccount), SCOPE);

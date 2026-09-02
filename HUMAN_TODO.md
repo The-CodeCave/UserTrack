@@ -2,9 +2,11 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and deployed.
 
-Last updated: 2026-09-02 (v0.4: providers v3, activation + funnel, trending v2 + discovery feed, share cards + embeds, benchmarks + compare, API/MCP extensions).
+Last updated: 2026-09-02 (v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
 
-**v0.4 needs no new human action.** Everything in this phase (PostgreSQL / Supabase / Clerk / Firebase providers, activation + funnel, Trending Score v2, discovery feed, share cards + embeds, benchmarks, compare, API + MCP) is configured and deployed. The items below are unchanged from earlier phases; the domain item is now the most important one because every share card, embed snippet and MCP config snippet renders the Railway URL until `usertrack.dev` points at production.
+**v0.5 needs no new human action for production.** Everything in this phase is configured and deployed by the agent: the Convex schema migration (`migrations:lifecycleV1`), `IDENTITY_SALT` on both Convex deployments, the seed refresh, rerank and daily sweep. Payment-provider credentials (Stripe restricted keys, RevenueCat v2 keys, Paddle / Lemon Squeezy / Chargebee API keys) are entered **by each founder** for their own product in the dashboard or via MCP — they are not operator secrets and nothing is required from you. The only optional item is a sandbox key for a live end-to-end test of the Stripe adapter (see "Optional / Future").
+
+**v0.4 needed no new human action.** Everything in this phase (PostgreSQL / Supabase / Clerk / Firebase providers, activation + funnel, Trending Score v2, discovery feed, share cards + embeds, benchmarks, compare, API + MCP) is configured and deployed. The items below are unchanged from earlier phases; the domain item is now the most important one because every share card, embed snippet and MCP config snippet renders the Railway URL until `usertrack.dev` points at production.
 
 ## Critical Before Production
 
@@ -217,9 +219,33 @@ Today Convex production is deployed from a logged-in laptop (`npx convex deploy`
 
 Per-key / per-token daily quotas live in Convex (`apiUsage`, survive deploys). The burst buckets (60 req/min per IP anonymous, 120/min per API key, 60 tool calls/min per MCP token) are in-process and reset on deploy, which is fine for one Railway replica. If you scale to multiple replicas or get abused, put Cloudflare (or Railway's proxy rules) in front of `/api/v1/*` and `/mcp`. No code change needed. **Status** [ ] Optional
 
+### Stripe sandbox key — live end-to-end test of the conversion adapter
+
+**Why this is needed**
+The Stripe conversion adapter (`convex/providers/stripe.ts`: subscriptions by status → trial / converted users, no amounts) is unit-tested against Stripe's documented response shape. A live read against a real (sandbox) account would confirm pagination and status handling end to end. The agent can read your Stripe accounts through the Stripe MCP servers but cannot create API keys, and a restricted key is what UserTrack needs.
+
+**Where**
+Stripe Dashboard → the **SEOMap sandbox** (or any test-mode account) → Developers → API keys
+
+**Steps**
+1. Create restricted key → name `usertrack-e2e` → Permissions: **Subscriptions: Read**, everything else None.
+2. In UserTrack (`https://usertrack.dev/app` → your product → Integrations → Conversion → Stripe) paste the `rk_test_…` key, "Converted means" = Active paid, click **Test connection**, then Save.
+3. Check the Conversion group on the dashboard ("Healthy", converted / trial counts) and the Sync log. Delete the key afterwards if you don't keep the integration.
+
+**Required value**
+`rk_test_…` (restricted, read-only) — stored only in `integrations.config`, never displayed again.
+
+**Where to enter it**
+UserTrack dashboard (or MCP `usertrack_configure_integration` with `role: "conversion"`).
+
+**Status**
+* [ ] Optional
+
+---
+
 ### Provider credentials for end-to-end testing
 
-Clerk, Supabase (API + read-only database mode), Firebase (createdAt scan), PostgreSQL (Node runtime, wizard introspection), Auth0, PostHog, Plausible, GA4 and Stripe adapters are unit-tested against recorded API shapes and SQL builders, not live accounts — the agent has no third-party credentials. To exercise them for real: connect one of your own products through the dashboard wizard ("Test connection" runs a live read before anything is stored) or via MCP `usertrack_verify_integration`, and watch the SaaS "Sync log" panel. Known assumptions: Auth0 `per_page=0` on `/api/v2/users`; Firebase signup windows need ≤ 100k accounts (larger projects fall back to snapshot deltas and are labelled so). **Status** [ ] Optional
+Clerk, Supabase (API + read-only database mode), Firebase (createdAt scan), PostgreSQL (Node runtime, wizard introspection), Auth0, PostHog, Plausible, GA4, Stripe, RevenueCat, Paddle, Lemon Squeezy and Chargebee adapters are unit-tested against recorded API shapes and SQL builders, not live accounts — the agent has no third-party credentials. For RevenueCat the founder needs a v2 secret key with only *Charts & Metrics → Read* and the project ID; for Paddle / Lemon Squeezy / Chargebee a read-only API key. All conversion adapters are read-only by construction and never request amounts. To exercise them for real: connect one of your own products through the dashboard wizard ("Test connection" runs a live read before anything is stored) or via MCP `usertrack_verify_integration`, and watch the SaaS "Sync log" panel. Known assumptions: Auth0 `per_page=0` on `/api/v2/users`; Firebase signup windows need ≤ 100k accounts (larger projects fall back to snapshot deltas and are labelled so). **Status** [ ] Optional
 
 ### Benchmarks need real cohorts
 

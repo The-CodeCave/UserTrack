@@ -4,17 +4,20 @@ import { internal } from "./_generated/api";
 import { requireOwnedSaas } from "./saas";
 import { connectIntegration, requestSync } from "./domain/integrations";
 import { integrationRole, providerKind } from "./schema";
-import { describeProvider, getProvider, ProviderError, verificationLevel, type ProviderCapabilities, type ProviderMetrics, type Role, type Trust, type VerificationLevel } from "./providers";
+import { describeProvider, getProvider, normalizeRole, ProviderError, verificationLevel, type ProviderCapabilities, type ProviderMetrics, type Role, type Trust, type VerificationLevel } from "./providers";
 import type { ColumnInfo, TableInfo } from "./providers/postgres";
 import { fetchMetrics } from "./providerRun";
 import { defaultSsl, parseConnectionString, splitTable } from "./providers/postgres";
+import { stagesOf } from "./domain/integrations";
+
+export const detectedCount = (m: ProviderMetrics, role: Role) => (role === "users" ? m.totalUsers : role === "activation" ? m.activatedUsers : role === "traffic" ? m.visitors30d : (m.convertedUsers ?? m.payingUsers));
 
 // One integration per SaaS per role. Replacing it keeps historical snapshots (provenance lives on each snapshot).
 export const connect = mutation({
   args: { saasId: v.id("saas"), role: v.optional(integrationRole), provider: providerKind, config: v.any() },
-  handler: async (ctx, { saasId, role = "users", provider, config }) => {
+  handler: async (ctx, { saasId, role, provider, config }) => {
     const { saas } = await requireOwnedSaas(ctx, saasId);
-    return connectIntegration(ctx, saas, role, provider, config);
+    return connectIntegration(ctx, saas, normalizeRole(role), provider, config);
   },
 });
 
@@ -22,19 +25,21 @@ export const syncNow = mutation({
   args: { saasId: v.id("saas"), role: v.optional(integrationRole) },
   handler: async (ctx, { saasId, role }) => {
     await requireOwnedSaas(ctx, saasId);
-    await requestSync(ctx, saasId, role);
+    await requestSync(ctx, saasId, role ? normalizeRole(role) : undefined);
   },
 });
 
 export const disconnect = mutation({
   args: { saasId: v.id("saas"), role: v.optional(integrationRole) },
-  handler: async (ctx, { saasId, role = "users" }) => {
-    await requireOwnedSaas(ctx, saasId);
+  handler: async (ctx, { saasId, role: rawRole }) => {
+    const role = normalizeRole(rawRole);
+    const { saas } = await requireOwnedSaas(ctx, saasId);
     const all = await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", saasId)).collect();
-    for (const i of all.filter((i) => (i.role ?? "users") === role)) await ctx.db.delete(i._id);
-    if (role === "activation") await ctx.db.patch(saasId, { activatedUsers: undefined, activated24h: undefined, activated7d: undefined, activated30d: undefined, activationRatePct: undefined });
-    if (role === "traffic") await ctx.db.patch(saasId, { visitors30d: undefined, sessions30d: undefined, visitorsPrev30d: undefined, showTraffic: false });
-    if (role === "revenue") await ctx.db.patch(saasId, { payingUsers: undefined, mrr: undefined, showRevenue: false });
+    for (const i of all.filter((i) => normalizeRole(i.role) === role)) await ctx.db.delete(i._id);
+    if (role === "activation") await ctx.db.patch(saasId, { activatedUsers: undefined, activated24h: undefined, activated7d: undefined, activated30d: undefined, activationRatePct: undefined, activatedToConvertedPct: undefined });
+    if (role === "traffic") await ctx.db.patch(saasId, { visitors30d: undefined, sessions30d: undefined, visitorsPrev30d: undefined, showTraffic: undefined, visibility: { ...(saas.visibility ?? {}), traffic: false } });
+    if (role === "conversion") await ctx.db.patch(saasId, { payingUsers: undefined, mrr: undefined, currency: undefined, showRevenue: undefined, trialUsers: undefined, convertedUsers: undefined, newTrials7d: undefined, newTrials30d: undefined, newConverted24h: undefined, newConverted7d: undefined, newConverted30d: undefined, convertedPrev30d: undefined, convertedGrowth30dPct: undefined, signupToConvertedPct: undefined, activatedToConvertedPct: undefined, trialToConvertedPct: undefined, conversionMode: undefined, visibility: { ...(saas.visibility ?? {}), conversionRate: false, trialConversion: false, convertedCount: false } });
+    for (const stage of stagesOf(role)) await ctx.scheduler.runAfter(0, internal.cohorts.purgeStage, { saasId, stage });
   },
 });
 
@@ -61,7 +66,8 @@ export type TestResult =
 
 export const test = action({
   args: { saasId: v.id("saas"), role: v.optional(integrationRole), provider: providerKind, config: v.any() },
-  handler: async (ctx, { saasId, role = "users", provider, config }): Promise<TestResult> => {
+  handler: async (ctx, { saasId, role: rawRole, provider, config }): Promise<TestResult> => {
+    const role = normalizeRole(rawRole);
     const saas = await ctx.runQuery(internal.saas.ownedForAction, { id: saasId });
     const p = getProvider(provider);
     if (!p.roles.includes(role)) return { ok: false as const, error: `${p.label} cannot provide ${role} data`, retryable: false };
@@ -72,8 +78,10 @@ export const test = action({
       const metrics = await fetchMetrics(ctx, provider, validated.config, role as Role);
       const trust = p.trust(validated.config, saas.websiteUrl);
       const capabilities = describeProvider(p, validated.config, role as Role);
-      const detected = role === "users" ? metrics.totalUsers : role === "activation" ? metrics.activatedUsers : role === "traffic" ? metrics.visitors30d : metrics.payingUsers;
-      return { ok: true as const, detected, metrics, trust, verification: verificationLevel(provider, trust, capabilities, role as Role), capabilities, durationMs: Date.now() - started, publicConfig: p.publicConfig(validated.config) };
+      const detected = detectedCount(metrics, role);
+      const safe = { ...metrics };
+      delete safe.identities;
+      return { ok: true as const, detected, metrics: safe, trust, verification: verificationLevel(provider, trust, capabilities, role as Role), capabilities, durationMs: Date.now() - started, publicConfig: p.publicConfig(validated.config) };
     } catch (e) {
       const err = e as Error;
       return { ok: false as const, error: err.message.slice(0, 300), retryable: err instanceof ProviderError ? err.retryable : true };

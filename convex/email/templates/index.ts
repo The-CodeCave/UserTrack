@@ -168,19 +168,28 @@ function projectBlock(p: ProjectReport, c: RenderContext) {
   ];
   const extra: string[] = [];
   if (p.newActivated !== undefined) extra.push(metric("Activated", delta(p.newActivated), p.activationRatePct !== undefined ? `${p.activationRatePct}% activation rate` : undefined));
+  if (p.convertedEnd !== undefined) extra.push(metric("Converted users", num(p.convertedEnd), p.newConverted !== undefined ? `${delta(p.newConverted)} this month` : undefined));
+  if (p.signupToConvertedPct !== undefined) extra.push(metric("Signup → converted", `${p.signupToConvertedPct}%`, p.trialToConvertedPct !== undefined ? `${p.trialToConvertedPct}% trial → converted` : undefined));
   if (rank) extra.push(metric("Leaderboard", rank, "start → end of month"));
   if (p.bestDay) extra.push(metric("Biggest day", delta(p.bestDay.newUsers), dateStr(Date.parse(`${p.bestDay.day}T12:00:00Z`))));
   const rows = [metricRow(cells)];
   for (let i = 0; i < extra.length; i += 2) rows.push(`<div style="height:8px"></div>${metricRow(extra.slice(i, i + 2))}`);
   const ms = p.milestones.length ? `<div style="margin-top:8px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:${BRAND.muted}">Milestones: ${esc(p.milestones.map((m) => m.title).join(" · "))}</div>` : "";
+  const funnel = p.funnelChanges?.length ? `<div style="margin-top:8px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:${BRAND.muted}">Funnel changes: ${esc(p.funnelChanges.join(" · "))}</div>` : "";
   const title = p.isPublic ? `<a href="${esc(saasUrl(c, p.slug))}" style="color:${BRAND.ink};text-decoration:none">${esc(p.name)}</a>` : esc(p.name);
-  return `<div style="margin-top:22px;padding-top:16px;border-top:1px solid ${BRAND.line}"><div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;color:${BRAND.ink};margin-bottom:10px">${title}${p.hasData ? "" : ` <span style="font-weight:400;color:${BRAND.muted};font-size:12px">no data this month</span>`}</div>${p.hasData ? rows.join("") + ms : muted("No snapshots were recorded — connect or fix the data source to include it next month.")}</div>`;
+  return `<div style="margin-top:22px;padding-top:16px;border-top:1px solid ${BRAND.line}"><div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;color:${BRAND.ink};margin-bottom:10px">${title}${p.hasData ? "" : ` <span style="font-weight:400;color:${BRAND.muted};font-size:12px">no data this month</span>`}</div>${p.hasData ? rows.join("") + funnel + ms : muted("No snapshots were recorded — connect or fix the data source to include it next month.")}</div>`;
 }
 
 const monthlyReport: Builder<"monthly-report"> = (d, c) => {
   const r = d.report;
   const s = r.summary;
-  const summary = metricRow([metric("New users", delta(s.totalNewUsers), "across all products", true), metric("Total users", num(s.totalUsersEnd), s.aggregateGrowthPct !== null ? `${pctStr(s.aggregateGrowthPct)} this month` : undefined)]);
+  const summary = metricRow([
+    metric("New users", delta(s.totalNewUsers), "across all products", true),
+    metric("Total users", num(s.totalUsersEnd), s.aggregateGrowthPct !== null ? `${pctStr(s.aggregateGrowthPct)} this month` : undefined),
+    ...(s.totalNewConverted !== undefined ? [metric("Converted users", delta(s.totalNewConverted), "new this month")] : []),
+  ]);
+  // "+1,842 new users · 68% activated · 8.4% converted · 9,120 total"
+  const line = (p: ProjectReport) => [`${delta(p.newUsers)} new users`, pctStr(p.growthPct), p.activationRatePct !== undefined ? `${Math.round(p.activationRatePct)}% activated` : "", p.signupToConvertedPct !== undefined ? `${p.signupToConvertedPct}% converted` : "", `${num(p.usersEnd)} total`].filter(Boolean).join(" · ");
   const highlights = [s.strongest ? row("Strongest product", esc(s.strongest)) : "", s.biggestMilestone ? row("Biggest milestone", esc(s.biggestMilestone)) : ""].join("");
   const projects = r.projects.map((p) => projectBlock(p, c)).join("");
   return {
@@ -190,7 +199,7 @@ const monthlyReport: Builder<"monthly-report"> = (d, c) => {
     text: text([
       `Your ${r.label} on UserTrack`,
       `${delta(s.totalNewUsers)} new users across all products · ${num(s.totalUsersEnd)} total`,
-      ...r.projects.map((p) => (p.hasData ? `${p.name}\n${delta(p.newUsers)} users · ${pctStr(p.growthPct)} · ${num(p.usersEnd)} total${p.rankStart !== undefined || p.rankEnd !== undefined ? ` · #${p.rankStart ?? "—"} → #${p.rankEnd ?? "—"}` : ""}` : `${p.name}\nno data this month`)),
+      ...r.projects.map((p) => (p.hasData ? `${p.name}\n${line(p)}${p.rankStart !== undefined || p.rankEnd !== undefined ? ` · #${p.rankStart ?? "—"} → #${p.rankEnd ?? "—"}` : ""}${p.funnelChanges?.length ? `\nFunnel: ${p.funnelChanges.join(" · ")}` : ""}` : `${p.name}\nno data this month`)),
       `Full report: ${c.siteUrl}/app/reports/${r.period}`,
     ]),
   };

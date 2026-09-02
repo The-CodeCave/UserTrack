@@ -113,7 +113,7 @@ export function SetupChooser({ onPick }: { onPick: (mode: "ai" | "manual") => vo
         <Sparkles className="size-5 text-pink" />
         <span className="mt-3 font-semibold">Set up with AI</span>
         <ul className="mt-2 space-y-1 font-mono text-xs text-muted-foreground">
-          {["detects your stack", "configures & verifies", "returns your public URL"].map((t) => (
+          {["detects your stack", "connects users, activation & conversion — never revenue", "returns your public URL"].map((t) => (
             <li key={t} className="flex gap-2"><span className="text-pink">→</span>{t}</li>
           ))}
         </ul>

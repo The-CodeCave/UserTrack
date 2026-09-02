@@ -8,14 +8,18 @@ import { authComponent } from "./auth";
 import { hasScope, isActive, PLANS, planFor, type TokenType } from "./lib/tokens";
 import { RANGES, dayKey, dayStart, DAY } from "./lib/time";
 import { integrationRole, providerKind, tokenType } from "./schema";
-import { describeProvider, getProvider, ProviderError, verificationLevel, type Role } from "./providers";
+import { describeProvider, getProvider, normalizeRole, ProviderError, verificationLevel, type Role } from "./providers";
+import { detectedCount } from "./integrations";
+import { visibilityOf } from "./domain/visibility";
 import { fetchMetrics } from "./providerRun";
 import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, projectSummary, projectUrls, requireOwnedProject, updateProject } from "./domain/projects";
 import { connectIntegration, integrationView, listIntegrations, requestSync } from "./domain/integrations";
 import { TIMEFRAMES, metricsSummary, milestonesFor, seriesFor, shareData } from "./domain/metrics";
-import { INTEGRATION_CATALOG, integrationSetup, recommendIntegrations } from "./lib/integrationSetup";
+import { INTEGRATION_CATALOG, conversionSetup as conversionPlan, identityMappingGuidance, integrationSetup, rankActivationEvents, recommendIntegrations } from "./lib/integrationSetup";
 import { publicProfile, publicSaas, sortBoard, trendingRankFor, HIDDEN_GEM_RULES } from "./public";
-import { FUNNEL_TIMEFRAMES, funnelFor } from "./domain/funnel";
+import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, STAGE_ORDER, funnelFor, funnelHistoryFor, funnelSources } from "./domain/funnel";
+import { cohortView } from "./cohorts";
+import { projectType as projectTypeArg } from "./schema";
 import { BENCHMARK_METRICS, BENCHMARK_METRIC_LABEL, MIN_SAMPLE, benchmarkInsight, medianMultiple, percentileOf } from "./lib/benchmarks";
 import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { explainTrending, trendingFactors } from "./lib/trending";
@@ -111,9 +115,21 @@ export const projects = query({
   handler: async (ctx, { auth }) => {
     const { profile } = await authenticate(ctx, auth, "mcp", "projects:read");
     const rows = await listOwnedProjects(ctx, profile._id);
-    return rows.sort((a, b) => b._creationTime - a._creationTime).map(projectSummary);
+    const out = [];
+    for (const s of rows.sort((a, b) => b._creationTime - a._creationTime)) out.push({ ...projectSummary(s), lifecycle: await lifecycleOf(ctx, s) });
+    return out;
   },
 });
+
+const CONVERSION_HINT = "Connect a conversion source (usertrack_get_conversion_setup) to see Trial → Converted. Payment providers are read for conversion state only, never revenue.";
+
+// Which lifecycle stages have data today, plus what to connect next. Stages come from synced sources (same rule as the funnel).
+async function lifecycleOf(ctx: QueryCtx | MutationCtx, saas: Doc<"saas">) {
+  const sources = await funnelSources(ctx, saas._id);
+  const stages = STAGE_ORDER.filter((k) => (k === "reached" ? sources.traffic : k === "signed_up" ? sources.users : k === "activated" ? sources.activation : k === "trial" ? sources.conversion?.trial : sources.conversion));
+  const nextStep = !sources.users ? "Connect a users source first (usertrack_get_provider_recommendation)." : !sources.activation ? "Connect an activation source (usertrack_get_activation_setup) to see Signed up → Activated." : !sources.conversion ? CONVERSION_HINT : sources.conversion.identity && saas.identityQuality !== "cohort_verified" ? "Carry one user id across sources (usertrack_get_identity_mapping) to reach Cohort Verified." : undefined;
+  return { stages, identityQuality: saas.identityQuality ?? "aggregate_only", conversionMode: saas.conversionMode ?? (sources.conversion ? "active_paid" : undefined), visibility: visibilityOf(saas), nextStep };
+}
 
 async function fullProject(ctx: QueryCtx | MutationCtx, saas: Doc<"saas">, username: string) {
   const integrations = (await listIntegrations(ctx, saas._id)).map(integrationView);
@@ -123,6 +139,7 @@ async function fullProject(ctx: QueryCtx | MutationCtx, saas: Doc<"saas">, usern
     ...projectSummary(saas),
     urls: projectUrls(saas, username),
     integrations,
+    lifecycle: await lifecycleOf(ctx, saas),
     setup: {
       hasUsersSource: Boolean(users),
       usersSourceStatus: users?.status ?? "missing",
@@ -201,13 +218,15 @@ export const updateProjectTool = mutation({
 
 // ---- Integrations ---------------------------------------------------------------------------------------------------
 
+const detectArgs = { detectedProviders: v.optional(v.array(v.string())), framework: v.optional(v.string()), projectType: v.optional(projectTypeArg), detectedAuth: v.optional(v.array(v.string())), detectedAnalytics: v.optional(v.array(v.string())), detectedPayments: v.optional(v.array(v.string())) };
+
 export const supportedIntegrations = query({
-  args: { auth: authArg, detectedProviders: v.optional(v.array(v.string())), framework: v.optional(v.string()) },
-  handler: async (ctx, { auth, detectedProviders, framework }) => {
+  args: { auth: authArg, ...detectArgs },
+  handler: async (ctx, { auth, ...detected }) => {
     await authenticate(ctx, auth, "mcp", "integrations:read");
     return {
       providers: INTEGRATION_CATALOG.map(({ credentials, ...c }) => ({ ...c, credentialKeys: credentials.map((x) => ({ key: x.key, secret: x.secret, optional: x.optional ?? false, roles: x.roles })) })),
-      recommendation: recommendIntegrations({ detectedProviders, framework }),
+      recommendation: recommendIntegrations(detected),
     };
   },
 });
@@ -218,7 +237,7 @@ export const setupInstructions = query({
     run(async () => {
       const { profile } = await authenticate(ctx, auth, "mcp", "integrations:read");
       const saas = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
-      const setup = integrationSetup({ provider, role, framework, detectedProviders, websiteUrl: saas?.websiteUrl, projectId: saas?._id });
+      const setup = integrationSetup({ provider, role: role ? normalizeRole(role) : undefined, framework, detectedProviders, websiteUrl: saas?.websiteUrl, projectId: saas?._id });
       if (!setup) return fail("bad_request", `Unknown provider or role: ${provider}${role ? `/${role}` : ""}`, { supported: INTEGRATION_CATALOG.map((c) => ({ provider: c.provider, roles: c.roles })) });
       return { project: saas ? { id: saas._id, slug: saas.slug, websiteUrl: saas.websiteUrl } : null, ...setup };
     }),
@@ -226,8 +245,9 @@ export const setupInstructions = query({
 
 export const configureIntegration = mutation({
   args: { auth: authArg, ...refArg, provider: providerKind, role: v.optional(integrationRole), config: v.any() },
-  handler: async (ctx, { auth, projectId, slug, provider, role = "users", config }) =>
+  handler: async (ctx, { auth, projectId, slug, provider, role: rawRole, config }) =>
     run(async () => {
+      const role = normalizeRole(rawRole);
       const { token, profile } = await authenticate(ctx, auth, "mcp", "integrations:write");
       const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
       const id = await connectIntegration(ctx, saas, role, provider, config);
@@ -282,7 +302,8 @@ interface VerifyTarget {
 // Live connection test. Uses the stored config, or an inline `config` to test before saving.
 export const verifyIntegration = action({
   args: { auth: authArg, ...refArg, role: v.optional(integrationRole), provider: v.optional(providerKind), config: v.optional(v.any()) },
-  handler: async (ctx, { auth, projectId, slug, role = "users", provider, config }) => {
+  handler: async (ctx, { auth, projectId, slug, role: rawRole, provider, config }) => {
+    const role = normalizeRole(rawRole);
     const target: VerifyTarget = await ctx.runQuery(internal.gateway.integrationForVerify, { auth, projectId, slug, role });
     const kind = provider ?? target.integration?.provider;
     if (!kind) {
@@ -303,7 +324,8 @@ export const verifyIntegration = action({
       const metrics = await fetchMetrics(ctx, kind, cfg, role as Role);
       const trust = p.trust(cfg, target.websiteUrl);
       const capabilities = describeProvider(p, cfg, role as Role);
-      const detected = role === "users" ? metrics.totalUsers : role === "activation" ? metrics.activatedUsers : role === "traffic" ? metrics.visitors30d : metrics.payingUsers;
+      const detected = detectedCount(metrics, role);
+      delete metrics.identities;
       await ctx.runMutation(internal.gateway.auditWrite, { profileId: target.profileId, tokenId: target.tokenId, action: "verify_integration", saasId: target.saasId, ok: true, detail: `${kind}/${role} ${mode}: ${detected ?? "?"}` });
       return {
         connected: true,
@@ -337,7 +359,7 @@ export const syncProject = mutation({
     run(async () => {
       const { token, profile } = await authenticate(ctx, auth, "mcp", "integrations:write");
       const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
-      const ids = await requestSync(ctx, saas._id, role);
+      const ids = await requestSync(ctx, saas._id, role ? normalizeRole(role) : undefined);
       await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "sync_project", saasId: saas._id, ok: true, detail: role ?? "all" });
       return { started: ids.length, message: "Sync scheduled. Results land within seconds; call usertrack_get_project to see the updated numbers.", nextTool: "usertrack_get_project" };
     }),
@@ -415,15 +437,16 @@ const ACTIVATION_EXAMPLES = ["onboarding_completed", "project_created", "first_d
 
 // "Which UserTrack path fits this repo?" — pure catalog logic over the detected stack, safe to call before a project exists.
 export const providerRecommendation = query({
-  args: { auth: authArg, detectedProviders: v.optional(v.array(v.string())), framework: v.optional(v.string()) },
-  handler: async (ctx, { auth, detectedProviders, framework }) => {
+  args: { auth: authArg, ...detectArgs },
+  handler: async (ctx, { auth, ...detected }) => {
     await authenticate(ctx, auth, "mcp", "integrations:read");
-    const rec = recommendIntegrations({ detectedProviders, framework });
+    const rec = recommendIntegrations(detected);
     return {
       ...rec,
       priority: ["supabase", "clerk", "firebase", "postgres", "endpoint"],
-      signals: { supabase: ["@supabase/supabase-js", "SUPABASE_URL", "SUPABASE_DB_URL"], clerk: ["@clerk/nextjs", "CLERK_SECRET_KEY"], firebase: ["firebase-admin", "GOOGLE_APPLICATION_CREDENTIALS"], postgres: ["DATABASE_URL", "pg", "prisma:postgresql", "drizzle-pg"] },
-      nextTool: "usertrack_get_integration_setup",
+      conversionPriority: ["revenuecat", "stripe", "paddle", "lemonsqueezy", "chargebee", "endpoint"],
+      signals: { supabase: ["@supabase/supabase-js", "SUPABASE_URL", "SUPABASE_DB_URL"], clerk: ["@clerk/nextjs", "CLERK_SECRET_KEY"], firebase: ["firebase-admin", "@react-native-firebase/auth", "firebase_auth", "GOOGLE_APPLICATION_CREDENTIALS"], postgres: ["DATABASE_URL", "pg", "prisma:postgresql", "drizzle-pg"], posthog: ["posthog-js", "posthog-react-native", "posthog-ios", "posthog-flutter"], revenuecat: ["react-native-purchases", "purchases_flutter", "RevenueCat"], stripe: ["stripe", "STRIPE_SECRET_KEY"] },
+      nextTool: rec.composition.conversion ? "usertrack_get_integration_setup (then usertrack_get_conversion_setup)" : "usertrack_get_integration_setup",
     };
   },
 });
@@ -445,10 +468,12 @@ export const activationSetup = query({
       if (users?.provider === "supabase" || kinds.has("supabase")) options.push({ provider: "supabase", role: "activation", why: "Same read-only Supabase connection: a table with one row per activated user, or one SELECT count(...) WHERE created_at >= $1.", configShape: { connectionString: "secret string", table: "string (optional)", createdAtColumn: "string (optional)", sql: "string (optional)" } });
       if (users?.provider === "postgres" || kinds.has("postgres")) options.push({ provider: "postgres", role: "activation", why: "Same read-only Postgres connection: activation table + timestamp column, or a custom aggregate SELECT with $1 = since.", configShape: { connectionString: "secret string", tableRef: "schema.table (optional)", createdAtColumn: "string (optional)", sql: "string (optional)" } });
       options.push({ provider: "endpoint", role: "activation", why: "Universal: your own route on the product domain returning { activatedUsers, activated24h, activated7d, activated30d }.", configShape: { url: "string", token: "secret string (optional)" } });
+      const ranking = rankActivationEvents(candidateEvents, options[0].provider);
       return {
         definition: "An activated user is someone who reached the first meaningful value in your product — not just an account.",
         examples: ACTIVATION_EXAMPLES,
-        candidateEvents: (candidateEvents ?? []).map((e) => ({ event: e, looksLikeActivation: /complete|created|first|onboard|setup|run|sent|publish|deploy|invite/i.test(e) })),
+        ...ranking,
+        candidateEvents: (candidateEvents ?? []).map((e) => ({ event: e, looksLikeActivation: e === ranking.recommendedEvent || ranking.alternatives.some((a) => a.event === e && a.looksLikeActivation) })),
         project: saas ? { id: saas._id, slug: saas.slug, usersSource: users?.provider ?? null, activationSource: existing ? { provider: existing.provider, status: existing.status } : null } : null,
         recommended: options[0],
         options,
@@ -465,9 +490,72 @@ export const funnel = query({
     run(async () => {
       const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
       const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
-      const f = await funnelFor(ctx, saas, timeframe ?? "30d", { includeTraffic: true, includeRevenue: true });
-      const missing = (["visitors", "signups", "activated", "paying"] as const).filter((k) => !f.stages.some((s) => s.key === k));
-      return { project: { id: saas._id, slug: saas.slug, name: saas.name }, ...f, missingStages: missing, hint: missing.includes("activated") ? "Connect an activation source (usertrack_get_activation_setup) to see signup → activation conversion." : undefined, publicUrl: `${projectUrls(saas).page}#funnel` };
+      const f = await funnelFor(ctx, saas, timeframe ?? "30d", OWNER_FUNNEL);
+      const missing = STAGE_ORDER.filter((k) => !f.stages.some((s) => s.key === k));
+      const hint = missing.includes("activated") ? "Connect an activation source (usertrack_get_activation_setup) to see Signup → Activated." : missing.includes("converted") ? "Connect a conversion source (usertrack_get_conversion_setup) to see Signup → Converted. Payment providers are read for conversion state only, never revenue." : undefined;
+      return { project: { id: saas._id, slug: saas.slug, name: saas.name }, ...f, missingStages: missing, hint, visibility: visibilityOf(saas), publicUrl: `${projectUrls(saas).page}#funnel` };
+    }),
+});
+
+// Strategic rates per day (trailing 7-day ratios) for the owner: all connected stages, private ones included.
+export const funnelHistory = query({
+  args: { auth: authArg, ...refArg, days: v.optional(v.number()) },
+  handler: async (ctx, { auth, projectId, slug, days }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const d = Math.min(365, Math.max(14, days ?? 90));
+      return { project: { id: saas._id, slug: saas.slug, name: saas.name }, days: d, points: await funnelHistoryFor(ctx, saas, d, OWNER_FUNNEL) };
+    }),
+});
+
+// Owner cohorts: same view as api.cohorts.mine (counts always included, conversion + trial included).
+export const cohorts = query({
+  args: { auth: authArg, ...refArg },
+  handler: async (ctx, { auth, projectId, slug }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const rows = await ctx.db.query("cohortMetrics").withIndex("by_saas_cohort", (q) => q.eq("saasId", saas._id)).collect();
+      const view = cohortView(rows, saas.identityQuality ?? "aggregate_only", { includeConversion: true, includeTrial: true, hideCounts: false });
+      return { project: { id: saas._id, slug: saas.slug, name: saas.name }, ...view, coveragePct: saas.identityCoveragePct, hint: view.cohorts.length ? undefined : "No cohorts yet: sources must report identities (see usertrack_get_identity_mapping); cohorts rebuild daily." };
+    }),
+});
+
+// Conversion source plan for the detected payment provider (or the one asked for). Safe to call before a project exists.
+export const conversionSetup = query({
+  args: { auth: authArg, ...refArg, provider: v.optional(v.string()), detectedProviders: v.optional(v.array(v.string())), projectType: v.optional(projectTypeArg) },
+  handler: async (ctx, { auth, projectId, slug, provider, detectedProviders, projectType }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "integrations:read");
+      const saas = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
+      const plan = conversionPlan({ provider, detectedProviders, projectType: projectType ?? saas?.projectType, projectId: saas?._id });
+      if (!plan) return fail("bad_request", `${provider} cannot provide conversion`, { supported: ["stripe", "revenuecat", "paddle", "lemonsqueezy", "chargebee", "endpoint"] });
+      const existing = saas ? (await listIntegrations(ctx, saas._id)).map(integrationView).find((i) => i.role === "conversion") : undefined;
+      return {
+        project: saas ? { id: saas._id, slug: saas.slug, projectType: saas.projectType ?? "web", conversionSource: existing ? { provider: existing.provider, status: existing.status } : null, visibility: visibilityOf(saas) } : null,
+        definition: "Converted = a unique user who reached the configured monetization condition. UserTrack never needs your revenue numbers. Payment providers are used only to calculate user conversion metrics.",
+        ...plan,
+        optional: true,
+      };
+    }),
+});
+
+// How to carry one stable id across the identity, analytics and conversion sources; sources default to the project's integrations.
+export const identityMapping = query({
+  args: { auth: authArg, ...refArg, identitySource: v.optional(v.string()), analyticsSource: v.optional(v.string()), conversionSource: v.optional(v.string()), projectType: v.optional(projectTypeArg) },
+  handler: async (ctx, { auth, projectId, slug, identitySource, analyticsSource, conversionSource, projectType }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "integrations:read");
+      const saas = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
+      const integrations = saas ? (await listIntegrations(ctx, saas._id)).map(integrationView) : [];
+      const by = (role: Role) => integrations.find((i) => i.role === role)?.provider;
+      const identity = identitySource ?? by("users");
+      if (!identity) return fail("bad_request", "Pass identitySource (e.g. firebase, supabase, clerk, auth0, postgres, endpoint) or a project with a users source");
+      return {
+        project: saas ? { id: saas._id, slug: saas.slug, identityQuality: saas.identityQuality ?? "aggregate_only", identityCoveragePct: saas.identityCoveragePct } : null,
+        ...identityMappingGuidance({ identitySource: identity, analyticsSource: analyticsSource ?? by("activation"), conversionSource: conversionSource ?? by("conversion"), projectType: projectType ?? saas?.projectType }),
+      };
     }),
 });
 
@@ -490,7 +578,7 @@ export const trending = query({
       return {
         window,
         category,
-        formula: "100 · log10(1+new)^1.5 · (1+min(new/max(base,50),2)) · (1+0.5·clamp((new−prev)/max(prev,10),−0.5,2)) · (0.5+0.5·trust/100) · (1+0.25·activation) · freshness · history",
+        formula: "100 · log10(1+new)^1.5 · (1+min(new/max(base,50),2)) · (1+0.5·clamp((new−prev)/max(prev,10),−0.5,2)) · (0.5+0.5·trust/100) · (1+0.25·activation) · freshness · history · conversion, where conversion = 1 + 0.10 · clamp(signupToConvertedPct, 0, 25)/25 (optional, small)",
         rows: rows.map(item),
         own: own ? { ...item(own), eligible: own.isPublic && own.trust === "verified" && !own.isDemo && own.trustState !== "review", factors: trendingFactors(trendingInputs(own)[window]) } : undefined,
         boardUrl: `${siteUrlOf()}/trending?window=${window}${category ? `&category=${category}` : ""}`,

@@ -12,6 +12,7 @@ export interface SupabaseConfig {
   ssl?: "require" | "disable";
   table?: string;
   createdAtColumn?: string;
+  idColumn?: string;
   sql?: string;
 }
 
@@ -49,8 +50,10 @@ export const supabase: Provider<SupabaseConfig> = {
     const cfg = c as Partial<SupabaseConfig>;
     const table = cfg?.table?.trim() || undefined;
     const createdAtColumn = cfg?.createdAtColumn?.trim() || undefined;
+    const idColumn = cfg?.idColumn?.trim() || undefined;
     if (table && !/^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$/i.test(table)) return { ok: false, error: "Invalid table name" };
     if (createdAtColumn && !isIdent(createdAtColumn)) return { ok: false, error: "Invalid column name" };
+    if (idColumn && !isIdent(idColumn)) return { ok: false, error: "Invalid id column name" };
     const connectionString = cfg?.connectionString?.trim();
     if (connectionString) {
       const conn = parseConnectionString(connectionString);
@@ -62,7 +65,7 @@ export const supabase: Provider<SupabaseConfig> = {
         const err = validateSql(sql);
         if (err) return { ok: false, error: err };
       } else if (role === "activation" && !table) return { ok: false, error: "Activation needs a table that has one row per activated user (or a custom SQL query)" };
-      return { ok: true, config: { mode: "database", connectionString: conn.url.toString(), ssl: cfg.ssl === "disable" ? "disable" : defaultSsl(conn.url.hostname, conn.url.searchParams), table, createdAtColumn: sql ? undefined : createdAtColumn ?? (table ? undefined : "created_at"), sql } };
+      return { ok: true, config: { mode: "database", connectionString: conn.url.toString(), ssl: cfg.ssl === "disable" ? "disable" : defaultSsl(conn.url.hostname, conn.url.searchParams), table, createdAtColumn: sql ? undefined : createdAtColumn ?? (table ? undefined : "created_at"), idColumn: sql ? undefined : idColumn ?? (table ? undefined : "id"), sql } };
     }
     const url = cfg?.url?.trim().replace(/\/$/, "");
     const key = cfg?.serviceKey?.trim();
@@ -77,14 +80,14 @@ export const supabase: Provider<SupabaseConfig> = {
   toPostgres(cfg, role): PostgresQuery {
     const base = { connectionString: cfg.connectionString!, ssl: cfg.ssl ?? "require" };
     if (cfg.sql) return { ...base, schema: "public", table: "", sql: cfg.sql };
-    if (!cfg.table) return { ...base, schema: "auth", table: "users", createdAtColumn: "created_at", createdAtKind: "timestamp", deletedAtColumn: "deleted_at" };
+    if (!cfg.table) return { ...base, schema: "auth", table: "users", createdAtColumn: "created_at", createdAtKind: "timestamp", deletedAtColumn: "deleted_at", idColumn: cfg.idColumn ?? "id" };
     const split = splitTable(cfg.table)!;
     void role;
-    return { ...base, schema: split.schema, table: split.table, createdAtColumn: cfg.createdAtColumn, createdAtKind: cfg.createdAtColumn ? "timestamp" : undefined };
+    return { ...base, schema: split.schema, table: split.table, createdAtColumn: cfg.createdAtColumn, createdAtKind: cfg.createdAtColumn ? "timestamp" : undefined, idColumn: cfg.idColumn };
   },
   describe(cfg, role): ProviderCapabilities {
     const ranged = cfg.mode === "database" ? Boolean(!cfg.table || cfg.createdAtColumn || cfg.sql) : Boolean(cfg.table && cfg.createdAtColumn);
-    return { totalUsers: role === "users", createdUsers: role === "users" && ranged, historicalUsers: ranged && !cfg.sql, activationEvents: role === "activation", retention: false, traffic: false, revenue: false };
+    return { totalUsers: role === "users", createdUsers: role === "users" && ranged, historicalUsers: ranged && !cfg.sql, activationEvents: role === "activation", retention: false, traffic: false, trial: false, converted: false, identity: cfg.mode === "database" && Boolean(cfg.idColumn) };
   },
   async fetch(cfg, role): Promise<ProviderMetrics> {
     if (cfg.mode === "database") throw new ProviderError("Supabase database mode runs in the Node runtime", false);

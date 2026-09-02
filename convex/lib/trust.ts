@@ -14,7 +14,7 @@ export interface Flag { kind: FlagKind; severity: Severity; detail: string }
 
 const PROVIDER_BASE: Record<string, number> = {
   clerk: 40, supabase: 40, firebase: 40, auth0: 40, postgres: 40,
-  posthog: 30, plausible: 30, ga4: 30, stripe: 30,
+  posthog: 30, plausible: 30, ga4: 30, stripe: 30, revenuecat: 30, paddle: 30, lemonsqueezy: 30, chargebee: 30,
   endpoint: 30, manual: 5,
 };
 

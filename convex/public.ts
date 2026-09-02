@@ -3,9 +3,10 @@ import { query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { RANGE_MS, RANGES, DAY, dayKey } from "./lib/time";
 import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
-import { BENCHMARK_METRIC_LABEL, percentileOf, publicBenchmarkStatement, type BenchmarkMetric } from "./lib/benchmarks";
+import { BENCHMARK_METRIC_LABEL, isConversionBenchmark, percentileOf, publicBenchmarkStatement, type BenchmarkMetric } from "./lib/benchmarks";
 import { seriesFor } from "./domain/metrics";
-import { FUNNEL_TIMEFRAMES, funnelFor } from "./domain/funnel";
+import { FUNNEL_TIMEFRAMES, funnelFor, funnelHistoryFor, funnelOptionsFor } from "./domain/funnel";
+import { stripPrivate, visibilityOf } from "./domain/visibility";
 import { publicTrustLabel } from "./lib/trust";
 import { explainTrending, trendingFactors } from "./lib/trending";
 import { trendingInputs } from "./leaderboard";
@@ -13,7 +14,8 @@ import { getProvider } from "./providers";
 import { CATEGORIES } from "../src/lib/categories";
 
 const rangeArg = v.union(...RANGES.map((r) => v.literal(r)));
-export const BOARDS = ["trending", "fastest", "most-users", "most-new", "most-activated", "activation-rate", "new-rising"] as const;
+// Secondary conversion boards only list products whose owner published the rate (visibility), never merely connected a source.
+export const BOARDS = ["trending", "fastest", "most-users", "most-new", "most-activated", "activation-rate", "new-rising", "best-conversion", "best-trial-conversion", "converted-growth"] as const;
 export type Board = (typeof BOARDS)[number];
 const boardArg = v.union(...BOARDS.map((b) => v.literal(b)));
 const windowArg = v.union(v.literal("24h"), v.literal("7d"), v.literal("30d"));
@@ -24,13 +26,12 @@ export function publicProfile(p: Doc<"profiles">) {
   return { _id, username, displayName, avatarUrl, bio, website, x, github, linkedin, followerCount: followerCount ?? 0 };
 }
 
-// Public-safe projection. Traffic/revenue are only exposed when the owner opted in.
+// Public-safe projection. Connection ≠ publication: every gated metric is removed unless its visibility key is on.
 export function publicSaas(s: Doc<"saas">) {
-  const rest: Partial<Doc<"saas">> = { ...s };
-  delete rest.ownerId;
-  if (!s.showTraffic) { delete rest.visitors30d; delete rest.sessions30d; delete rest.visitorsPrev30d; }
-  if (!s.showRevenue) { delete rest.payingUsers; delete rest.mrr; delete rest.currency; }
-  return { ...(rest as Omit<Doc<"saas">, "ownerId">), trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore), followerCount: s.followerCount ?? 0 };
+  const vis = visibilityOf(s);
+  const rest = stripPrivate({ ...s } as Partial<Doc<"saas">>, vis);
+  delete rest.visibility;
+  return { ...(rest as Omit<Doc<"saas">, "ownerId">), trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore), followerCount: s.followerCount ?? 0, visibility: vis };
 }
 
 async function sparkline(ctx: QueryCtx, saasId: Id<"saas">) {
@@ -92,6 +93,18 @@ export function sortBoard(rows: Doc<"saas">[], f: BoardFilters) {
       list = list.filter((s) => s.firstSnapshotAt !== undefined && Date.now() - s.firstSnapshotAt <= 30 * DAY);
       by((s) => s.newUsers7d);
       break;
+    case "best-conversion":
+      list = list.filter((s) => s.signupToConvertedPct !== undefined && s.totalUsers >= 50 && visibilityOf(s).conversionRate);
+      by((s) => s.signupToConvertedPct ?? 0);
+      break;
+    case "best-trial-conversion":
+      list = list.filter((s) => s.trialToConvertedPct !== undefined && visibilityOf(s).trialConversion);
+      by((s) => s.trialToConvertedPct ?? 0);
+      break;
+    case "converted-growth":
+      list = list.filter((s) => s.convertedGrowth30dPct !== undefined && (s.convertedUsers ?? 0) >= 10 && visibilityOf(s).conversionRate);
+      by((s) => s.convertedGrowth30dPct ?? 0);
+      break;
   }
   return list.slice(0, f.limit);
 }
@@ -152,13 +165,22 @@ export const saasBySlug = query({
 
 const funnelTimeframeArg = v.union(...FUNNEL_TIMEFRAMES.map((t) => v.literal(t)));
 
-// Public funnel: traffic/revenue stages only when the owner opted in; every stage carries its own provenance.
+// Public funnel: reached / trial / converted stages only when the owner published them; every stage carries its own provenance.
 export const funnel = query({
   args: { slug: v.string(), timeframe: v.optional(funnelTimeframeArg) },
   handler: async (ctx, { slug, timeframe }) => {
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
     if (!s || !s.isPublic) return null;
-    return funnelFor(ctx, s, timeframe ?? "30d", { includeTraffic: Boolean(s.showTraffic), includeRevenue: Boolean(s.showRevenue) });
+    return funnelFor(ctx, s, timeframe ?? "30d", funnelOptionsFor(visibilityOf(s)));
+  },
+});
+
+export const funnelHistory = query({
+  args: { slug: v.string(), days: v.optional(v.number()) },
+  handler: async (ctx, { slug, days }) => {
+    const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    if (!s || !s.isPublic) return null;
+    return funnelHistoryFor(ctx, s, Math.min(365, Math.max(14, days ?? 90)), funnelOptionsFor(visibilityOf(s)));
   },
 });
 
@@ -197,11 +219,16 @@ export const benchmarkHighlight = query({
       { key: `size:${sizeBucket(s.totalUsers)}`, label: `products with ${SIZE_BUCKETS.find((b) => b.key === sizeBucket(s.totalUsers))?.label ?? "similar"} users` },
       { key: "all", label: "all SaaS on UserTrack" },
     ];
-    const metrics: { metric: BenchmarkMetric; value: number | undefined }[] = [{ metric: "growth30dPct", value: s.growth30dPct }, { metric: "activationRatePct", value: s.activationRatePct }, { metric: "newUsers30d", value: s.newUsers30d }];
+    const vis = visibilityOf(s);
+    const metrics: { metric: BenchmarkMetric; value: number | undefined }[] = [
+      { metric: "growth30dPct", value: s.growth30dPct }, { metric: "activationRatePct", value: s.activationRatePct }, { metric: "newUsers30d", value: s.newUsers30d },
+      { metric: "signupToConvertedPct", value: s.signupToConvertedPct }, { metric: "convertedGrowth30dPct", value: s.convertedGrowth30dPct }, { metric: "trialToConvertedPct", value: vis.trialConversion ? s.trialToConvertedPct : undefined },
+    ];
     let best: BenchmarkHighlight | null = null;
     for (const c of cohorts) {
       for (const m of metrics) {
-        if (m.value === undefined) continue;
+        // Conversion standings are never published unless the founder made the rate public.
+        if (m.value === undefined || (isConversionBenchmark(m.metric) && !vis.conversionRate)) continue;
         const agg = await ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", c.key).eq("metric", m.metric)).unique();
         if (!agg) continue;
         const percentile = percentileOf(m.value, agg.deciles);

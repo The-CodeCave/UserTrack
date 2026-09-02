@@ -4,7 +4,7 @@ Read-only JSON API over everything that is public on UserTrack: SaaS profiles, m
 
 - **Base URL:** `https://usertrack.dev/api/v1` (self-hosted: `${NEXT_PUBLIC_SITE_URL}/api/v1`)
 - **Auth:** optional API key (see below). Without a key you still get the full data set at a lower rate limit.
-- **Format:** JSON, UTF-8. Timestamps are ISO 8601 (UTC). Money (`mrr`) is in minor units (cents) of `currency`.
+- **Format:** JSON, UTF-8. Timestamps are ISO 8601 (UTC). The API carries user counts and rates only — never amounts, MRR or ARR (`docs/METRICS.md`, no-revenue policy).
 - **OpenAPI:** `https://usertrack.dev/api/openapi.json` (OpenAPI 3.1, generated from the route code in `src/lib/api/openapi.ts`).
 
 ## Versioning
@@ -98,7 +98,11 @@ Returned by `/saas/{slug}`, in each leaderboard row and in `/users/{username}.sa
 | `metrics.activated` | object? | `{ total, last24h?, last7d?, last30d?, ratePct? }`, only with an activation source |
 | `metrics.retention` | object? | `{ retainedUsers, churnedUsers, ratePct, source: "estimated" \| "verified" }` |
 | `metrics.traffic` | object? | `{ visitors30d, sessions30d?, visitorsPrev30d? }`, only if the owner opted in |
-| `metrics.revenue` | object? | `{ payingUsers, mrr?, currency? }`, only if the owner opted in; `mrr` in cents |
+| `metrics.conversion` | object? | `{ convertedUsers?, newConverted7d?, newConverted30d?, convertedGrowth30dPct?, trialUsers?, signupToConvertedPct?, activatedToConvertedPct?, trialToConvertedPct? }` — each field only when the matching visibility key (Conversion rate · Trial conversion · Converted count) is public. Counts and rates are published independently. |
+| `metrics.revenue` | object? | **Deprecated alias** `{ payingUsers }` = `conversion.convertedUsers`, kept for v1 clients. Never contains amounts. |
+| `identityQuality` | `"aggregate_only" \| "partially_mapped" \| "cohort_verified"`? | Whether the same users can be traced across stages (`docs/IDENTITY.md`) |
+| `projectType` | `"web" \| "mobile" \| "hybrid"`? | |
+| `stores` | object? | `{ appStore?, googlePlay? }` store links for mobile / hybrid products |
 | `ranks` | object | `{ leaderboard?, previousLeaderboard?, trending?, previousTrending?, trendingScore7d? }` |
 | `followers` | number | |
 | `owner` | object? | `{ username, displayName }` |
@@ -238,7 +242,7 @@ curl https://usertrack.dev/api/v1/saas/acme/milestones
 
 ## `GET /api/v1/saas/{slug}/funnel`
 
-Visitors → Signups → Activated → Paying with conversion rates, the previous window of the same length and per-stage provenance. Only stages with a connected source are returned; visitors and paying appear only when the owner shares traffic / revenue. Math and fallbacks: `docs/METRICS.md`.
+The lifecycle funnel **Reached → Signed up → Activated → Trial → Converted** for a window, with the previous window of the same length, conversion between adjacent stages, the strategic rates and per-stage provenance. The funnel is **dynamic**: only stages with a connected source that the owner publishes are returned (Reached needs the *Visitors* toggle, Trial the *Trial conversion* toggle, Converted the *Conversion rate* or *Converted count* toggle). Semantics: `docs/FUNNEL.md`.
 
 | Param | Values | Default |
 | --- | --- | --- |
@@ -255,27 +259,101 @@ curl "https://usertrack.dev/api/v1/saas/acme/funnel?timeframe=30d"
     "days": 30,
     "verification": "verified",
     "coverageDays": 30,
+    "basis": "aggregate",
+    "identityQuality": "cohort_verified",
     "stages": [
-      { "key": "visitors", "label": "Visitors", "value": 18420, "previous": 15100, "changePct": 22, "kind": "flow",
-        "source": { "provider": "plausible", "label": "Plausible", "verification": "verified" } },
-      { "key": "signups", "label": "Signups", "value": 1922, "previous": 1610, "changePct": 19.4, "conversionPct": 10.4, "previousConversionPct": 10.7, "kind": "flow",
-        "source": { "provider": "supabase", "label": "Supabase", "verification": "verified" } },
-      { "key": "activated", "label": "Activated", "value": 610, "previous": 480, "changePct": 27.1, "conversionPct": 31.7, "previousConversionPct": 29.8, "kind": "flow",
+      { "key": "signed_up", "label": "Signed up", "value": 6581, "previous": 5910, "changePct": 11.4, "kind": "flow", "verified": true, "health": "healthy", "updatedAt": "2026-09-02T09:58:00.000Z",
+        "source": { "provider": "clerk", "label": "Clerk", "verification": "verified" } },
+      { "key": "activated", "label": "Activated", "value": 3601, "previous": 3020, "changePct": 19.2, "conversionPct": 54.7, "previousConversionPct": 51.1, "kind": "flow", "verified": true, "health": "healthy", "updatedAt": "2026-09-02T09:44:00.000Z",
         "source": { "provider": "posthog", "label": "PostHog", "verification": "verified" } },
-      { "key": "paying", "label": "Paying", "value": 312, "previous": 290, "changePct": 7.6, "conversionPct": 51.1, "previousConversionPct": 60.4, "kind": "stock",
+      { "key": "converted", "label": "Converted", "value": null, "conversionPct": 12.4, "previousConversionPct": 11.9, "kind": "flow", "verified": true, "health": "healthy", "updatedAt": "2026-09-02T08:10:00.000Z",
         "source": { "provider": "stripe", "label": "Stripe", "verification": "verified" } }
+    ],
+    "rates": [
+      { "from": "signed_up", "to": "activated", "label": "Signup → Activated", "pct": 54.7, "previousPct": 51.1, "adjacent": true },
+      { "from": "activated", "to": "converted", "label": "Activated → Converted", "pct": 12.4, "previousPct": 11.9, "adjacent": true },
+      { "from": "signed_up", "to": "converted", "label": "Signup → Converted", "pct": 6.8, "previousPct": 6.1, "adjacent": false }
     ]
   },
   "meta": { "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z" }
 }
 ```
 
-- `kind`: `flow` stages are sums over the window (visitors, signups, activations); `paying` is a `stock` (last value in the window).
-- `conversionPct` is the stage as a percentage of the previous stage; `changePct` compares with the previous window. Both are omitted when the denominator is missing or zero.
-- `source.verification` is `verified`, `partially_verified` or `self_reported` per stage. The funnel-level `verification` is `verified` only when every stage is verified, `self_reported` when all are, `mixed` otherwise, `none` without sources.
-- `coverageDays` is the number of daily rows inside the window; when it is below 2 the numbers come from the current materialized metrics instead of daily rows.
+- `key` is one of `reached`, `signed_up`, `activated`, `trial`, `converted`. Stages the product does not have (no trial, no reach source, …) are simply absent — never zero-filled.
+- `value` is `null` when the owner publishes the **rate** but not the **count** (e.g. Conversion rate on, Converted count off). Rates are still exact.
+- `kind`: `flow` stages are sums over the window; `converted` / `trial` are `flow` when the source reports new conversions per day and `stock` (current total) otherwise.
+- `conversionPct` is the stage as a percentage of the previous *returned* stage; `changePct` compares with the previous window. Both are omitted when the denominator is missing or zero.
+- `rates[]` are the strategically useful ratios (Reached → Signed up, Signup → Activated, Activated → Trial, Trial → Converted, Activated → Converted, Signup → Converted) — only those whose stages are present; `adjacent` says whether the two stages sit next to each other in the returned funnel.
+- `basis` is always `aggregate`: period ratios that do not prove the same users moved through the stages. `identityQuality` says whether the identity-matched view exists (`/cohorts`).
+- `verified` per stage is `source.verification === "verified"`; `health` is `healthy`, `attention` (last sync failed) or `stale` (older than 2 days); `updatedAt` is that source's own sync time — sources are never pretended to share one timestamp.
+- The funnel-level `verification` is `verified` only when every stage is verified, `self_reported` when all are, `mixed` otherwise, `none` without sources. `coverageDays` is the number of daily rows inside the window.
 
 `400 bad_request` for an unknown `timeframe`, `404 not_found` for an unknown or private slug.
+
+---
+
+## `GET /api/v1/saas/{slug}/engagement`
+
+Activated users, activation rate and retention — only when the owner publishes the activation rate (default: on).
+
+```json
+{
+  "data": {
+    "slug": "acme", "name": "Acme", "verification": "verified",
+    "engagement": { "activatedUsers": 8540, "activated7d": 210, "activated30d": 1260, "activationRatePct": 68.4, "retention": { "retainedUsers": 5100, "churnedUsers": 2300, "ratePct": 68.9, "source": "estimated" } },
+    "updatedAt": "2026-09-02T09:44:00.000Z",
+    "urls": { "page": "https://usertrack.dev/s/acme#engagement" }
+  }
+}
+```
+
+`engagement` is `null` (with a `note`) when no activation source is connected or the metric is private.
+
+---
+
+## `GET /api/v1/saas/{slug}/conversion`
+
+Conversion metrics as **user counts and ratios** — never amounts. Fields follow the owner's visibility keys: `signupToConvertedPct` / `activatedToConvertedPct` / `convertedGrowth30dPct` need *Conversion rate*, `trialUsers` / `trialToConvertedPct` need *Trial conversion*, `convertedUsers` / `newConverted7d` / `newConverted30d` need *Converted count*. Connection ≠ publication: a product can have Stripe or RevenueCat connected and return `conversion: null` here.
+
+```json
+{
+  "data": {
+    "slug": "acme", "name": "Acme", "verification": "verified",
+    "basis": "aggregate",
+    "identityQuality": "partially_mapped",
+    "conversion": { "signupToConvertedPct": 8.7, "activatedToConvertedPct": 12.4, "convertedGrowth30dPct": 6.1 },
+    "updatedAt": "2026-09-02T08:10:00.000Z",
+    "urls": { "page": "https://usertrack.dev/s/acme#conversion" }
+  }
+}
+```
+
+---
+
+## `GET /api/v1/saas/{slug}/cohorts`
+
+Monthly **signup cohorts** traced through the lifecycle using pseudonymous identity links (salted hashes of the ids each source reports — never emails or names, `docs/IDENTITY.md`). This is the *Cohort Verified* view: "12.7 % of users who signed up in August converted within 30 days." Empty (`cohorts: []` + `note`) until at least two connected stages report identities.
+
+```json
+{
+  "data": {
+    "slug": "acme",
+    "basis": "cohort",
+    "identityQuality": "cohort_verified",
+    "identityQualityLabel": "Cohort Verified",
+    "explanation": "UserTrack can trace anonymized user progression across the connected lifecycle stages.",
+    "cohorts": [
+      { "cohort": "2026-08", "signedUp": 1000, "activated": 610, "activationPct": 61, "activatedD7Pct": 48.2, "converted": null, "convertedPct": 12.7, "convertedD30Pct": 11.9, "medianTimeToActivationMs": 5400000, "computedAt": "2026-09-02T03:30:00.000Z" }
+    ]
+  }
+}
+```
+
+- Counts are `null` when the owner publishes rates but not counts (`signedUp` / `activated` follow *Converted count* too, so that no count can be reverse-engineered from a rate).
+- `trial*` fields exist only with *Trial conversion* public; `converted*` only with *Conversion rate* or *Converted count* public.
+- Cohorts are rebuilt daily (`cohorts.rebuildAll`); `computedAt` is the rebuild time.
+
+---
 
 ## `GET /api/v1/saas/{slug}/benchmarks`
 
@@ -301,7 +379,7 @@ When there is nothing to say, `highlight` is `null` and `note` explains why: `"N
 
 | Param | Values | Default |
 | --- | --- | --- |
-| `board` | `trending`, `fastest`, `most-users`, `most-new`, `most-activated`, `activation-rate`, `new-rising` | `most-new` |
+| `board` | `trending`, `fastest`, `most-users`, `most-new`, `most-activated`, `activation-rate`, `new-rising`, and the secondary conversion boards `best-conversion`, `best-trial-conversion`, `converted-growth` (only products that publish the matching metric) | `most-new` |
 | `window` | `24h`, `7d`, `30d` | `7d` for `trending`, otherwise `30d` |
 | `category` | any slug from `/categories` | all |
 | `verified` | `true`, `false` | `true` (only verified products) |

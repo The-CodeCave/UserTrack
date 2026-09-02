@@ -1,4 +1,4 @@
-// End-to-end smoke: sign up → onboarding (profile, SaaS, manual source, skip activation, publish) → public page. Screenshots to /tmp/ut-shots.
+// End-to-end smoke: sign up → onboarding (profile, SaaS, platform, stack, manual source, skip activation + conversion, publish) → public page. Screenshots to /tmp/ut-shots.
 import { chromium } from "playwright-core";
 
 const base = process.argv[2] ?? "http://localhost:3000";
@@ -33,8 +33,21 @@ await step("03-onboarding-saas", async () => {
   await page.selectOption("#category", "developer-tools");
   await page.fill("#tags", "testing, e2e");
 });
-await step("04-onboarding-source", async () => {
+await step("04a-onboarding-platform", async () => {
   await page.click("button[type=submit]");
+  await page.waitForSelector("text=What are you tracking?", { timeout: 30000 });
+  await page.click("text=Web SaaS");
+  await page.click("button:has-text('Continue')");
+});
+await step("04b-onboarding-stack", async () => {
+  // Identity → Analytics → Monetization; last screen's button reads "Show recommendations".
+  for (const pick of ["Other", "None", "Not monetized"]) {
+    await page.waitForSelector("button[aria-pressed]", { timeout: 30000 });
+    await page.click(`button[aria-pressed]:has-text('${pick}')`);
+    await page.click("button:has-text('Continue'), button:has-text('Show recommendations')");
+  }
+});
+await step("04-onboarding-source", async () => {
   await page.waitForSelector("text=Connect a data source", { timeout: 30000 });
   await page.click("text=Manual");
   await page.fill("#totalUsers", "1234");
@@ -42,6 +55,11 @@ await step("04-onboarding-source", async () => {
 await step("05-onboarding-activation", async () => {
   await page.click("button[type=submit]");
   await page.waitForSelector("text=Track activation too", { timeout: 30000 });
+});
+await step("05b-onboarding-conversion", async () => {
+  await page.click("text=Skip for now");
+  await page.waitForSelector("text=Connect your payment provider", { timeout: 30000 });
+  await page.waitForSelector("text=never needs your revenue numbers", { timeout: 30000 });
 });
 await step("06-onboarding-publish", async () => {
   await page.click("text=Skip for now");
@@ -56,7 +74,7 @@ await step("07-celebrate", async () => {
 const slugLink = new URL(new URL(await page.locator("a:has-text('Open page')").getAttribute("href")).pathname, base).href;
 await step("08-public-page", async () => { await page.goto(slugLink); await page.waitForSelector("text=Self-reported"); });
 await step("09-dashboard", async () => { await page.goto(`${base}/app`); await page.waitForSelector("text=Your growth at a glance", { timeout: 30000 }); });
-await step("10-manage", async () => { await page.goto(`${base}/app/saas`); await page.click(`text=Smoke SaaS ${tag}`); await page.waitForSelector("text=User count source", { timeout: 30000 }); });
+await step("10-manage", async () => { await page.goto(`${base}/app/saas`); await page.click(`text=Smoke SaaS ${tag}`); await page.waitForSelector("text=Identity source", { timeout: 30000 }); await page.waitForSelector("text=Connection ≠ publication", { timeout: 30000 }); });
 await step("11-signed-out-redirect", async () => {
   await page.context().clearCookies();
   await page.goto(`${base}/app`);

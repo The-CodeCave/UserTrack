@@ -73,11 +73,12 @@ describe("validation", () => {
     expect(JSON.stringify(pub)).not.toContain("PRIVATE KEY");
   });
   it("stripe", () => {
-    expect(stripe.validate({ secretKey: "pk_live_x" }, "revenue").ok).toBe(false);
-    for (const k of ["sk_live_", "sk_test_", "rk_live_", "rk_test_"]) expect(stripe.validate({ secretKey: `${k}abcdefghijkl` }, "revenue").ok).toBe(true);
-    const pub = stripe.publicConfig({ secretKey: "sk_live_abcdefghijklmnop" });
+    expect(stripe.validate({ secretKey: "pk_live_x" }, "conversion").ok).toBe(false);
+    for (const k of ["sk_live_", "sk_test_", "rk_live_", "rk_test_"]) expect(stripe.validate({ secretKey: `${k}abcdefghijkl` }, "conversion").ok).toBe(true);
+    const pub = stripe.publicConfig({ secretKey: "sk_live_abcdefghijklmnop", mode: "active_paid" });
     expect(pub.key).toBe("sk_live_…mnop");
     expect(pub.key).not.toContain("abcdefghijkl");
+    expect(pub.conversion).toBe("Active paid");
   });
 });
 
@@ -109,7 +110,8 @@ describe("fetch parsing", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const cfg = { host: "https://us.posthog.com", projectId: "1", apiKey: "phx_k", activationEvent: "signed_up" };
-    expect(await posthog.fetch(cfg, "activation")).toEqual({ activatedUsers: 500, activated24h: 1, activated7d: 7, activated30d: 30 });
+    const { identities: _ids, ...act } = await posthog.fetch(cfg, "activation");
+    expect(act).toEqual({ activatedUsers: 500, activated24h: 1, activated7d: 7, activated30d: 30 });
     expect(queries.every((q) => q.includes("event = 'signed_up'"))).toBe(true);
     expect(fetchMock.mock.calls[0][0]).toBe("https://us.posthog.com/api/projects/1/query");
     expect(await posthog.fetchHistory!(cfg, "activation", 30)).toEqual({ metric: "activatedUsers", points: [{ day: "2024-01-01", value: 497 }, { day: "2024-01-02", value: 500 }] });
@@ -128,22 +130,6 @@ describe("fetch parsing", () => {
     expect(await plausible.fetch(cfg, "traffic")).toEqual({ visitors30d: 5, sessions30d: 6 });
     vi.stubGlobal("fetch", vi.fn(async () => json({ results: [{ date: "2024-01-01", visitors: 4 }] })));
     expect(await plausible.fetchHistory!(cfg, "traffic", 7)).toEqual({ metric: "visitors", points: [{ day: "2024-01-01", value: 4 }] });
-  });
-  it("stripe MRR normalization + pagination", async () => {
-    const price = (unit_amount: number | null, interval: string, interval_count = 1, currency = "usd") => ({ unit_amount, currency, recurring: { interval, interval_count } });
-    const page1 = {
-      has_more: true,
-      data: [
-        { id: "sub_1", customer: "cus_a", items: { data: [{ price: price(1000, "month"), quantity: 2 }] } },
-        { id: "sub_2", customer: "cus_b", items: { data: [{ price: price(12000, "year") }, { price: price(null, "month") }] } },
-      ],
-    };
-    const page2 = { has_more: false, data: [{ id: "sub_3", customer: "cus_a", items: { data: [{ price: price(3000, "month", 3), quantity: 1 }] } }] };
-    const fetchMock = vi.fn(async (url: string) => json(url.includes("starting_after=sub_2") ? page2 : page1));
-    vi.stubGlobal("fetch", fetchMock);
-    expect(await stripe.fetch({ secretKey: "sk_test_x" }, "revenue")).toEqual({ payingUsers: 2, mrr: 4000, currency: "USD" });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(calls(fetchMock)[0]).toBe("https://api.stripe.com/v1/subscriptions?status=active&limit=100&expand[]=data.items.data.price");
   });
   it("ga4 row mapping", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {

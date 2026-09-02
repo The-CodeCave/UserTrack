@@ -1,8 +1,9 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation, type MutationCtx } from "./_generated/server";
+import { internalAction, internalMutation, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { getProvider, ProviderError, type History, type ProviderMetrics, type Role } from "./providers";
+import { getProvider, normalizeRole, ProviderError, type History, type LifecycleStage, type ProviderMetrics, type Role, type StageIdentities } from "./providers";
+import { identitySalt, subjectHash } from "./lib/identity";
 import { fetchHistory, fetchMetrics, hasHistory } from "./providerRun";
 import { DAY, HOUR, dayKey, dayStart } from "./lib/time";
 import { growthPct, pct, previousWindowDelta, windowDelta } from "./lib/metrics";
@@ -14,7 +15,7 @@ import { addMilestones, openFlags, refreshTrust } from "./trust";
 import { onSourceFailure, onSourceSuccess } from "./email/lifecycle";
 import { onSpikeCheck, onUsersSnapshot } from "./email/growth";
 import { addOnceEvent } from "./domain/events";
-import { integrationRole, providerKind, trustLevel } from "./schema";
+import { conversionMode, integrationRole, lifecycleStage, providerKind, trustLevel } from "./schema";
 
 const STAGGER_WINDOW_MS = 10 * 60_000;
 const MAX_ATTEMPTS = 3;
@@ -34,13 +35,20 @@ const metricsValidator = v.object({
   visitors30d: v.optional(v.number()),
   sessions30d: v.optional(v.number()),
   visitorsPrev30d: v.optional(v.number()),
+  trialUsers: v.optional(v.number()),
+  newTrials7d: v.optional(v.number()),
+  newTrials30d: v.optional(v.number()),
+  convertedUsers: v.optional(v.number()),
+  newConverted24h: v.optional(v.number()),
+  newConverted7d: v.optional(v.number()),
+  newConverted30d: v.optional(v.number()),
+  conversionMode: v.optional(conversionMode),
   payingUsers: v.optional(v.number()),
-  mrr: v.optional(v.number()),
-  currency: v.optional(v.string()),
 });
+const IDENTITY_BATCH = 500;
 
 const historyValidator = v.object({
-  metric: v.union(v.literal("totalUsers"), v.literal("newUsers"), v.literal("activatedUsers"), v.literal("visitors")),
+  metric: v.union(v.literal("totalUsers"), v.literal("newUsers"), v.literal("activatedUsers"), v.literal("visitors"), v.literal("convertedUsers"), v.literal("trialUsers")),
   points: v.array(v.object({ day: v.string(), value: v.number() })),
 });
 
@@ -60,11 +68,11 @@ export const runOne = internalAction({
     const data = await ctx.runQuery(internal.integrations.getForSync, { integrationId });
     if (!data) return;
     const { integration, websiteUrl } = data;
-    const role: Role = integration.role ?? "users";
+    const role: Role = normalizeRole(integration.role);
     const provider = getProvider(integration.provider);
     const startedAt = Date.now();
     try {
-      const metrics = await fetchMetrics(ctx, integration.provider, integration.config, role);
+      const { identities, ...metrics } = await fetchMetrics(ctx, integration.provider, integration.config, role);
       await ctx.runMutation(internal.sync.recordSuccess, {
         integrationId,
         startedAt,
@@ -73,6 +81,7 @@ export const runOne = internalAction({
         metrics,
         trust: provider.trust(integration.config, websiteUrl),
       });
+      if (identities?.length) await recordIdentityBatches(ctx, integrationId, String(integration.saasId), identities);
       if (hasHistory(integration.provider, integration.config) && (!integration.backfilledAt || role === "traffic")) {
         const days = integration.backfilledAt ? 7 : BACKFILL_DAYS;
         try {
@@ -91,6 +100,45 @@ export const runOne = internalAction({
     }
   },
 });
+
+// Raw provider ids are hashed here, inside the action, so a mutation never sees or logs them. Bounded batches per call.
+async function recordIdentityBatches(ctx: ActionCtx, integrationId: Id<"integrations">, saasId: string, identities: StageIdentities[]) {
+  const salt = identitySalt();
+  for (const group of identities) {
+    const subjects = await Promise.all(group.ids.map(async (x) => ({ subject: await subjectHash(salt, saasId, x.id), at: x.at })));
+    for (let i = 0; i < subjects.length; i += IDENTITY_BATCH) {
+      await ctx.runMutation(internal.sync.recordIdentities, { integrationId, stage: group.stage, subjects: subjects.slice(i, i + IDENTITY_BATCH) });
+    }
+  }
+}
+
+export const recordIdentities = internalMutation({
+  args: { integrationId: v.id("integrations"), stage: lifecycleStage, subjects: v.array(v.object({ subject: v.string(), at: v.optional(v.number()) })) },
+  handler: async (ctx, { integrationId, stage, subjects }) => {
+    const integration = await ctx.db.get(integrationId);
+    if (!integration) return;
+    const now = Date.now();
+    for (const { subject, at } of subjects) {
+      const existing = await ctx.db.query("identityLinks").withIndex("by_saas_stage_subject", (q) => q.eq("saasId", integration.saasId).eq("stage", stage).eq("subject", subject)).unique();
+      if (existing) continue;
+      await ctx.db.insert("identityLinks", { saasId: integration.saasId, stage, subject, source: integration.provider, firstSeenAt: now, at: at && Number.isFinite(at) && at > 0 && at <= now ? at : now });
+    }
+  },
+});
+
+async function stageSnapshotAt(ctx: MutationCtx, saasId: Id<"saas">, stage: LifecycleStage, cutoff: number) {
+  return ctx.db.query("stageSnapshots").withIndex("by_saas_stage_time", (q) => q.eq("saasId", saasId).eq("stage", stage).lte("capturedAt", cutoff)).order("desc").first();
+}
+
+// Ratios between lifecycle stocks. Recomputed whenever any stage changes so a users sync also refreshes conversion %.
+function stageRates(s: Pick<Doc<"saas">, "totalUsers" | "activatedUsers" | "convertedUsers" | "newConverted30d" | "newTrials30d" | "trialUsers">) {
+  if (s.convertedUsers === undefined) return { signupToConvertedPct: undefined, activatedToConvertedPct: undefined, trialToConvertedPct: undefined };
+  return {
+    signupToConvertedPct: pct(s.convertedUsers, s.totalUsers),
+    activatedToConvertedPct: pct(s.convertedUsers, s.activatedUsers),
+    trialToConvertedPct: s.newTrials30d !== undefined && s.newTrials30d > 0 ? pct(s.newConverted30d, s.newTrials30d) : s.trialUsers !== undefined && s.trialUsers + s.convertedUsers > 0 ? pct(s.convertedUsers, s.trialUsers + s.convertedUsers) : undefined,
+  };
+}
 
 async function snapshotAt(ctx: MutationCtx, saasId: Id<"saas">, cutoff: number) {
   return ctx.db
@@ -132,6 +180,7 @@ export async function recomputeDerived(ctx: MutationCtx, saasId: Id<"saas">, rep
     newUsersPrev7d: previousWindowDelta(b7d, b14d, first),
     newUsersPrev30d: previousWindowDelta(b30d, b60d, first),
     activationRatePct: pct(saas.activatedUsers, total),
+    ...stageRates({ ...saas, totalUsers: total }),
     retainedUsers: retention?.retained,
     churnedUsers: retention?.churned,
     retentionRatePct: retention?.ratePct,
@@ -142,7 +191,8 @@ export async function recomputeDerived(ctx: MutationCtx, saasId: Id<"saas">, rep
 
 export const recordSuccess = internalMutation({
   args: { integrationId: v.id("integrations"), startedAt: v.number(), attempt: v.number(), role: integrationRole, metrics: metricsValidator, trust: trustLevel },
-  handler: async (ctx, { integrationId, startedAt, attempt, role, metrics, trust }) => {
+  handler: async (ctx, { integrationId, startedAt, attempt, role: rawRole, metrics, trust }) => {
+    const role = normalizeRole(rawRole);
     const integration = await ctx.db.get(integrationId);
     if (!integration) return;
     const { saasId } = integration;
@@ -207,12 +257,14 @@ export const recordSuccess = internalMutation({
       const base = yesterday?.activatedUsers ?? prevActivated ?? metrics.activatedUsers;
       const newActivated = metrics.activatedUsers - base;
       await upsertDaily(ctx, saasId, day, { activatedUsers: metrics.activatedUsers, newActivated });
+      await ctx.db.insert("stageSnapshots", { saasId, stage: "activated", value: metrics.activatedUsers, capturedAt: now, source: integration.provider, integrationId, trust });
       await ctx.db.patch(saasId, {
         activatedUsers: metrics.activatedUsers,
         activated24h: metrics.activated24h,
         activated7d: metrics.activated7d,
         activated30d: metrics.activated30d,
         activationRatePct: pct(metrics.activatedUsers, saas.totalUsers),
+        ...stageRates({ ...saas, activatedUsers: metrics.activatedUsers }),
       });
       if (!saas.isDemo) {
         if (prevActivated !== null) await addMilestones(ctx, saasId, thresholdMilestones(prevActivated, metrics.activatedUsers, saas.name, "activated"));
@@ -227,9 +279,39 @@ export const recordSuccess = internalMutation({
       await ctx.db.patch(saasId, { visitors30d: metrics.visitors30d, sessions30d: metrics.sessions30d, visitorsPrev30d: metrics.visitorsPrev30d });
     }
 
-    if (role === "revenue" && metrics.payingUsers !== undefined) {
-      await upsertDaily(ctx, saasId, day, { payingUsers: metrics.payingUsers, mrr: metrics.mrr });
-      await ctx.db.patch(saasId, { payingUsers: metrics.payingUsers, mrr: metrics.mrr, currency: metrics.currency ?? saas.currency });
+    if (role === "conversion" && (metrics.convertedUsers ?? metrics.payingUsers) !== undefined) {
+      const converted = (metrics.convertedUsers ?? metrics.payingUsers)!;
+      const mode = metrics.conversionMode ?? "active_paid";
+      const prevConverted = saas.convertedUsers ?? null;
+      await ctx.db.insert("stageSnapshots", { saasId, stage: "converted", value: converted, capturedAt: now, source: integration.provider, integrationId, trust, mode });
+      if (metrics.trialUsers !== undefined) await ctx.db.insert("stageSnapshots", { saasId, stage: "trial", value: metrics.trialUsers, capturedAt: now, source: integration.provider, integrationId, trust });
+      // Daily flows: provider-reported when available, else stock deltas clamped at zero (churn never yields negative conversions).
+      const yesterday = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", saasId).lt("day", day)).order("desc").first();
+      const base = yesterday?.convertedUsers ?? prevConverted ?? converted;
+      const newConverted = metrics.newConverted24h ?? Math.max(0, converted - base);
+      const trialBase = yesterday?.trialUsers ?? saas.trialUsers ?? metrics.trialUsers ?? 0;
+      const newTrials = metrics.trialUsers === undefined ? undefined : metrics.newTrials7d !== undefined ? Math.max(0, Math.round(metrics.newTrials7d / 7)) : Math.max(0, metrics.trialUsers - trialBase);
+      await upsertDaily(ctx, saasId, day, { convertedUsers: converted, newConverted, trialUsers: metrics.trialUsers, newTrials, payingUsers: undefined, mrr: undefined });
+      const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", saasId).gte("day", dayKey(now - 30 * DAY))).collect();
+      const flow = (days: number, pick: (r: Doc<"dailyMetrics">) => number | undefined) => rows.filter((r) => r.day > dayKey(now - days * DAY)).reduce((a, r) => a + (pick(r) ?? 0), 0);
+      const c30 = await stageSnapshotAt(ctx, saasId, "converted", now - 30 * DAY);
+      const next = {
+        convertedUsers: converted,
+        trialUsers: metrics.trialUsers,
+        newTrials7d: metrics.newTrials7d ?? (metrics.trialUsers === undefined ? undefined : flow(7, (r) => r.newTrials)),
+        newTrials30d: metrics.newTrials30d ?? (metrics.trialUsers === undefined ? undefined : flow(30, (r) => r.newTrials)),
+        newConverted24h: newConverted,
+        newConverted7d: metrics.newConverted7d ?? flow(7, (r) => r.newConverted),
+        newConverted30d: metrics.newConverted30d ?? flow(30, (r) => r.newConverted),
+        convertedPrev30d: c30?.value,
+        convertedGrowth30dPct: c30 && c30.value > 0 ? Math.round(((converted - c30.value) / c30.value) * 1000) / 10 : undefined,
+        conversionMode: mode,
+        payingUsers: undefined,
+        mrr: undefined,
+        currency: undefined,
+      };
+      await ctx.db.patch(saasId, { ...next, ...stageRates({ ...saas, ...next }) });
+      if (!saas.isDemo && prevConverted !== null) await addMilestones(ctx, saasId, thresholdMilestones(prevConverted, converted, saas.name, "converted"));
     }
 
     await refreshTrust(ctx, saasId);
@@ -243,10 +325,10 @@ export const recordFailure = internalMutation({
     if (!integration) return;
     const now = Date.now();
     const failures = (integration.consecutiveFailures ?? 0) + 1;
-    await ctx.db.insert("syncRuns", { saasId: integration.saasId, integrationId, role: integration.role ?? "users", provider: integration.provider, startedAt, finishedAt: now, durationMs: now - startedAt, attempt, status: "error", error });
+    await ctx.db.insert("syncRuns", { saasId: integration.saasId, integrationId, role: normalizeRole(integration.role), provider: integration.provider, startedAt, finishedAt: now, durationMs: now - startedAt, attempt, status: "error", error });
     await ctx.db.patch(integrationId, { status: "error", lastError: error, lastSyncAt: now, lastFailureAt: now, consecutiveFailures: failures });
     // ~1 day of failed users syncs demotes the SaaS to pending so stale numbers aren't ranked.
-    if ((integration.role ?? "users") === "users" && failures >= 6) await ctx.db.patch(integration.saasId, { trust: "pending" });
+    if (normalizeRole(integration.role) === "users" && failures >= 6) await ctx.db.patch(integration.saasId, { trust: "pending" });
     await refreshTrust(ctx, integration.saasId);
     await onSourceFailure(ctx, integration, failures, error);
   },
@@ -262,7 +344,8 @@ export const markBackfilled = internalMutation({
 // One-time (users/activation) or rolling (traffic) history import. Never overwrites days that already have live data.
 export const recordHistory = internalMutation({
   args: { integrationId: v.id("integrations"), role: integrationRole, history: historyValidator },
-  handler: async (ctx, { integrationId, role, history }) => {
+  handler: async (ctx, { integrationId, role: rawRole, history }) => {
+    const role = normalizeRole(rawRole);
     const integration = await ctx.db.get(integrationId);
     if (!integration) return;
     const saas = await ctx.db.get(integration.saasId);
@@ -271,6 +354,15 @@ export const recordHistory = internalMutation({
     const points = [...history.points].sort((a, b) => a.day.localeCompare(b.day));
     if (history.metric === "visitors") {
       for (const p of points) await upsertDaily(ctx, saasId, p.day, { visitors: p.value });
+      return;
+    }
+    if (history.metric === "convertedUsers" || history.metric === "trialUsers") {
+      let prev: number | null = null;
+      for (const p of points) {
+        const delta = prev === null ? 0 : Math.max(0, p.value - prev);
+        await upsertDaily(ctx, saasId, p.day, history.metric === "convertedUsers" ? { convertedUsers: p.value, newConverted: delta } : { trialUsers: p.value, newTrials: delta });
+        prev = p.value;
+      }
       return;
     }
     if (history.metric === "activatedUsers" && role === "activation") {

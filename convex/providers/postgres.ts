@@ -117,7 +117,7 @@ export const postgres: Provider<PostgresConfig> = {
   toPostgres: (cfg) => cfg,
   describe(cfg, role): ProviderCapabilities {
     const ranged = Boolean(cfg.createdAtColumn || cfg.sql);
-    return { totalUsers: role === "users", createdUsers: role === "users" && ranged, historicalUsers: ranged && !cfg.sql, activationEvents: role === "activation", retention: false, traffic: false, revenue: false };
+    return { totalUsers: role === "users", createdUsers: role === "users" && ranged, historicalUsers: ranged && !cfg.sql, activationEvents: role === "activation", retention: false, traffic: false, trial: false, converted: false, identity: Boolean(cfg.idColumn) };
   },
   async fetch() {
     throw new ProviderError("PostgreSQL runs in the Node runtime", false);
@@ -166,6 +166,14 @@ export function countQuery(q: PostgresQuery, sinceIso?: string) {
     where.push(sinceExpr(q, `$${values.length}`));
   }
   return { text: `SELECT count(*)::text AS n FROM ${fromClause(q)}${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`, values };
+}
+
+// Newest ids (+ timestamps) for identity matching. Bounded; the id is hashed by the sync engine before storage.
+export function identityQuery(q: PostgresQuery, limit: number) {
+  const { where, values } = aliveClauses(q);
+  const at = q.createdAtColumn ? `, ${quoteIdent(q.createdAtColumn)}::text AS at` : "";
+  const order = q.createdAtColumn ? ` ORDER BY ${quoteIdent(q.createdAtColumn)} DESC` : "";
+  return { text: `SELECT ${quoteIdent(q.idColumn!)}::text AS id${at} FROM ${fromClause(q)}${where.length ? ` WHERE ${where.join(" AND ")}` : ""}${order} LIMIT ${Math.floor(limit)}`, values };
 }
 
 // Signups per UTC day since an ISO timestamp (for history reconstruction).

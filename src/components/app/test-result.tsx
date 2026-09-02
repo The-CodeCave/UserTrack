@@ -3,7 +3,7 @@
 import type { FunctionReturnType } from "convex/server";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { api } from "@convex/_generated/api";
-import { formatCompact, formatMoney } from "@/lib/format";
+import { formatCompact } from "@/lib/format";
 import type { Role } from "@/lib/providers-ui";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +27,7 @@ export function TestResultCard({ r, role }: { r: TestResult; role: Role }) {
     role === "users" ? [["Total users", m.totalUsers], ["New · 24h", m.newUsers24h], ["New · 7d", m.newUsers7d], ["New · 30d", m.newUsers30d], ["Active · 30d", m.activeUsers30d]]
     : role === "activation" ? [["Activated", m.activatedUsers], ["24h", m.activated24h], ["7d", m.activated7d], ["30d", m.activated30d]]
     : role === "traffic" ? [["Visitors · 30d", m.visitors30d], ["Sessions · 30d", m.sessions30d], ["Prev 30d", m.visitorsPrev30d]]
-    : [["Paying", m.payingUsers], ["MRR", m.mrr !== undefined ? formatMoney(m.mrr, m.currency) : undefined]];
+    : [["Converted", m.convertedUsers ?? m.payingUsers], ["Trial", m.trialUsers], ["Converted · 30d", m.newConverted30d], ["Trials · 30d", m.newTrials30d]];
   const present = rows.filter(([, v]) => v !== undefined);
   return (
     <div className="border border-pink/50 bg-pink/5 p-3">
@@ -45,7 +45,7 @@ export function TestResultCard({ r, role }: { r: TestResult; role: Role }) {
   );
 }
 
-const CAP_LABELS: Record<keyof Caps, string> = { totalUsers: "Total users", createdUsers: "Signups per window", historicalUsers: "30-day history", activationEvents: "Activation", retention: "Retention (estimated)", traffic: "Traffic", revenue: "Revenue" };
+const CAP_LABELS: Record<keyof Caps, string> = { totalUsers: "Total users", createdUsers: "Signups per window", historicalUsers: "30-day history", activationEvents: "Activation", retention: "Retention (estimated)", traffic: "Reach", trial: "Trial stage", converted: "Converted users", identity: "Cohort matching" };
 
 export function CapabilityList({ caps }: { caps: Caps }) {
   const entries = (Object.keys(CAP_LABELS) as (keyof Caps)[]).filter((k) => caps[k] || k === "createdUsers" || k === "historicalUsers");

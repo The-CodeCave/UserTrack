@@ -6,6 +6,8 @@ export const TOKEN_PLACEHOLDER = "ut_mcp_…";
 
 export const AGENT_PROMPT =
   "Add this project to UserTrack. Detect the current authentication/user stack, choose the safest supported UserTrack integration, configure it, verify it, and return the public UserTrack URL.";
+export const MOBILE_AGENT_PROMPT =
+  "Add this iOS / Android app to UserTrack (projectType: mobile). Detect where accounts are stored (Firebase Auth, Supabase, Auth0, a database or a backend endpoint — Sign in with Apple / Google are auth methods, not the users source), the analytics SDK (PostHog) and the subscription SDK (RevenueCat / StoreKit). Configure the users source, then activation, then conversion (read-only, conversion state only — never revenue), verify each, set the store URLs and auth methods, and return the public UserTrack URL.";
 
 export interface Snippet { id: string; label: string; language: "bash" | "json"; text: string; hint?: string }
 

@@ -2,18 +2,19 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { describeProvider, getProvider, verificationLevel, type Role } from "../providers";
+import { describeProvider, getProvider, normalizeRole, verificationLevel, ROLE_STAGE, type Role } from "../providers";
 import { dayKey } from "../lib/time";
 import { DomainError } from "./projects";
 
 export const SYNC_COOLDOWN_MS = 60_000;
+export const stagesOf = (role: Role) => (role === "conversion" ? (["trial", "converted"] as const) : [ROLE_STAGE[role]]);
 
 export async function listIntegrations(ctx: QueryCtx | MutationCtx, saasId: Id<"saas">) {
   return ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", saasId)).collect();
 }
 
 export function integrationView(i: Doc<"integrations">) {
-  const role = i.role ?? ("users" as const);
+  const role = normalizeRole(i.role);
   const p = getProvider(i.provider);
   const capabilities = describeProvider(p, i.config, role);
   return {
@@ -43,7 +44,7 @@ export async function connectIntegration(ctx: MutationCtx, saas: Doc<"saas">, ro
   if (!validated.ok) throw new DomainError("bad_request", validated.error);
   const saasId = saas._id;
   const existing = await ctx.db.query("integrations").withIndex("by_saas_role", (q) => q.eq("saasId", saasId).eq("role", role)).first();
-  const legacy = role === "users" && !existing ? await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", saasId)).filter((q) => q.eq(q.field("role"), undefined)).first() : null;
+  const legacy = !existing ? await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", saasId)).filter((q) => q.eq(q.field("role"), role === "users" ? undefined : "revenue")).first() : null;
   const current = existing ?? legacy;
   const now = Date.now();
   const doc = {
@@ -69,6 +70,8 @@ export async function connectIntegration(ctx: MutationCtx, saas: Doc<"saas">, ro
     }
   } else id = await ctx.db.insert("integrations", doc);
   if (role === "users") await ctx.db.patch(saasId, { trust: "pending" });
+  // A replaced source may use a different id space: drop that stage's identity links (bounded batches, cohorts rebuild after).
+  if (current && current.provider !== p.kind) for (const stage of stagesOf(role)) await ctx.scheduler.runAfter(0, internal.cohorts.purgeStage, { saasId, stage });
   await ctx.scheduler.runAfter(0, internal.sync.runOne, { integrationId: id, attempt: 1 });
   return id;
 }
@@ -76,7 +79,7 @@ export async function connectIntegration(ctx: MutationCtx, saas: Doc<"saas">, ro
 // Immediate sync with a per-integration cooldown so agents and buttons cannot hammer provider APIs.
 export async function requestSync(ctx: MutationCtx, saasId: Id<"saas">, role?: Role) {
   const all = await listIntegrations(ctx, saasId);
-  const targets = role ? all.filter((i) => (i.role ?? "users") === role) : all;
+  const targets = role ? all.filter((i) => normalizeRole(i.role) === role) : all;
   if (!targets.length) throw new DomainError("bad_request", "No data source connected");
   for (const integration of targets) {
     if (integration.lastSyncAt && Date.now() - integration.lastSyncAt < SYNC_COOLDOWN_MS) {

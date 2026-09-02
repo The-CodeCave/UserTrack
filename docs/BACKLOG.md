@@ -131,3 +131,42 @@ Same vertical-slice ordering. v0.3 (domain layer, tokens, gateway, API keys, MCP
 | UT-3603 | Dashboard IA | Overview "Next actions", anchored manage sections with "Next steps", compact benchmark cards, verification + capabilities on connected sources. | 3106 | Every action links to the section that resolves it | ☑ |
 | UT-3604 | QA + docs | Lint / typecheck / 262 tests / build green; smoke script updated; `docs/PROVIDERS.md`, `METRICS.md`, `TRENDING.md`, `BENCHMARKS.md` new; CHANGELOG, ROADMAP, ASSUMPTIONS, ARCHITECTURE, MCP, README, BACKLOG updated. | – | `pnpm test` → 262 passed | ☑ |
 | UT-3605 | Live provider verification | Exercise PostgreSQL, Supabase database mode and the Firebase scan against real accounts / databases. | 3101, 3103, 3104 | Not done: no live third-party credentials available to the agent (see `docs/ROADMAP.md`, known limitations) | ☐ |
+
+## v0.5 — "Lifecycle: Growth → Activation → Conversion"
+
+Numbering continues at Epic 40. Mirrors the CodeCraft board (UT-4001 … UT-4014).
+
+### Epic 40 — Lifecycle model + conversion providers (P0)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-4001 | Lifecycle model | `conversion` role (legacy `revenue` migrated), capabilities `trial` · `converted` · `identity`, `trialUsers` / `convertedUsers` / `newConverted*` / `newTrials*` on `saas` + `dailyMetrics`, `stageSnapshots`, `migrations:lifecycleV1` (amounts cleared). | – | Migration idempotent; no `mrr` / `currency` written anywhere | ☑ |
+| UT-4002 | Stripe rewrite + RevenueCat | Stripe: subscriptions by status → trial / converted, modes `active_paid` / `ever_paid` / `first_payment`, `metadata.userId` identities, no amounts / prices / expand. RevenueCat: `metrics/overview` active trials + active subscriptions, customers never registered users. | 4001 | Provider tests: active / non-paying / canceled / trial / multiple subs / duplicates; anonymous RevenueCat ids ignored | ☑ |
+| UT-4003 | Paddle / Lemon Squeezy / Chargebee | Subscription / order state → trial / converted via shared `conversion.ts` (`SubRecord`, `aggregateConversion`, bounded paging). | 4001 | Unit tests per provider; read-only, amount-free | ☑ |
+| UT-4004 | Funnel v3 | Dynamic stages, strategic `rates[]`, per-stage provenance + freshness + health, `basis` / `identityQuality`, `funnelHistory`. | 4001 | Full / partial / zero / hidden-count / stale tests | ☑ |
+
+### Epic 41 — Identity, cohorts, visibility (P0)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-4005 | Identity + cohorts | `identityLinks` (salted SHA-256, `IDENTITY_SALT`), `cohortMetrics`, daily paged rebuild, quality `aggregate_only` / `partially_mapped` / `cohort_verified`, Cohort Verified badge. | 4001 | Exact / missing / partial / duplicate mapping tests; no PII stored | ☑ |
+| UT-4006 | Visibility model | Per-metric keys, `saas.setVisibility`, `stripPrivate` on every public projection, conversion private by default; connection ≠ publication. | – | Public page / API / share cards never leak a private field (tests) | ☑ |
+
+### Epic 42 — UX (P0/P1)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-4007 | Dashboard IA + funnel UI | Growth / Engagement / Conversion groups with health + freshness, premium funnel, funnel history chart with metric selection, Visibility section. | 4004, 4006 | Desktop + mobile screenshots; one broken source does not break the page | ☑ |
+| UT-4008 | Onboarding | Platform step, web / mobile stack questions, recommendation, `projectType`, store links, auth methods, no mandatory payment step. | – | Smoke flow (desktop + mobile) passes | ☑ |
+| UT-4009 | Public profile | Growth / Engagement / Conversion sections, Cohort Verified badge, store chips for mobile / hybrid. | 4006 | Conversion section only when published | ☑ |
+
+### Epic 43 — Platform (P1)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-4010 | API | `/funnel` v3, `/conversion`, `/engagement`, `/cohorts`, conversion boards, SaaS object fields, OpenAPI, `docs/API.md`, `/developers`. | 4004, 4006 | `dto.test.ts`: rate-only publication carries no counts; no amounts in any response | ☑ |
+| UT-4011 | MCP | `usertrack_get_provider_recommendation` (lifecycle composition, mobile), `usertrack_get_conversion_setup`, `usertrack_get_identity_mapping`, `usertrack_get_funnel_history`, `usertrack_get_cohorts`, mobile prompt, 12-step workflow. | 4010 | 27 tools registered (`server.test.ts`); `docs/MCP.md` | ☑ |
+| UT-4012 | Benchmarks, boards, trending, emails, share | Conversion benchmark metrics (aggregate-labelled), secondary conversion boards, trending conversion factor ≤ ×1.10, monthly report funnel fields + changes, activation / conversion share cards. | 4006 | Core growth boards unchanged; no revenue anywhere | ☑ |
+
+### Epic 44 — Docs, QA, deploy
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-4013 | Docs | README, ARCHITECTURE, PROVIDERS, METRICS, FUNNEL, IDENTITY, MCP, API, BENCHMARKS, ASSUMPTIONS, ROADMAP, CHANGELOG, BACKLOG, HUMAN_TODO. | – | Lifecycle semantics, aggregate vs cohort, RevenueCat / Stripe distinctions, visibility and the no-revenue policy are all documented | ☑ |
+| UT-4014 | QA + deploy | Lint / typecheck / tests / build, smoke desktop + mobile, Convex prod deploy + `migrations:lifecycleV1`, Railway deploy, production verification. | all | `pnpm test` green; production funnel / API / MCP verified | ☑ |
+| UT-4015 | Live payment-provider verification | Exercise Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee against real accounts. | 4002, 4003 | Not done: no credentials available to the agent (`HUMAN_TODO.md`, optional) | ☐ |

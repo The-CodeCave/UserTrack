@@ -1,20 +1,24 @@
 # UserTrack
 
-**The growth data layer for SaaS.**
+**The user lifecycle data layer for SaaS and apps. Track how users discover, activate and convert.**
 
-UserTrack is a public growth and discovery platform for SaaS. Founders connect a read-only data source, UserTrack snapshots their user count every 4 hours, and every product gets a public growth page, trending score, milestones, share cards, an embeddable badge and a place on the leaderboards. Numbers are pulled from connected providers — never typed in. The same data is available as a free JSON API, and founders can let an AI agent do the whole setup through MCP.
+UserTrack is a public growth and discovery platform for SaaS and mobile apps. Founders connect read-only sources for each lifecycle stage — an identity source (Clerk, Supabase, Firebase Auth, Auth0, PostgreSQL), an activation source (PostHog, a table, custom SQL) and optionally a reach source (PostHog, Plausible, GA4) and a conversion source (Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee) — and UserTrack builds a normalized funnel **Reached → Signed up → Activated → Trial → Converted**, snapshots every stage every 4 hours, and gives every product a public growth page, trending score, milestones, benchmarks, share cards, an embeddable badge and a place on the leaderboards. Numbers are pulled from connected providers, never typed in. **UserTrack tracks users, not revenue**: payment providers are read only to determine who converted; no amounts, MRR or ARR are ever requested, stored or shown. Everything public is also a free JSON API, and an AI agent can do the whole setup through MCP.
 
-**Live:** https://usertrack-production.up.railway.app · **API:** `/api/v1` ([docs](docs/API.md)) · **MCP:** `/mcp` ([docs](docs/MCP.md)) · **Architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · **Providers:** [docs/PROVIDERS.md](docs/PROVIDERS.md) · **Metrics:** [docs/METRICS.md](docs/METRICS.md) · **Trending:** [docs/TRENDING.md](docs/TRENDING.md) · **Benchmarks:** [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
+**Live:** https://usertrack-production.up.railway.app · **API:** `/api/v1` ([docs](docs/API.md)) · **MCP:** `/mcp` ([docs](docs/MCP.md)) · **Architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · **Providers:** [docs/PROVIDERS.md](docs/PROVIDERS.md) · **Funnel:** [docs/FUNNEL.md](docs/FUNNEL.md) · **Identity & cohorts:** [docs/IDENTITY.md](docs/IDENTITY.md) · **Metrics:** [docs/METRICS.md](docs/METRICS.md) · **Trending:** [docs/TRENDING.md](docs/TRENDING.md) · **Benchmarks:** [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 
 ## What it does
 
 | Area | Features |
 |---|---|
+| **Lifecycle model** | One normalized funnel for web SaaS and mobile apps: Reached → Signed up → Activated → Trial → Converted. Every project combines several provider roles (identity · activation · reach · conversion); only stages with real connected data are shown (Signups → Converted, Signups → Activated, full funnel…). Two confidence levels: **Aggregate** (period ratios) and **Cohort Verified** (anonymized users traced across stages). `docs/FUNNEL.md`, `docs/IDENTITY.md`. |
 | **Verified data** | Clerk · Supabase (read-only database mode via the session pooler, or service-role API mode) · **PostgreSQL** (read-only role, aggregate SQL only, 4-step wizard) · Firebase Auth (signup scan ≤100k accounts) · Auth0 · JSON endpoint (verified on own domain) · Manual (self-reported, never ranked). Per-source capability model + verification level (verified / partially verified / self-reported), live "Test connection" before saving, 30-day history backfill where the source supports it. `docs/PROVIDERS.md`. |
 | **Activation** | Optional activation source (PostHog event, Supabase / PostgreSQL table or custom `$1` SELECT, endpoint) → activated users 24h/7d/30d, activation rate, second chart series; optional onboarding step. |
 | **Retention** | Estimated retained / churned / retention rate from providers that expose "active in 30 days" (Clerk, Auth0, endpoint). Labelled *estimated*; never fabricated. |
-| **Traffic & revenue** | Plausible · GA4 · PostHog visitors/sessions; Stripe paying customers + MRR. Opt-in to display publicly. |
-| **Funnel** | Visitors → Signups → Activated → Paying over 7d / 30d / 90d from daily rows, previous-window comparison, conversion per stage, per-stage provenance (provider + verification level) and a funnel-level verification. `docs/METRICS.md`. |
+| **Conversion (no revenue)** | Stripe · **RevenueCat** (iOS/Android subscriptions) · Paddle · Lemon Squeezy · Chargebee · endpoint, read-only and amount-free → Trial Users, Converted Users, Signup → Converted, Activated → Converted, Trial → Converted, converted-user growth. Provider-independent definition of "converted" (active paid · ever paid · first payment). A Stripe customer or a RevenueCat install is never a converted user. |
+| **Reach** | Plausible · GA4 · PostHog visitors/sessions for the top of the funnel (private unless published). |
+| **Funnel** | Dynamic stages over 7d / 30d / 90d from daily rows, previous-window comparison, adjacent + strategic conversion rates, per-stage provenance / freshness / health ("Conversion · Needs attention" never breaks the project), rate history chart, cohort table with D7 activation / D30 conversion where identities exist. |
+| **Visibility** | Per-metric public toggles (Total users · Growth · Activation rate · Conversion rate · Trial conversion · Converted count · Visitors). **Connection ≠ publication**: connect Stripe or RevenueCat for private analytics without exposing anything. Conversion is private by default. |
+| **Mobile apps** | Project type web · mobile · hybrid (onboarding: "What are you tracking?", sign-in / monetization / usage questions → recommended stack), Firebase Auth / Supabase / Auth0 as the registered-user source, Sign in with Apple / Google as authentication methods only, App Store / Google Play links on the profile. |
 | **Ranking** | 30-day leaderboard, **Trending Score v2** (volume × growth × acceleration × trust × activation × freshness × history, every factor public via ⓘ / API / MCP, `docs/TRENDING.md`), per-window trending ranks with movement, 7 boards × 24h/7d/30d × category × size × verification filters. |
 | **Trust** | Trust score 0–100 + anomaly heuristics (impossible jumps, drops, reconnect churn, source switching, stale sources). Public labels: Verified · Partially verified · Data under review · Self-reported. Under-review products are unranked, never accused. |
 | **Milestones** | 10 → 1M users, activated thresholds, biggest day/week, top 10 / top 100, best rank, streaks, +X% month, trending top 10. Persisted once; each has a share page + OG image. |
@@ -24,9 +28,9 @@ UserTrack is a public growth and discovery platform for SaaS. Founders connect a
 | **Compare** | `/compare?s=a,b,c,d&days=7\|30\|90\|365\|all` — up to four products, Total or Indexed (= 100) chart, metric table, shareable permalink with its own OG image (`/compare/og`). |
 | **Social** | Follow products and founders; `/app/following` feed; optional weekly digest (in-app + email). Profile links: website, X, GitHub, LinkedIn. |
 | **Email** | Resend-backed, three categories: **transactional** (welcome + verification, password reset, source stopped syncing / recovered), **product nudges** (profile unfinished after 24h, product without source after 24h, first sync confirmed) and **growth** (user milestones 10→1M, Top 100/50/25/10/5/#1, spike ≥2.5× baseline, 7 quiet days, monthly report, weekly digest, followed-product updates). Per-user preferences at `/app/settings/notifications`, signed preference/unsubscribe links, one-click unsubscribe, delivery log with dedupe keys, bounce/complaint suppression. |
-| **Benchmarks** | Daily deciles per cohort (all / category / size bucket) for 30d + 7d growth, new users, activation rate and trending score; min sample 5; percentiles in steps of 5. Owner cards: "Your 30-day growth is ahead of 80% of products your size." Public page shows only top-quarter statements. `docs/BENCHMARKS.md`. |
-| **Public API** | `/api/v1/saas/{slug}`, `/metrics`, `/history`, `/milestones`, `/funnel`, `/benchmarks`, `/leaderboard`, `/trending`, `/categories`, `/discover`, `/compare`, `/users/{username}`. Stable DTOs, error envelope, CORS, OpenAPI. Anonymous 60 req/min; API key 1,000 req/day. |
-| **MCP** | `/mcp` — 23 tools for Claude Code, Cursor, Codex, VS Code or any MCP client: provider recommendation, create project, setup instructions, configure + verify data source, activation setup, publish, metrics, history, rank, milestones, funnel, trending, benchmarks, compare, share cards, embed code. Scoped, hashed tokens; audit trail. |
+| **Benchmarks** | Daily deciles per cohort (all / category / size bucket) for 30d + 7d growth, new users, activation rate, trending score, signup → converted, activated → converted, trial → converted and converted-user growth (aggregate definitions only); min sample 5; percentiles in steps of 5. Owner cards: "Your 30-day growth is ahead of 80% of products your size." Public page shows only top-quarter statements. `docs/BENCHMARKS.md`. |
+| **Public API** | `/api/v1/saas/{slug}`, `/metrics`, `/history`, `/milestones`, `/funnel` (+ `/funnel/history`), `/conversion`, `/engagement`, `/cohorts`, `/benchmarks`, `/leaderboard`, `/trending`, `/categories`, `/discover`, `/compare`, `/users/{username}`. Stable DTOs, error envelope, CORS, OpenAPI. Anonymous 60 req/min; API key 1,000 req/day. |
+| **MCP** | `/mcp` — tools for Claude Code, Cursor, Codex, VS Code or any MCP client: stack-aware provider recommendation (web + mobile: "Add this iOS app to UserTrack" → Firebase Auth · Sign in with Apple · PostHog · RevenueCat), create project, setup instructions, configure + verify each source independently, activation setup, conversion setup, identity-mapping guidance, publish, metrics, history, rank, milestones, funnel + history, cohorts, trending, benchmarks, compare, share cards, embed code. Scoped, hashed tokens; audit trail. |
 | **SEO** | Server-rendered pages, canonical URLs, OG/Twitter metadata, JSON-LD on product pages, `sitemap.xml`, `robots.txt`, custom 404. |
 
 ## Public API
@@ -96,6 +100,7 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | | `SITE_URL` | yes | Better Auth base URL / trusted origin, digest links, URLs returned by MCP tools |
 | | `UT_GATEWAY_SECRET` | yes | Proves gateway calls come from the Next.js server; calls without it are rejected. **Same value as on Railway.** |
 | | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | yes | Google sign-in (OAuth client, redirect URI `<SITE_URL>/api/auth/callback/google`) |
+| | `IDENTITY_SALT` | yes | Salt for pseudonymous identity subjects (`docs/IDENTITY.md`); set on dev + prod, never rotate without purging `identityLinks` |
 | | `RESEND_API_KEY` | for email | Resend sending key for `mail.usertrack.dev` (see `HUMAN_TODO.md`). Missing → emails logged, not sent |
 | | `EMAIL_FROM` · `EMAIL_REPLY_TO` | no | Defaults `UserTrack <noreply@mail.usertrack.dev>` · `hello@usertrack.dev` |
 | | `EMAIL_TOKEN_SECRET` | yes | Signs preference / unsubscribe links (falls back to `BETTER_AUTH_SECRET`) |
@@ -109,13 +114,14 @@ convex/                schema, auth, profiles, saas, integrations (+ live test, 
                        providerRun (V8 / Node dispatch), trust, leaderboard/trending, daily jobs (milestones, benchmarks),
                        follows, digest, public queries (boards, discover, feed, funnel, compare, benchmark highlight,
                        trending explain), seed, crons, tokens (developer credentials), onboarding (AI setup status)
-convex/domain/         projects · integrations · metrics · funnel · events — the rules shared by dashboard, REST API and MCP
+convex/domain/         projects · integrations · metrics · funnel · visibility · events — the rules shared by dashboard, REST API and MCP
+convex/cohorts.ts      identity-link paging → signup cohorts, identity quality, Cohort Verified · convex/migrations.ts (lifecycleV1)
 convex/gateway.ts      token-authenticated entry points: scopes, ownership, quotas, audit, idempotent create, all MCP tool backends
 convex/email/          mailer: send (dedupe + prefs + Resend), templates, prefs + signed tokens, lifecycle,
                        growth (milestones/rank/spike/followers), reports (monthly), webhook, testSend
-convex/providers/      provider adapters behind one interface (clerk, supabase, firebase, auth0, posthog,
-                       plausible, ga4, stripe, postgres, endpoint, manual) + google service-account helper;
-                       capability model + verification levels in types.ts
+convex/providers/      provider adapters behind one interface (clerk, supabase, firebase, auth0, posthog, plausible, ga4,
+                       stripe, revenuecat, paddle, lemonsqueezy, chargebee, postgres, endpoint, manual) + google service-account
+                       helper + conversion.ts (shared trial/converted aggregation); capability model + verification levels in types.ts
 convex/node/           postgres.ts — the only Node-runtime action ("use node", pg): read-only TCP, aggregate SQL, introspection
 convex/lib/            pure, unit-tested math: metrics, trending (v2), trust, milestones, spikes, retention, benchmarks,
                        tokens (format, SHA-256, scopes, plans), domain normalization, integrationSetup (catalog + recommendation + plans)
@@ -131,7 +137,7 @@ src/components/        blueprint primitives, charts (growth w/ annotations, comp
 src/lib/api/           respond (rate limits + envelope), gateway bridge, DTOs (incl. funnel / feed / compare), OpenAPI
 src/lib/mcp/           server, tools (23) + setup workflow, config snippets + agent prompt
 src/lib/               format, categories, providers-ui (setup instructions), share copy + kinds, badge SVG (+ chart widget), og renderers
-docs/                  ARCHITECTURE · API · MCP · PROVIDERS · METRICS · TRENDING · BENCHMARKS · BACKLOG · ASSUMPTIONS · DEPLOYMENT · ROADMAP · CHANGELOG
+docs/                  ARCHITECTURE · API · MCP · PROVIDERS · FUNNEL · IDENTITY · METRICS · TRENDING · BENCHMARKS · BACKLOG · ASSUMPTIONS · DEPLOYMENT · ROADMAP · CHANGELOG
 HUMAN_TODO.md          the only things left that need a human
 ```
 

@@ -8,12 +8,13 @@ How UserTrack reads growth numbers from third-party systems. Every provider is a
 // convex/providers/types.ts
 interface Provider<Config> {
   kind: ProviderKind; label: string;
-  roles: Role[];                         // users | activation | traffic | revenue
-  capabilities: Capability[];            // static: totalUsers | usersInRange | activeUsers | history | activation | traffic | revenue
+  roles: Role[];                         // users | activation | traffic | conversion  (lifecycle: signed_up · activated · reached · trial+converted)
+  capabilities: Capability[];            // static: totalUsers | usersInRange | activeUsers | history | activation | traffic | trial | converted | identity
   validate(config, role) → { ok, config } | { ok: false, error }
   trust(config, saasWebsiteUrl) → "verified" | "unverified" | "pending"
   fetch(config, role) → ProviderMetrics   // totalUsers, newUsers24h/7d/30d, activeUsers30d, activatedUsers(+24h/7d/30d),
-                                          // visitors30d, sessions30d, visitorsPrev30d, payingUsers, mrr (cents), currency
+                                          // visitors30d, sessions30d, visitorsPrev30d, trialUsers, newTrials7d/30d, convertedUsers,
+                                          // newConverted24h/7d/30d, conversionMode, identities[{ stage, ids[{ id, at? }], complete }]
   fetchHistory?(config, role, days) → { metric, points[{ day, value }] } | null
   publicConfig(config) → masked, secret-free view
   describe?(config, role) → ProviderCapabilities   // per configuration; defaults to the static list
@@ -36,7 +37,11 @@ interface Provider<Config> {
 | `activationEvents` | activated-user counts | role `activation` and `activation` |
 | `retention` | active-in-30-days count → estimated retention | role `users` and `activeUsers` |
 | `traffic` | visitors / sessions | role `traffic` and `traffic` |
-| `revenue` | paying users / MRR | role `revenue` and `revenue` |
+| `trial` | reliable trial state → the Trial stage is shown | role `conversion` and `trial` |
+| `converted` | converted-user counts | role `conversion` and `converted` |
+| `identity` | pseudonymous per-stage ids for cohort matching (`docs/IDENTITY.md`) | `identity` (Postgres/Supabase only with an `idColumn`) |
+
+Roles map onto lifecycle stages (`ROLE_STAGE`): `users → signed_up`, `activation → activated`, `traffic → reached`, `conversion → trial + converted`. The legacy role name `revenue` is migrated to `conversion` (`migrations:lifecycleV1`) and normalized everywhere by `normalizeRole()`.
 
 Postgres, Supabase and Firebase override `describe()` because their capabilities depend on the configuration (timestamp column present, custom SQL, scan enabled).
 
@@ -93,9 +98,35 @@ Today `postgres` and `supabase` in database mode are the only Node-runtime sourc
 | **PostHog** | activation, traffic | Personal API key with `query:read` (project `phc_` key is rejected by PostHog) | HogQL `count(distinct person_id)` for the activation event (all / 1 / 7 / 30 days) or `$pageview` (30d + previous 30d, `count(distinct $session_id)`) | activationEvents · historicalUsers (activation) · traffic | daily distinct persons; activation series made cumulative from the all-time count | Event names may not contain `'` (interpolated into HogQL) |
 | **Plausible** | traffic | Stats API key | `stats/aggregate?period=30d&metrics=visitors,visits&compare=previous_period`, `stats/timeseries` | traffic | daily visitors | `visitorsPrev30d` is derived from the `change` percentage |
 | **GA4** | traffic | Service account with *Viewer* on the property; Analytics Data API enabled | `runReport` with `activeUsers` + `sessions` over `30daysAgo…today` and `60daysAgo…31daysAgo`; date-dimension report for history | traffic | daily `activeUsers` (refreshed for the last 7 days on every run) | — |
-| **Stripe** | revenue | Restricted key: Subscriptions = Read | `GET /v1/subscriptions?status=active&limit=100&expand[]=data.items.data.price`, paginated | revenue | — | Max 25 pages = **2,500 subscriptions** (non-retryable error beyond); MRR ignores discounts, trials, tax; currency = most frequent |
-| **JSON endpoint** | any | Your own route + optional bearer token | One `GET`; role-specific keys (`totalUsers` required for users, `activatedUsers`, `visitors30d`, `payingUsers`) | totalUsers · createdUsers · retention · activationEvents · traffic · revenue (whatever the JSON contains) | — | `verified` only when the host is the SaaS domain (or a sub/parent domain of it), otherwise `unverified` |
+| **Stripe** | conversion | Restricted key: Subscriptions = Read | `GET /v1/subscriptions?status=…&limit=100` per status (active, past_due, trialing; + canceled, unpaid, paused for ever-paid modes) — status, customer id, trial/start dates, `metadata.userId`. No prices, invoices or `expand` | trial · converted · identity | — | Max 50 pages per status (**5,000 subscriptions**, non-retryable error beyond); one-time payments not covered (use the endpoint) |
+| **RevenueCat** | conversion | v2 secret key with *Charts & Metrics → Read* only | `GET /v2/projects/{id}/metrics/overview` → `active_trials`, `active_subscriptions`; `mrr`/`revenue`/`new_customers`/`active_users` in the same payload are discarded | trial · converted | — | `active_paid` only; no identities (customers include anonymous `$RCAnonymousID:` ids and are never registered users); daily flows derived from stock deltas |
+| **Paddle** | conversion | API key, read-only on Subscriptions | `GET /subscriptions?status=…&per_page=200` (live or sandbox): status, `customer_id`, `first_billed_at`, `custom_data.userId` | trial · converted · identity | — | 50 pages max; converted = billed at least once |
+| **Lemon Squeezy** | conversion | API key | `GET /v1/subscriptions` (+ `GET /v1/orders` for ever-paid modes), optional `filter[store_id]`; prices and emails dropped at parse time | trial · converted · identity | — | 50 pages max; identities are customer ids only |
+| **Chargebee** | conversion | Read-only API key (basic auth) | `GET /api/v2/subscriptions?status[in]=…` : status, `customer_id`, `trial_start`, `activated_at`, `meta_data.userId` | trial · converted · identity | — | 50 pages max; `activated_at` = conversion event |
+| **JSON endpoint** | any | Your own route + optional bearer token | One `GET`; role-specific keys (`totalUsers` required for users, `activatedUsers`, `visitors30d`, `convertedUsers` (legacy `payingUsers` accepted), `trialUsers`, `newConverted*`, `newTrials*`, `mode`, `identities`) | totalUsers · createdUsers · retention · activationEvents · traffic · trial · converted · identity (whatever the JSON contains) | — | `verified` only when the host is the SaaS domain (or a sub/parent domain of it), otherwise `unverified` |
 | **Manual** | users | none | the typed number | totalUsers | — | Always `self_reported`, never ranked |
+
+## Conversion providers (no-revenue policy)
+
+Payment providers are **conversion-status providers**, not revenue providers. UserTrack never needs amounts, prices, MRR, ARR or transaction volume and does not request them; where a response contains them (RevenueCat overview, Lemon Squeezy attributes) they are discarded at parse time, never persisted, never displayed. All conversion integrations are read-only with the least privilege the provider offers; UserTrack never modifies subscriptions, customers, payments or entitlements. Product copy: *"UserTrack never needs your revenue numbers. Payment providers are used only to calculate user conversion metrics."*
+
+Every provider normalizes its subscriptions / orders into `SubRecord { subject, state, paidAt?, trialAt?, anonymous? }` (`convex/providers/conversion.ts`); `aggregateConversion(records, mode)` produces the lifecycle counts and identities. A provider **customer is never a converted user by itself** — a Stripe customer that never paid, a RevenueCat install or an unpaid trial all count as zero.
+
+**Conversion mode** (`config.mode`, stored on `saas.conversionMode`, provider-independent):
+
+| Mode | Converted means | Notes |
+|---|---|---|
+| `active_paid` (default) | currently has a paid subscription (`active` / `past_due`) | trials excluded; churned users drop out |
+| `ever_paid` | paid at least once, even if churned | Lemon Squeezy adds paid one-time orders |
+| `first_payment` | same set as ever paid, counted at the first successful payment | for subscription APIs identical to `ever_paid`; differs only for endpoint data |
+
+Window flows (`newConverted24h/7d/30d`, `newTrials7d/30d`) use the subject's **earliest** payment / latest trial start. Identities (`converted`, `trial`) are the subject ids of the counted users (never anonymous ones), hashed by the sync engine — see `docs/IDENTITY.md`.
+
+**Stripe.** `roles: ["conversion"]`, key must be `rk_`/`sk_` (`rk_` recommended, Subscriptions → Read only). Converted = paid subscription state after the trial (`paidAt = trial_end` when a trial existed, else `start_date`); `trialing` = trial; `incomplete*` never counts; a subscription canceled inside its trial never counts. Only subscriptions are read, so one-time / checkout-only products should use the endpoint provider with their own count.
+
+**RevenueCat** (mobile). Owns only the trial / converted stages: `active_trials` → Trial Users, `active_subscriptions` → Converted Users (RevenueCat excludes trials from active subscriptions). RevenueCat customers are **not** registered users — the identity source is Firebase Auth / Supabase / Auth0 / a database. Sign in with Apple is an authentication method, not a user store. Only `active_paid` is accepted; other modes need the endpoint.
+
+**Paddle / Lemon Squeezy / Chargebee.** Same model; see the matrix for the exact fields. Paddle `first_billed_at`, Chargebee `activated_at` and Lemon Squeezy `trial_ends_at`/`created_at` define `paidAt`.
 
 ## PostgreSQL in detail
 
@@ -185,7 +216,7 @@ Database mode is recommended because it is both more capable (verified per-windo
 supabase → clerk → firebase → auth0 → postgres → endpoint → manual
 ```
 
-Direct auth providers first (least setup, read-only keys), then a read-only database (no code change), then the universal JSON endpoint; `manual` is never recommended. Optional extras are added after the users source: PostHog for activation when detected, otherwise Supabase/Postgres activation with the same connection; Plausible or GA4 for traffic; Stripe for revenue. `usertrack_get_provider_recommendation` returns the same result plus a short `priority` list and the env-var `signals` per provider.
+Direct auth providers first (least setup, read-only keys), then a read-only database (no code change), then the universal JSON endpoint; `manual` is never recommended. Optional extras are added after the users source: PostHog for activation when detected, otherwise Supabase/Postgres activation with the same connection; Plausible or GA4 for traffic; Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee for conversion (never revenue). With `projectType` the recommendation returns a full **composition** (`users`, `activation`, `traffic`, `conversion`) plus detected authentication methods; for mobile stacks Sign in with Apple / Google are reported as auth methods and never as the users source (Firebase Auth + Sign in with Apple + PostHog + RevenueCat → Signed up: Firebase, Activated: PostHog, Trial/Converted: RevenueCat). `usertrack_get_provider_recommendation` returns the same result plus a short `priority` list and the env-var `signals` per provider.
 
 `normalizeDetected` lowercases each token, strips a leading `@` and anything after `/`, and turns `_` into `-` before looking it up:
 
@@ -196,7 +227,9 @@ Direct auth providers first (least setup, read-only keys), then a read-only data
 | `firebase` | `firebase`, `firebase-auth`, `firebase-admin`, `FIREBASE_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS` |
 | `auth0` | `auth0`, `@auth0/*`, `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID` |
 | `postgres` | `postgres`, `postgresql`, `pg`, `pg-promise`, `postgres.js`, `neon`, `neondatabase`, `@neondatabase/serverless`, `@vercel/postgres`, `vercel-postgres`, `database-url`, `DATABASE_URL`, `prisma:postgresql`, `drizzle-pg` |
-| `posthog` / `plausible` / `ga4` / `stripe` | package names, `gtag`, `google-analytics`, the usual env vars |
+| `posthog` / `plausible` / `ga4` / `stripe` | package names (incl. `posthog-react-native`, `posthog-ios`), `gtag`, `google-analytics`, the usual env vars |
+| `revenuecat` / `paddle` / `lemonsqueezy` / `chargebee` | `react-native-purchases`, `purchases_flutter`, `RevenueCat`, `@paddle/*`, `@lemonsqueezy/*`, `@chargebee/*` |
+| auth methods (not providers) | `AuthenticationServices`, `sign-in-with-apple`, `expo-apple-authentication`, `@invertase/react-native-apple-authentication`, `google-signin` → `authMethods` |
 | `endpoint` | `better-auth`, `next-auth`, `auth.js`, `lucia`, `convex`, `prisma`, `drizzle`, `mongoose`, `mongodb`, `mysql`, `sqlite`, `kysely`, `sequelize`, `typeorm`, `custom`, `custom-auth`, `custom-db` |
 
 Anything not in the alias table is matched against each catalog entry's `detects` list.

@@ -85,6 +85,9 @@ export interface DailyRow {
   newUsers: number;
   activatedUsers?: number;
   newActivated?: number;
+  convertedUsers?: number;
+  newConverted?: number;
+  trialUsers?: number;
   rank?: number;
 }
 
@@ -102,6 +105,15 @@ export interface ProjectReport {
   activatedEnd?: number;
   newActivated?: number;
   activationRatePct?: number;
+  convertedStart?: number;
+  convertedEnd?: number;
+  newConverted?: number;
+  signupToConvertedPct?: number;
+  trialToConvertedPct?: number;
+  // Owner's own report may include conversion either way; this flag only says whether the public page shows it.
+  conversionPublic: boolean;
+  // Major funnel moves vs the previous month end ("Activation rate 40% → 46.2% (+6.2 pts)").
+  funnelChanges: string[];
   rankStart?: number;
   rankEnd?: number;
   bestDay?: { day: string; newUsers: number };
@@ -113,7 +125,7 @@ export interface MonthlyPayload {
   period: string;
   label: string;
   projects: ProjectReport[];
-  summary: { totalNewUsers: number; totalUsersEnd: number; strongest?: string; biggestMilestone?: string; aggregateGrowthPct: number | null };
+  summary: { totalNewUsers: number; totalUsersEnd: number; totalNewConverted?: number; strongest?: string; biggestMilestone?: string; aggregateGrowthPct: number | null };
   generatedAt: number;
 }
 
@@ -138,8 +150,16 @@ export function monthLabel(period: string) {
   return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en", { month: "long", year: "numeric", timeZone: "UTC" });
 }
 
+export const FUNNEL_CHANGE_POINTS = { activation: 5, conversion: 2 };
+const ratio = (num: number | undefined, den: number | undefined) => (num === undefined || !den ? undefined : Math.round((num / den) * 1000) / 10);
+const funnelChange = (label: string, start: number | undefined, end: number | undefined, minPoints: number) => {
+  if (start === undefined || end === undefined || Math.abs(end - start) < minPoints) return [];
+  const d = Math.round((end - start) * 10) / 10;
+  return [`${label} ${start}% → ${end}% (${d > 0 ? "+" : ""}${d} pts)`];
+};
+
 export function projectReport(
-  saas: { _id: string; name: string; slug: string; isPublic: boolean; totalUsers: number; activatedUsers?: number },
+  saas: { _id: string; name: string; slug: string; isPublic: boolean; totalUsers: number; activatedUsers?: number; convertedUsers?: number; signupToConvertedPct?: number; trialToConvertedPct?: number; conversionPublic?: boolean },
   rowsBefore: DailyRow | null,
   rowsInMonth: DailyRow[],
   milestones: { title: string; achievedAt: number }[],
@@ -158,6 +178,16 @@ export function projectReport(
   const activatedEnd = withAct[withAct.length - 1]?.activatedUsers;
   const newActivated = activatedEnd !== undefined && activatedStart !== undefined ? Math.max(0, activatedEnd - activatedStart) : undefined;
   const activationRatePct = activatedEnd !== undefined && usersEnd > 0 ? Math.round((activatedEnd / usersEnd) * 1000) / 10 : undefined;
+  const withConv = rows.filter((r) => r.convertedUsers !== undefined);
+  const convertedStart = rowsBefore?.convertedUsers ?? withConv[0]?.convertedUsers;
+  const convertedEnd = withConv[withConv.length - 1]?.convertedUsers;
+  const flows = rows.filter((r) => r.newConverted !== undefined);
+  const newConverted = flows.length ? flows.reduce((a, r) => a + Math.max(0, r.newConverted!), 0) : convertedEnd !== undefined && convertedStart !== undefined ? Math.max(0, convertedEnd - convertedStart) : undefined;
+  const signupToConvertedPct = ratio(convertedEnd, usersEnd) ?? saas.signupToConvertedPct;
+  const funnelChanges = [
+    ...funnelChange("Activation rate", ratio(startRow?.activatedUsers, startRow?.totalUsers), activationRatePct, FUNNEL_CHANGE_POINTS.activation),
+    ...funnelChange("Signup → converted", ratio(startRow?.convertedUsers, startRow?.totalUsers), ratio(convertedEnd, usersEnd), FUNNEL_CHANGE_POINTS.conversion),
+  ];
   const withRank = rows.filter((r) => r.rank !== undefined);
   const best = rows.reduce<DailyRow | null>((a, r) => (r.newUsers > (a?.newUsers ?? 0) ? r : a), null);
   return {
@@ -174,6 +204,13 @@ export function projectReport(
     activatedEnd,
     newActivated,
     activationRatePct,
+    convertedStart,
+    convertedEnd,
+    newConverted,
+    signupToConvertedPct,
+    trialToConvertedPct: saas.trialToConvertedPct,
+    conversionPublic: saas.conversionPublic ?? false,
+    funnelChanges,
     rankStart: rowsBefore?.rank ?? withRank[0]?.rank,
     rankEnd: withRank[withRank.length - 1]?.rank,
     bestDay: best && best.newUsers > 0 ? { day: best.day, newUsers: best.newUsers } : undefined,
@@ -187,6 +224,8 @@ export function monthlySummary(period: string, projects: ProjectReport[], now: n
   const totalNewUsers = withData.reduce((a, p) => a + p.newUsers, 0);
   const totalUsersEnd = withData.reduce((a, p) => a + p.usersEnd, 0);
   const totalUsersStart = withData.reduce((a, p) => a + p.usersStart, 0);
+  const withConv = withData.filter((p) => p.newConverted !== undefined);
+  const totalNewConverted = withConv.length ? withConv.reduce((a, p) => a + p.newConverted!, 0) : undefined;
   const strongest = [...withData].sort((a, b) => b.newUsers - a.newUsers || (b.growthPct ?? -1) - (a.growthPct ?? -1))[0];
   const biggestMilestone = withData.flatMap((p) => p.milestones.map((m) => ({ ...m, name: p.name }))).sort((a, b) => b.achievedAt - a.achievedAt)[0];
   return {
@@ -196,6 +235,7 @@ export function monthlySummary(period: string, projects: ProjectReport[], now: n
     summary: {
       totalNewUsers,
       totalUsersEnd,
+      totalNewConverted,
       strongest: strongest && strongest.newUsers > 0 ? strongest.name : undefined,
       biggestMilestone: biggestMilestone ? `${biggestMilestone.name}: ${biggestMilestone.title}` : undefined,
       aggregateGrowthPct: totalUsersStart > 0 && withData.length > 1 ? Math.round(((totalUsersEnd - totalUsersStart) / totalUsersStart) * 1000) / 10 : null,

@@ -12,7 +12,7 @@ type Window = (typeof WINDOWS)[number];
 
 export function trendingInputs(s: Doc<"saas">, now = Date.now()) {
   const input = (newUsers: number, prev: number | undefined) => ({
-    newUsers, prevNewUsers: prev ?? 0, baseUsers: s.totalUsers - newUsers, trustScore: s.trustScore, activationRatePct: s.activationRatePct,
+    newUsers, prevNewUsers: prev ?? 0, baseUsers: s.totalUsers - newUsers, trustScore: s.trustScore, activationRatePct: s.activationRatePct, signupToConvertedPct: s.signupToConvertedPct,
     lastSyncedAt: s.lastSyncedAt, firstSnapshotAt: s.firstSnapshotAt, underReview: s.trustState === "review", now,
   });
   return { "24h": input(s.newUsers24h, s.newUsersPrev24h), "7d": input(s.newUsers7d, s.newUsersPrev7d), "30d": input(s.newUsers30d, s.newUsersPrev30d) } satisfies Record<Window, unknown>;

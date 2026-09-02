@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { getProfileForUser, requireProfile } from "./profiles";
 import { createProject, updateProject } from "./domain/projects";
@@ -10,7 +10,9 @@ import { BENCHMARK_METRICS, BENCHMARK_METRIC_LABEL, MIN_SAMPLE, benchmarkInsight
 import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { CATEGORIES } from "../src/lib/categories";
 import { publicTrustLabel } from "./lib/trust";
-import { FUNNEL_TIMEFRAMES, funnelFor } from "./domain/funnel";
+import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, funnelFor, funnelHistoryFor } from "./domain/funnel";
+import { VISIBILITY_KEYS, visibilityOf } from "./domain/visibility";
+import { projectType, visibility } from "./schema";
 
 export async function requireOwnedSaas(ctx: QueryCtx | MutationCtx, id: Id<"saas">) {
   const { profile } = await requireProfile(ctx);
@@ -35,6 +37,10 @@ const editable = {
   logoUrl: v.optional(v.string()),
   category: v.optional(v.string()),
   tags: v.array(v.string()),
+  projectType: v.optional(projectType),
+  appStoreUrl: v.optional(v.string()),
+  playStoreUrl: v.optional(v.string()),
+  authMethods: v.optional(v.array(v.string())),
 };
 
 export const create = mutation({
@@ -63,14 +69,17 @@ export const setPublic = mutation({
   },
 });
 
-export const setDisplay = mutation({
-  args: { id: v.id("saas"), showTraffic: v.optional(v.boolean()), showRevenue: v.optional(v.boolean()) },
-  handler: async (ctx, { id, showTraffic, showRevenue }) => {
-    await requireOwnedSaas(ctx, id);
-    const patch: Partial<Doc<"saas">> = {};
-    if (showTraffic !== undefined) patch.showTraffic = showTraffic;
-    if (showRevenue !== undefined) patch.showRevenue = showRevenue;
-    await ctx.db.patch(id, patch);
+// Per-metric public visibility (connection ≠ publication). Legacy showTraffic/showRevenue map onto the same keys.
+export const setVisibility = mutation({
+  args: { id: v.id("saas"), visibility },
+  handler: async (ctx, { id, visibility: patch }) => {
+    const { saas } = await requireOwnedSaas(ctx, id);
+    const current = visibilityOf(saas);
+    const next = { ...current };
+    for (const k of VISIBILITY_KEYS) if (patch[k] !== undefined) next[k] = patch[k]!;
+    // Publishing a rate without a count is fine; publishing a count implies the rate.
+    if (next.convertedCount) next.conversionRate = true;
+    await ctx.db.patch(id, { visibility: next, showTraffic: undefined, showRevenue: undefined });
   },
 });
 
@@ -87,6 +96,9 @@ export const remove = mutation({
       ...(await ctx.db.query("events").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()),
       ...(await ctx.db.query("fraudFlags").withIndex("by_saas", (q) => q.eq("saasId", id)).collect()),
       ...(await ctx.db.query("follows").withIndex("by_target", (q) => q.eq("targetType", "saas").eq("targetId", id)).collect()),
+      ...(await ctx.db.query("stageSnapshots").withIndex("by_saas_stage_time", (q) => q.eq("saasId", id)).collect()),
+      ...(await ctx.db.query("cohortMetrics").withIndex("by_saas_cohort", (q) => q.eq("saasId", id)).collect()),
+      ...(await ctx.db.query("identityLinks").withIndex("by_saas_subject", (q) => q.eq("saasId", id)).take(4000)),
     ];
     for (const r of rows) await ctx.db.delete(r._id);
     await ctx.db.delete(id);
@@ -114,6 +126,7 @@ export const getMine = query({
     return {
       ...saas,
       trustLabel: publicTrustLabel(saas.trust, saas.trustState, saas.trustScore),
+      visibility: visibilityOf(saas),
       integrations: integrations.map((i) => ({ _id: i._id, ...integrationView(i) })),
       // Neutral wording only; the owner sees that something is being reviewed, not an accusation.
       review: flags.length ? { count: flags.length, kinds: flags.map((f) => f.kind) } : null,
@@ -157,11 +170,19 @@ export const benchmarks = query({
   },
 });
 
-// Owner funnel: all connected stages, including private traffic/revenue.
+// Owner funnel: all connected stages, including private traffic/conversion.
 export const funnel = query({
   args: { id: v.id("saas"), timeframe: v.optional(v.union(...FUNNEL_TIMEFRAMES.map((t) => v.literal(t)))) },
   handler: async (ctx, { id, timeframe }) => {
     const { saas } = await requireOwnedSaas(ctx, id);
-    return funnelFor(ctx, saas, timeframe ?? "30d", { includeTraffic: true, includeRevenue: true });
+    return funnelFor(ctx, saas, timeframe ?? "30d", OWNER_FUNNEL);
+  },
+});
+
+export const funnelHistory = query({
+  args: { id: v.id("saas"), days: v.optional(v.number()) },
+  handler: async (ctx, { id, days }) => {
+    const { saas } = await requireOwnedSaas(ctx, id);
+    return funnelHistoryFor(ctx, saas, Math.min(365, Math.max(14, days ?? 90)), OWNER_FUNNEL);
   },
 });

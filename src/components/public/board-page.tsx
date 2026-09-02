@@ -5,20 +5,20 @@ import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { LeaderboardRow, type BoardKind, type Window } from "@/components/public/saas-card";
 import { BoardFilters, type BoardState } from "@/components/public/board-filters";
-import { BOARD_META } from "@/lib/boards";
+import { BOARD_KEYS, BOARD_META } from "@/lib/boards";
 import { Button } from "@/components/ui/button";
 import { CATEGORIES, categoryLabel } from "@/lib/categories";
 import { formatCompact } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const BOARDS = new Set(["trending", "fastest", "most-users", "most-new", "most-activated", "activation-rate", "new-rising"]);
+const BOARDS = new Set(BOARD_KEYS);
 const SIZES = new Set(["0-100", "100-1k", "1k-10k", "10k-100k", "100k+"]);
 
 export type SP = Record<string, string | string[] | undefined>;
 
-export function parseBoard(sp: SP, defaults: Partial<BoardState> & { board: BoardKind }): BoardState {
+export function parseBoard(sp: SP, defaults: Partial<BoardState> & { board: string }): BoardState {
   const one = (k: string) => (Array.isArray(sp[k]) ? sp[k]![0] : sp[k]);
-  const board = defaults.board === "most-new" && one("board") && BOARDS.has(one("board")!) ? (one("board") as BoardKind) : defaults.board;
+  const board = defaults.board === "most-new" && one("board") && BOARDS.has(one("board")!) ? one("board")! : defaults.board;
   const w = one("window");
   const window = (w === "24h" || w === "7d" || w === "30d" ? w : defaults.window ?? (board === "trending" ? "7d" : "30d")) as Window;
   const cat = defaults.category ?? one("category");

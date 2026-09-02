@@ -42,15 +42,6 @@ export function formatPointDate(t: number, range: Range) {
     : d.toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export function formatMoney(cents: number, currency = "USD") {
-  const n = cents / 100;
-  try {
-    return new Intl.NumberFormat("en", { style: "currency", currency, notation: n >= 10_000 ? "compact" : "standard", maximumFractionDigits: n >= 10_000 ? 1 : 0 }).format(n);
-  } catch {
-    return `${formatCompact(Math.round(n))} ${currency}`;
-  }
-}
-
 export function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" });
 }

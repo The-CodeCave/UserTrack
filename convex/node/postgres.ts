@@ -4,8 +4,8 @@ import { Client, type ClientConfig } from "pg";
 import { ConvexError, v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { integrationRole } from "../schema";
-import { COLUMNS_SQL, TABLES_SQL, countQuery, dailyQuery, rankTables, suggestColumns, type ColumnInfo, type TableInfo } from "../providers/postgres";
-import { DAY_MS, dayKey, isoDaysAgo, type History, type PostgresQuery, type ProviderMetrics, type Role } from "../providers/types";
+import { COLUMNS_SQL, TABLES_SQL, countQuery, dailyQuery, identityQuery, rankTables, suggestColumns, type ColumnInfo, type TableInfo } from "../providers/postgres";
+import { normalizeRole, DAY_MS, IDENTITY_CAP, dayKey, isoDaysAgo, type History, type PostgresQuery, type ProviderMetrics, type Role, type StageIdentities } from "../providers/types";
 
 const CONNECT_TIMEOUT_MS = 10_000;
 const STATEMENT_TIMEOUT_MS = 20_000;
@@ -22,6 +22,7 @@ const pgQueryArg = v.object({
   statusColumn: v.optional(v.string()),
   activeStatus: v.optional(v.string()),
   sql: v.optional(v.string()),
+  idColumn: v.optional(v.string()),
 });
 
 // Actionable, secret-free error messages. `retryable` drives the sync engine's retry policy.
@@ -80,19 +81,39 @@ async function count(c: Client, q: PostgresQuery, sinceIso?: string) {
   return num(val);
 }
 
+const atMs = (v: unknown, kind: PostgresQuery["createdAtKind"]) => {
+  if (v === null || v === undefined) return undefined;
+  const n = kind === "epoch_s" ? Number(v) * 1000 : kind === "epoch_ms" ? Number(v) : Date.parse(String(v).replace(" ", "T"));
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
+// Ids only (no other columns), hashed by the engine before anything is stored. Skipped silently when it fails.
+async function identities(c: Client, q: PostgresQuery, role: Role): Promise<StageIdentities[] | undefined> {
+  if (!q.idColumn || q.sql || (role !== "users" && role !== "activation")) return undefined;
+  try {
+    const { text, values } = identityQuery(q, IDENTITY_CAP + 1);
+    const rows = (await c.query(text, values)).rows as { id: string; at?: string }[];
+    const ids = rows.slice(0, IDENTITY_CAP).filter((r) => r.id && !String(r.id).includes("@")).map((r) => ({ id: String(r.id), at: atMs(r.at, q.createdAtKind) }));
+    return [{ stage: role === "users" ? "signed_up" : "activated", ids, complete: rows.length <= IDENTITY_CAP }];
+  } catch {
+    return undefined;
+  }
+}
+
 async function metrics(c: Client, q: PostgresQuery, role: Role): Promise<ProviderMetrics> {
   const ranged = Boolean(q.createdAtColumn || q.sql);
   const total = await count(c, q);
-  if (!ranged) return role === "activation" ? { activatedUsers: total } : { totalUsers: total };
+  const ids = await identities(c, q, role);
+  if (!ranged) return role === "activation" ? { activatedUsers: total, identities: ids } : { totalUsers: total, identities: ids };
   const [r24, r7, r30] = await Promise.all([count(c, q, isoDaysAgo(1)), count(c, q, isoDaysAgo(7)), count(c, q, isoDaysAgo(30))]);
   return role === "activation"
-    ? { activatedUsers: total, activated24h: r24, activated7d: r7, activated30d: r30 }
-    : { totalUsers: total, newUsers24h: r24, newUsers7d: r7, newUsers30d: r30 };
+    ? { activatedUsers: total, activated24h: r24, activated7d: r7, activated30d: r30, identities: ids }
+    : { totalUsers: total, newUsers24h: r24, newUsers7d: r7, newUsers30d: r30, identities: ids };
 }
 
 export const fetch = internalAction({
   args: { pg: pgQueryArg, role: integrationRole },
-  handler: async (_ctx, { pg, role }): Promise<ProviderMetrics> => withClient(pg, (c) => metrics(c, pg, role)),
+  handler: async (_ctx, { pg, role }): Promise<ProviderMetrics> => withClient(pg, (c) => metrics(c, pg, normalizeRole(role))),
 });
 
 // Daily signups → the engine reconstructs totals backwards from the current total (users) or forwards (activation).

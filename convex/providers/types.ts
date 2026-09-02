@@ -1,7 +1,24 @@
-export type ProviderKind = "clerk" | "supabase" | "firebase" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "postgres" | "endpoint" | "manual";
-export type Role = "users" | "activation" | "traffic" | "revenue";
+export type ProviderKind = "clerk" | "supabase" | "firebase" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "revenuecat" | "paddle" | "lemonsqueezy" | "chargebee" | "postgres" | "endpoint" | "manual";
+// Provider roles = lifecycle sources. users → signed_up, activation → activated, traffic → reached, conversion → trial + converted.
+// "revenue" is the legacy name of "conversion" (stored rows are migrated; normalizeRole() maps it for safety).
+export type Role = "users" | "activation" | "traffic" | "conversion";
+export type StoredRole = Role | "revenue";
+export type LifecycleStage = "reached" | "signed_up" | "activated" | "trial" | "converted";
+export type ConversionMode = "active_paid" | "ever_paid" | "first_payment";
 export type Trust = "verified" | "unverified" | "pending";
-export type Capability = "totalUsers" | "usersInRange" | "activeUsers" | "history" | "activation" | "traffic" | "revenue";
+export type Capability = "totalUsers" | "usersInRange" | "activeUsers" | "history" | "activation" | "traffic" | "trial" | "converted" | "identity";
+
+export const ROLES: Role[] = ["users", "activation", "traffic", "conversion"];
+export const normalizeRole = (r: StoredRole | undefined): Role => (r === "revenue" ? "conversion" : (r ?? "users"));
+export const ROLE_STAGE: Record<Role, LifecycleStage> = { users: "signed_up", activation: "activated", traffic: "reached", conversion: "converted" };
+export const DEFAULT_CONVERSION_MODE: ConversionMode = "active_paid";
+export const CONVERSION_MODES: ConversionMode[] = ["active_paid", "ever_paid", "first_payment"];
+export const CONVERSION_MODE_LABEL: Record<ConversionMode, string> = { active_paid: "Active paid", ever_paid: "Ever paid", first_payment: "First successful payment" };
+
+// Pseudonymous identities a provider can report per stage (stable ids only — never emails or names). The sync engine salts
+// and hashes them before storage; providers must cap lists (IDENTITY_CAP) and skip anonymous ids.
+export interface StageIdentities { stage: LifecycleStage; ids: { id: string; at?: number }[]; complete: boolean }
+export const IDENTITY_CAP = 5_000;
 // Public verification wording per source. `partially_verified` = verified provider whose range metrics are derived, not read.
 export type VerificationLevel = "verified" | "partially_verified" | "self_reported";
 export type Runtime = "v8" | "node";
@@ -20,13 +37,22 @@ export interface ProviderMetrics {
   visitors30d?: number;
   sessions30d?: number;
   visitorsPrev30d?: number;
+  // Conversion stages. Counts of unique users only — no amounts, ever.
+  trialUsers?: number;
+  newTrials7d?: number;
+  newTrials30d?: number;
+  convertedUsers?: number;
+  newConverted24h?: number;
+  newConverted7d?: number;
+  newConverted30d?: number;
+  conversionMode?: ConversionMode;
+  identities?: StageIdentities[];
+  /** @deprecated v0.4 endpoint field; mapped to convertedUsers by the endpoint provider. */
   payingUsers?: number;
-  mrr?: number;
-  currency?: string;
 }
 
 export interface HistoryPoint { day: string; value: number }
-export type HistoryMetric = "totalUsers" | "newUsers" | "activatedUsers" | "visitors";
+export type HistoryMetric = "totalUsers" | "newUsers" | "activatedUsers" | "visitors" | "convertedUsers" | "trialUsers";
 export interface History { metric: HistoryMetric; points: HistoryPoint[] }
 
 export type Validation<Config> = { ok: true; config: Config } | { ok: false; error: string };
@@ -39,7 +65,9 @@ export interface ProviderCapabilities {
   activationEvents: boolean;
   retention: boolean;         // active users → estimated retention
   traffic: boolean;
-  revenue: boolean;
+  trial: boolean;             // reliable trial state (only then is the Trial stage shown)
+  converted: boolean;
+  identity: boolean;          // reports pseudonymous per-stage ids → cohort matching
 }
 
 // Aggregate SQL description consumed by the Node runtime (convex/node/postgres.ts). Built by postgres + supabase adapters.
@@ -51,6 +79,8 @@ export interface PostgresQuery {
   createdAtColumn?: string;
   createdAtKind?: "timestamp" | "epoch_ms" | "epoch_s";
   deletedAtColumn?: string;
+  // Stable id column → pseudonymous identities for cohort matching (hashed before storage, never emails).
+  idColumn?: string;
   statusColumn?: string;
   activeStatus?: string;
   // Custom aggregate: a single SELECT returning one row; `$1` is the "since" timestamp. Activation role only.
@@ -86,7 +116,9 @@ export function capabilitiesFromList(list: Capability[], role: Role): ProviderCa
     activationEvents: role === "activation" && has("activation"),
     retention: role === "users" && has("activeUsers"),
     traffic: role === "traffic" && has("traffic"),
-    revenue: role === "revenue" && has("revenue"),
+    trial: role === "conversion" && has("trial"),
+    converted: role === "conversion" && has("converted"),
+    identity: has("identity"),
   };
 }
 

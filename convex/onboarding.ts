@@ -5,7 +5,7 @@ import { requireProfile } from "./profiles";
 import { projectSummary } from "./domain/projects";
 import { integrationView, listIntegrations } from "./domain/integrations";
 
-const EVENTS = new Set(["onboarding_ai_setup_selected", "manual_setup_selected", "mcp_setup_started", "agent_prompt_copied", "mcp_setup_completed"]);
+const EVENTS = new Set(["onboarding_ai_setup_selected", "manual_setup_selected", "mcp_setup_started", "agent_prompt_copied", "mcp_setup_completed", "platform_selected", "stack_selected"]);
 
 // Lightweight funnel events, stored in the audit trail (no third-party analytics in the stack).
 export const track = mutation({

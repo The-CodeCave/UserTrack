@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CATEGORIES } from "@/lib/categories";
 import { cn } from "@/lib/utils";
-import { BOARD_META } from "@/lib/boards";
+import { BOARD_META, PRIMARY_BOARDS, SECONDARY_BOARDS } from "@/lib/boards";
 
 const SIZES = [
   { key: "", label: "Any size" },
@@ -20,7 +20,7 @@ export interface BoardState { board: string; window: "24h" | "7d" | "30d"; categ
 export function boardHref(base: string, s: Partial<BoardState>, current: BoardState) {
   const next = { ...current, ...s };
   const p = new URLSearchParams();
-  if (next.board !== "most-new" && !base.includes("/trending") && !base.startsWith("/fastest") && !base.startsWith("/new-saas") && !base.startsWith("/most-new")) p.set("board", next.board);
+  if (next.board !== "most-new" && !base.includes("/trending") && !base.startsWith("/fastest") && !base.startsWith("/new-saas") && !base.startsWith("/most-new") && !base.startsWith("/best-conversion")) p.set("board", next.board);
   if (next.window !== (next.board === "trending" ? "7d" : "30d")) p.set("window", next.window);
   if (next.category && !base.startsWith("/categories/")) p.set("category", next.category);
   if (next.size) p.set("size", next.size);
@@ -38,17 +38,20 @@ export function BoardFilters({ state, base, lockCategory, lockBoard }: { state: 
     const href = boardHref(base, patch, state);
     router.push(href === base && pathname === base && params.size === 0 ? base : href);
   };
-  const windows = (["24h", "7d", "30d"] as const).filter((w) => !(state.board === "new-rising" || state.board === "most-users" || state.board === "activation-rate") || w === "7d");
+  const windows = (["24h", "7d", "30d"] as const).filter((w) => !(state.board === "new-rising" || state.board === "most-users" || state.board === "activation-rate" || BOARD_META[state.board]?.secondary) || w === "7d");
+  const boardLink = (key: string) => (
+    <Link key={key} href={boardHref(base, { board: key, window: key === "trending" ? "7d" : "30d" }, state)} className={cn("whitespace-nowrap px-3 py-2 font-mono text-[11px] uppercase tracking-wider", state.board === key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
+      {BOARD_META[key].short}
+    </Link>
+  );
   return (
     <div className="space-y-3">
       {!lockBoard && (
-        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-          <div className="flex w-max border border-line">
-            {Object.entries(BOARD_META).map(([key, m]) => (
-              <Link key={key} href={boardHref(base, { board: key, window: key === "trending" ? "7d" : "30d" }, state)} className={cn("whitespace-nowrap px-3 py-2 font-mono text-[11px] uppercase tracking-wider", state.board === key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
-                {m.short}
-              </Link>
-            ))}
+        <div className="-mx-4 space-y-2 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+          <div className="flex w-max border border-line">{PRIMARY_BOARDS.map(boardLink)}</div>
+          <div className="flex w-max items-center gap-2">
+            <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">More rankings</span>
+            <div className="flex border border-line">{SECONDARY_BOARDS.map(boardLink)}</div>
           </div>
         </div>
       )}

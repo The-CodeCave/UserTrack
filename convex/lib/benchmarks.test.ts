@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { benchmarkInsight, deciles, medianMultiple, percentileOf, publicBenchmarkStatement } from "./benchmarks";
+import { BENCHMARK_METRICS, BENCHMARK_METRIC_BASIS, BENCHMARK_METRIC_LABEL, CONVERSION_BENCHMARK_METRICS, MIN_SAMPLE_CONVERSION, benchmarkInsight, deciles, isConversionBenchmark, medianMultiple, percentileOf, publicBenchmarkStatement } from "./benchmarks";
 
 const DEC = [10, 20, 30, 40, 50, 60, 70, 80, 90];
 
@@ -50,5 +50,22 @@ describe("publicBenchmarkStatement", () => {
     expect(publicBenchmarkStatement({ ...i, percentile: 70 })).toBeNull();
     expect(publicBenchmarkStatement({ ...i, percentile: 75 })).toBe("Top 25% 30-day growth in AI tools");
     expect(publicBenchmarkStatement({ ...i, percentile: 90 })).toBe("Top 10% 30-day growth in AI tools");
+  });
+});
+
+describe("conversion metrics", () => {
+  it("are registered as aggregate-basis metrics with founder-facing labels", () => {
+    for (const m of CONVERSION_BENCHMARK_METRICS) {
+      expect(BENCHMARK_METRICS).toContain(m);
+      expect(BENCHMARK_METRIC_BASIS[m]).toBe("aggregate");
+      expect(isConversionBenchmark(m)).toBe(true);
+    }
+    expect(isConversionBenchmark("growth30dPct")).toBe(false);
+    expect(MIN_SAMPLE_CONVERSION).toBeGreaterThanOrEqual(5);
+  });
+  it("insight sentences read naturally", () => {
+    expect(benchmarkInsight({ metricLabel: BENCHMARK_METRIC_LABEL.signupToConvertedPct, groupLabel: "SaaS with 1k-5k users", percentile: 65, value: 8, median: 5 })).toBe("Your signup → converted rate is ahead of 65% of SaaS with 1k-5k users. 1.6× the median.");
+    expect(benchmarkInsight({ metricLabel: BENCHMARK_METRIC_LABEL.convertedGrowth30dPct, groupLabel: "all SaaS on UserTrack", percentile: 90, value: 30, median: 10 })).toBe("Your converted-user growth (30d) is ahead of 90% of all SaaS on UserTrack. Top 10%.");
+    expect(publicBenchmarkStatement({ metricLabel: BENCHMARK_METRIC_LABEL.trialToConvertedPct, groupLabel: "Developer Tools", percentile: 85 })).toBe("Top 15% trial → converted rate in Developer Tools");
   });
 });

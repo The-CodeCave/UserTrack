@@ -4,7 +4,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
 import { PLANS } from "@convex/lib/tokens";
-import { AGENT_PROMPT } from "./snippets";
+import { AGENT_PROMPT, MOBILE_AGENT_PROMPT } from "./snippets";
 import { SERVER_INSTRUCTIONS, TOOLS } from "./tools";
 import { authorize, gatewayAuth, toFailure, type GatewayFailure } from "@/lib/api/gateway";
 import { hashSecret } from "@/lib/api/gateway";
@@ -54,6 +54,9 @@ export function createMcpServer(secret: string) {
   }
   server.registerPrompt("add_project_to_usertrack", { title: "Add this project to UserTrack", description: "The end-to-end onboarding prompt: detect the stack, create the project, configure and verify tracking, publish, return the URL." }, () => ({
     messages: [{ role: "user", content: { type: "text", text: AGENT_PROMPT } }],
+  }));
+  server.registerPrompt("add_mobile_app_to_usertrack", { title: "Add this iOS / Android app to UserTrack", description: "Mobile onboarding: identity source (never Sign in with Apple), PostHog activation, RevenueCat conversion (read-only, no revenue), store URLs, publish, return the URL." }, () => ({
+    messages: [{ role: "user", content: { type: "text", text: MOBILE_AGENT_PROMPT } }],
   }));
   return server;
 }

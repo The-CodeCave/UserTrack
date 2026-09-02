@@ -1,7 +1,7 @@
 import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { dailyMilestones, streakDays } from "./lib/milestones";
-import { BENCHMARK_METRICS, MIN_SAMPLE, deciles } from "./lib/benchmarks";
+import { BENCHMARK_METRICS, MIN_SAMPLE, MIN_SAMPLE_CONVERSION, deciles, isConversionBenchmark } from "./lib/benchmarks";
 import { sizeBucket } from "./lib/metrics";
 import { rankable } from "./leaderboard";
 import { addMilestones } from "./trust";
@@ -27,6 +27,7 @@ export const run = internalMutation({
     await ctx.scheduler.runAfter(0, internal.daily.benchmarks, {});
     await ctx.scheduler.runAfter(5_000, internal.trust.dailyReview, {});
     await ctx.scheduler.runAfter(10_000, internal.email.lifecycle.noGrowthSweep, {});
+    await ctx.scheduler.runAfter(15_000, internal.cohorts.rebuildAll, {});
   },
 });
 
@@ -46,7 +47,7 @@ export const benchmarks = internalMutation({
       for (const metric of BENCHMARK_METRICS) {
         const values = members.map((m) => m[metric]).filter((x): x is number => typeof x === "number" && Number.isFinite(x));
         const existing = await ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", groupKey).eq("metric", metric)).unique();
-        if (values.length < MIN_SAMPLE) {
+        if (values.length < (isConversionBenchmark(metric) ? MIN_SAMPLE_CONVERSION : MIN_SAMPLE)) {
           if (existing) await ctx.db.delete(existing._id);
           continue;
         }

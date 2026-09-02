@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareDto, feedItemDto, funnelDto, historyDto, milestoneDto, saasDto, type SaasRow } from "./dto";
+import { cohortsDto, compareDto, conversionDto, engagementDto, feedItemDto, funnelDto, historyDto, milestoneDto, saasDto, type SaasRow } from "./dto";
 
 const FORBIDDEN = ["ownerId", "trustState", "trustScore", "config", "flags", "fraudFlags", "isPublic", "showTraffic", "showRevenue", "_id", "_creationTime", "spark", "sources"];
 
@@ -57,11 +57,52 @@ describe("saasDto", () => {
   });
 
   it("includes optional metric groups only when present", () => {
-    const d = saasDto({ ...base, activatedUsers: 500, activationRatePct: 4, retentionRatePct: 71.5, retainedUsers: 700, churnedUsers: 280, visitors30d: 9000, sessions30d: 12000, payingUsers: 40, mrr: 120000, currency: "usd" });
+    const d = saasDto({ ...base, activatedUsers: 500, activationRatePct: 4, retentionRatePct: 71.5, retainedUsers: 700, churnedUsers: 280, visitors30d: 9000, sessions30d: 12000, convertedUsers: 40, signupToConvertedPct: 3.1 });
     expect(d.metrics.activated).toEqual({ total: 500, last24h: undefined, last7d: undefined, last30d: undefined, ratePct: 4 });
     expect(d.metrics.retention).toEqual({ retainedUsers: 700, churnedUsers: 280, ratePct: 71.5, source: "estimated" });
     expect(d.metrics.traffic).toEqual({ visitors30d: 9000, sessions30d: 12000, visitorsPrev30d: undefined });
-    expect(d.metrics.revenue).toEqual({ payingUsers: 40, mrr: 120000, currency: "usd" });
+    expect(d.metrics.conversion).toMatchObject({ convertedUsers: 40, signupToConvertedPct: 3.1 });
+    expect(d.metrics.revenue).toEqual({ payingUsers: 40 });
+  });
+});
+
+describe("conversionDto / engagementDto / cohortsDto", () => {
+  it("conversion is null (with note) when nothing was published", () => {
+    const d = conversionDto(base);
+    expect(d.conversion).toBeNull();
+    expect(d.note).toMatch(/not published/);
+    expect(d.identityQuality).toBe("aggregate_only");
+    expect(saasDto(base).metrics.conversion).toBeUndefined();
+    expect(saasDto(base).metrics.revenue).toBeUndefined();
+  });
+  it("rate-only publication never carries counts", () => {
+    const d = conversionDto({ ...base, signupToConvertedPct: 8.7, activatedToConvertedPct: 12.4, identityQuality: "cohort_verified" });
+    expect(d.conversion).toEqual({ convertedUsers: undefined, newConverted7d: undefined, newConverted30d: undefined, convertedGrowth30dPct: undefined, trialUsers: undefined, signupToConvertedPct: 8.7, activatedToConvertedPct: 12.4, trialToConvertedPct: undefined });
+    expect(d.identityQuality).toBe("cohort_verified");
+    expect(JSON.stringify(d)).not.toMatch(/mrr|currency|amount/);
+  });
+  it("published counts appear in conversion and in the deprecated revenue alias without amounts", () => {
+    const d = saasDto({ ...base, convertedUsers: 447, newConverted30d: 31, signupToConvertedPct: 3.6 });
+    expect(d.metrics.conversion?.convertedUsers).toBe(447);
+    expect(d.metrics.revenue).toEqual({ payingUsers: 447 });
+    expect(keysDeep(d).has("mrr")).toBe(false);
+  });
+  it("engagement is null without activation and maps retention", () => {
+    expect(engagementDto(base).engagement).toBeNull();
+    const d = engagementDto({ ...base, activatedUsers: 800, activationRatePct: 64.1, retentionRatePct: 71, retainedUsers: 500 });
+    expect(d.engagement).toMatchObject({ activatedUsers: 800, activationRatePct: 64.1, retention: { retainedUsers: 500, churnedUsers: 0, ratePct: 71, source: "estimated" } });
+  });
+  it("cohorts keep nulls for hidden counts and ISO computedAt", () => {
+    const d = cohortsDto("acme", { identityQuality: "cohort_verified", label: "Cohort Verified", explanation: "x", basis: "cohort", cohorts: [{ cohort: "2026-08", signedUp: null, activated: null, activationPct: 61, convertedPct: 12.7, computedAt: Date.UTC(2026, 8, 1) }] });
+    expect(d.cohorts[0]).toMatchObject({ cohort: "2026-08", signedUp: null, activationPct: 61, convertedPct: 12.7, computedAt: "2026-09-01T00:00:00.000Z" });
+    expect(d.note).toBeUndefined();
+    expect(cohortsDto("acme", { identityQuality: "aggregate_only", label: "Aggregate", explanation: "x", basis: "cohort", cohorts: [] }).note).toMatch(/No cohorts yet/);
+  });
+  it("mobile store links and project type", () => {
+    const d = saasDto({ ...base, projectType: "mobile", appStoreUrl: "https://apps.apple.com/app/id1" });
+    expect(d.projectType).toBe("mobile");
+    expect(d.stores).toEqual({ appStore: "https://apps.apple.com/app/id1", googlePlay: undefined });
+    expect(saasDto(base).stores).toBeUndefined();
   });
 });
 
@@ -82,13 +123,27 @@ describe("funnelDto / feedItemDto / compareDto", () => {
     const d = funnelDto({
       timeframe: "30d", days: 30, verification: "partially_verified", coverageDays: 30,
       stages: [
-        { key: "signups", label: "Signups", value: 100, kind: "users", source: { provider: "clerk", label: "Clerk", verification: "verified", secret: "x" } as never },
-        { key: "activated", label: "Activated", value: 40, conversionPct: 40, kind: "activation" },
+        { key: "signed_up", label: "Signed up", value: 100, kind: "flow", source: { provider: "clerk", label: "Clerk", verification: "verified", secret: "x" } as never, health: "healthy", updatedAt: Date.UTC(2026, 8, 1) },
+        { key: "activated", label: "Activated", value: 40, conversionPct: 40, kind: "flow" },
+        { key: "converted", label: "Converted", value: null, conversionPct: 12.5, kind: "stock", source: { provider: "stripe", label: "Stripe", verification: "verified" } },
       ],
+      rates: [{ from: "signed_up", to: "converted", label: "Signup → Converted", pct: 5, adjacent: false }],
+      identityQuality: "partially_mapped",
     });
     expect(d.stages[0].source).toEqual({ provider: "clerk", label: "Clerk", verification: "verified" });
+    expect(d.stages[0].verified).toBe(true);
+    expect(d.stages[0].updatedAt).toBe("2026-09-01T00:00:00.000Z");
     expect(d.stages[1].source).toBeUndefined();
+    expect(d.stages[1].verified).toBe(false);
+    expect(d.stages[2].value).toBeNull();
+    expect(d.rates).toEqual([{ from: "signed_up", to: "converted", label: "Signup → Converted", pct: 5, previousPct: undefined, adjacent: false }]);
+    expect(d.basis).toBe("aggregate");
+    expect(d.identityQuality).toBe("partially_mapped");
     expect(d.verification).toBe("partially_verified");
+  });
+  it("defaults basis / identityQuality for legacy funnel objects", () => {
+    const d = funnelDto({ timeframe: "7d", days: 7, verification: "none", coverageDays: 0, stages: [] });
+    expect(d).toMatchObject({ basis: "aggregate", identityQuality: "aggregate_only", rates: [] });
   });
   it("feed item emits ISO time and share URLs", () => {
     const item = { id: "f1", kind: "milestone", subkind: "users", at: Date.UTC(2026, 0, 2), title: "1K users", detail: "Hit 1,000", saas: { slug: "acme", name: "Acme", totalUsers: 1000, trust: "verified" as const, trustLabel: "Verified" } };

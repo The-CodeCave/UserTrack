@@ -2,13 +2,13 @@ import { formatCompact, formatDelta, formatPct, formatRate } from "@/lib/format"
 
 export interface ShareSaas {
   name: string; slug: string; totalUsers: number; newUsers7d: number; newUsers30d: number; growth7dPct?: number; growth30dPct: number; rank?: number; trendingRank?: number;
-  activatedUsers?: number; activationRatePct?: number; trust: "verified" | "unverified" | "pending"; trustLabel: string;
+  activatedUsers?: number; activationRatePct?: number; signupToConvertedPct?: number; trust: "verified" | "unverified" | "pending"; trustLabel: string;
 }
 // A stored achievement (milestone or growth spike) rendered as its own card.
 export interface ShareEvent { title: string; copy: string; kind: string; value?: number; achievedAt: number; eyebrow?: string }
 
-export type ShareKind = "users" | "growth" | "week" | "rank" | "trending" | "activation" | `milestone-${string}` | `spike-${string}`;
-export const SHARE_KINDS = ["users", "growth", "week", "rank", "trending", "activation"] as const;
+export type ShareKind = "users" | "growth" | "week" | "rank" | "trending" | "activation" | "conversion" | `milestone-${string}` | `spike-${string}`;
+export const SHARE_KINDS = ["users", "growth", "week", "rank", "trending", "activation", "conversion"] as const;
 export type ShareSize = "og" | "square";
 export const SHARE_SIZES: Record<ShareSize, { width: number; height: number }> = { og: { width: 1200, height: 630 }, square: { width: 1080, height: 1080 } };
 
@@ -34,6 +34,8 @@ export function shareCopy(s: ShareSaas, kind: ShareKind, m?: ShareEvent | null) 
       return { eyebrow: "TRENDING NOW", value: s.trendingRank ? `#${s.trendingRank}` : "—", sub: `${formatDelta(s.newUsers7d)} new users this week · momentum, not size`, text: `${s.name} is #${s.trendingRank} trending on UserTrack right now. ${hashtag(s)}` };
     case "activation":
       return { eyebrow: "ACTIVATION", value: formatRate(s.activationRatePct), sub: `${formatCompact(s.activatedUsers ?? 0)} of ${formatCompact(s.totalUsers)} users activated`, text: `${formatRate(s.activationRatePct)} of ${s.name} users activate. ${hashtag(s)}` };
+    case "conversion":
+      return { eyebrow: "CONVERSION", value: formatRate(s.signupToConvertedPct), sub: "Signup → Converted · users who convert, never revenue", text: `${formatRate(s.signupToConvertedPct)} of ${s.name} signups convert. ${hashtag(s)}` };
     default:
       return { eyebrow: "TOTAL USERS", value: formatCompact(s.totalUsers), sub: `${formatDelta(s.newUsers30d)} in the last 30 days`, text: `${s.name} just hit ${formatCompact(s.totalUsers)} users. ${hashtag(s)}` };
   }
@@ -48,6 +50,8 @@ export function availableShareKinds(s: ShareSaas): { kind: ShareKind; label: str
     ...(s.rank ? [{ kind: "rank" as ShareKind, label: `#${s.rank} on UserTrack` }] : []),
     ...(s.trendingRank ? [{ kind: "trending" as ShareKind, label: `#${s.trendingRank} trending` }] : []),
     ...(s.activationRatePct !== undefined ? [{ kind: "activation" as ShareKind, label: `${formatRate(s.activationRatePct)} activation` }] : []),
+    // Only present on the public object when the founder published conversion rates.
+    ...(s.signupToConvertedPct !== undefined ? [{ kind: "conversion" as ShareKind, label: `${formatRate(s.signupToConvertedPct)} signup → converted` }] : []),
   ];
 }
 

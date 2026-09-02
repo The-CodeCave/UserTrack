@@ -1,7 +1,7 @@
 # UserTrack Architecture
 
 ## TL;DR
-Next.js 16 on Railway renders public pages, share images, badges, the JSON API and the MCP server from Convex functions. Convex holds the data, runs Better Auth, the provider sync engine, ranking/trending, daily milestone + benchmark + trust jobs, the weekly digest, and the token-authenticated gateway. A domain layer (`convex/domain/*`) holds the project/integration/metrics/funnel/event rules once; the dashboard, the REST API and MCP are thin adapters over it. Provider adapters live behind one interface and only ever run server-side; the only TCP work (PostgreSQL, Supabase database mode) happens in one Node-runtime action. Snapshots are append-only; everything the UI ranks by is materialized on the `saas` row.
+Next.js 16 on Railway renders public pages, share images, badges, the JSON API and the MCP server from Convex functions. Convex holds the data, runs Better Auth, the provider sync engine, ranking/trending, daily milestone + benchmark + trust jobs, the weekly digest, and the token-authenticated gateway. UserTrack measures how products acquire, activate and convert users — never how much money they make: the normalized lifecycle **Reached → Signed up → Activated → Trial → Converted** is fed by multiple provider roles per project (identity, activation, reach, conversion), payment providers are read for conversion state only, and per-metric visibility keeps connection separate from publication. A domain layer (`convex/domain/*`) holds the project/integration/metrics/funnel/visibility/event rules once; the dashboard, the REST API and MCP are thin adapters over it. Provider adapters live behind one interface and only ever run server-side; the only TCP work (PostgreSQL, Supabase database mode) happens in one Node-runtime action. Snapshots are append-only; everything the UI ranks by is materialized on the `saas` row.
 
 ```
 Browser ──► Next.js (Railway)
@@ -14,17 +14,19 @@ Browser ──► Next.js (Railway)
 
 Convex
   ├─ Better Auth component (users, sessions)
-  ├─ tables: profiles, saas, integrations, snapshots, dailyMetrics, syncRuns, milestones, events,
-  │          follows, fraudFlags, benchmarkAggregates, digests, developerTokens, apiUsage, auditLogs,
+  ├─ tables: profiles, saas, integrations, snapshots, stageSnapshots, dailyMetrics, identityLinks, cohortMetrics, syncRuns,
+  │          milestones, events, follows, fraudFlags, benchmarkAggregates, digests, developerTokens, apiUsage, auditLogs,
   │          emailPreferences, emailEvents, emailRecipients, monthlyReports
-  ├─ domain/: projects · integrations · metrics · funnel · events (shared rules) ◄── saas.ts / integrations.ts / public.ts / gateway.ts
-  ├─ crons: sync every 4h (staggered) · rerank+trending +20min · daily sweep 03:30 UTC (milestones → benchmarks → trust review)
+  ├─ domain/: projects · integrations · metrics · funnel · visibility · events (shared rules) ◄── saas.ts / integrations.ts / public.ts / gateway.ts
+  ├─ cohorts.ts: identity-link paging → signup cohorts + identity quality (daily, action) · migrations.ts (lifecycleV1)
+  ├─ crons: sync every 4h (staggered) · rerank+trending +20min · daily sweep 03:30 UTC (milestones → benchmarks → trust review → cohorts)
   │         · digest Mon 08:00 UTC · monthly report 1st 05:00 UTC · per-entity scheduled reminders (24h)
   ├─ email/: send (Resend) · templates · prefs · lifecycle · growth · reports · webhook  ──► api.resend.com
   ├─ HTTP: /api/auth/* (Better Auth) · /webhooks/resend (Svix-verified) · /email/unsubscribe (one-click)
-  ├─ providers/: clerk | supabase | firebase | auth0 | posthog | plausible | ga4 | stripe | postgres | endpoint | manual
+  ├─ providers/: clerk | supabase | firebase | auth0 | posthog | plausible | ga4 | stripe | revenuecat | paddle | lemonsqueezy | chargebee
+  │              | postgres | endpoint | manual  (conversion.ts = shared SubRecord → trial/converted aggregation)
   ├─ providerRun.ts: V8 fetch ─or─ runtime "node" ──► node/postgres.ts ("use node", pg) ──► PostgreSQL / Supabase (read-only TCP)
-  └─ lib/: metrics · trending · trust · milestones · spikes · retention · benchmarks · tokens · domain · integrationSetup
+  └─ lib/: metrics · trending · trust · milestones · spikes · retention · benchmarks · identity · tokens · domain · integrationSetup
 ```
 
 ## Auth
@@ -35,9 +37,12 @@ Better Auth (email + password, Google) runs inside Convex via `@convex-dev/bette
 |---|---|---|
 | `profiles` | founder identity, links (website/X/GitHub/LinkedIn), `digestOptIn`, `followerCount` | `by_userId`, `by_username`, search `displayName` |
 | `saas` | listing + category + visibility + **all derived metrics**: totals, new 24h/7d/30d (+ previous windows), growth %, ranks (+ prev/best), trending scores 24h/7d/30d + **per-window ranks** (`trendingRank24h` / `trendingRank` (7d) / `trendingRank30d`, each with `prev*`), activation, retention (estimated), traffic/revenue (+ `showTraffic`/`showRevenue`), `trustScore`/`trustState`, `followerCount`, `streakDays`, `firstSnapshotAt`, **`launchedAt`** (first publish) and **`verifiedAt`** (first verified users sync) | `by_slug`, `by_owner`, `by_public_trust_new30d`, `by_public_new30d`, `by_public_category`, search `name` + `description` |
-| `integrations` | one per SaaS **per role** (`users` · `activation` · `traffic` · `revenue`); `provider` now includes `postgres`; `config` holds secrets (incl. connection strings) and is only read by `internal.integrations.getForSync` and the owner-only `integrations.test` / `introspectPostgres` actions; status, trust, last success/failure, consecutive failures, `connectedAt`, `backfilledAt` | `by_saas`, `by_saas_role` |
+| `integrations` | one per SaaS **per role** (`users` · `activation` · `traffic` · `conversion`; legacy `revenue` rows are migrated and normalized by `normalizeRole`); `provider` now includes `postgres`; `config` holds secrets (incl. connection strings) and is only read by `internal.integrations.getForSync` and the owner-only `integrations.test` / `introspectPostgres` actions; status, trust, last success/failure, consecutive failures, `connectedAt`, `backfilledAt` | `by_saas`, `by_saas_role` |
 | `snapshots` | append-only `{totalUsers, capturedAt, source, trust, syncRunId, backfilled?}` | `by_saas_time` |
-| `dailyMetrics` | one row per SaaS per UTC day: `totalUsers`, `newUsers`, optional `activatedUsers`, `newActivated`, `visitors`, `sessions`, `payingUsers`, `mrr`, `activeUsers30d` | `by_saas_day` |
+| `stageSnapshots` | append-only per-stage snapshots (`activated` · `trial` · `converted`): `value`, `capturedAt`, `source`, `integrationId`, `trust`, `mode` | `by_saas_stage_time` |
+| `dailyMetrics` | one row per SaaS per UTC day: `totalUsers`, `newUsers`, optional `activatedUsers`, `newActivated`, `visitors`, `sessions`, `trialUsers`, `newTrials`, `convertedUsers`, `newConverted`, `activeUsers30d` (legacy `payingUsers`/`mrr` cleared by the migration) | `by_saas_day` |
+| `identityLinks` | pseudonymous `(stage, subject)` pairs — `subject` = salted SHA-256 of a provider id, `source`, `firstSeenAt`, `at`; never PII, never rendered individually | `by_saas_stage_subject`, `by_saas_subject`, `by_saas_stage_at` |
+| `cohortMetrics` | one row per SaaS per signup month: `signedUp`, `activated`, `trial`, `converted`, `activatedD7`, `convertedD30`, median time-to-activation / -conversion | `by_saas_cohort` |
 | `syncRuns` | audit log per attempt: role, provider, duration, attempt, status, error | `by_saas_time` |
 | `milestones` | persisted achievements, unique `key` per SaaS, title + shareable copy | `by_saas_key`, `by_saas_time`, `by_time` |
 | `events` | chart annotations **and discovery-feed items**: `spike`, `activation_spike`, `reconnect`, `source_changed` (one per kind per day) plus the once-per-SaaS `launched` and `verified` events (`convex/domain/events.ts`, keyed by kind); `value` / `multiple` on spikes | `by_saas_time`, `by_saas_kind_day`, `by_time` |
@@ -54,6 +59,8 @@ Better Auth (email + password, Google) runs inside Convex via `@convex-dev/bette
 | `monthlyReports` | one consolidated payload per profile per `period` (`2026-08`), `deliverAt`, `sentAt`, `emailEventId` | `by_profile_period`, `by_period` |
 
 `integrations` additionally carries `healthState` / `unhealthySince` (email state machine) and `dailyMetrics.rank` stores the leaderboard rank at the end of each closed day.
+
+`saas` additionally carries the lifecycle fields (`trialUsers`, `convertedUsers`, `newTrials*`, `newConverted*`, `convertedGrowth30dPct`, `signupToConvertedPct`, `activatedToConvertedPct`, `trialToConvertedPct`, `conversionMode`), identity quality (`identityQuality`, `identityCoveragePct`), project metadata (`projectType` web · mobile · hybrid, `appStoreUrl`, `playStoreUrl`, `authMethods`) and the per-metric `visibility` object. v0.5 ships `migrations:lifecycleV1` (revenue role → conversion, `showTraffic`/`showRevenue` → `visibility`, `payingUsers` → `convertedUsers`, amounts cleared).
 
 All v0.2+ fields are optional so the schema migrated in place over older data (v0.4 added `postgres`, the per-window trending ranks, `launchedAt` / `verifiedAt`, the `launched` / `verified` event kinds and `events.by_time` without a migration). `integrations.role === undefined` is treated as `users`.
 
@@ -103,14 +110,22 @@ interface Provider<Config> {
      - **users**: append `snapshots` row, upsert today's `dailyMetrics`, `recomputeDerived` (windows from indexed snapshot lookups at now−1/2/7/14/30/60 d; provider-reported window counts fill in while history is shorter than the window), first verified sync stamps `verifiedAt` and writes the once-only `verified` event, threshold milestones (never on the first snapshot), spike detection (≥3× trailing 14-day average and ≥20), anomaly checks → `fraudFlags`.
      - **activation**: activated fields + rate, daily rows, activated milestones, activation spikes, `activation_exceeds_users` flag.
      - **traffic**: rolling 30-day visitors/sessions (+ previous period); traffic history refreshed for the last 7 days on every run.
-     - **revenue**: paying users, MRR, currency.
+     - **conversion**: `stageSnapshots` rows (`converted` with the conversion mode, `trial`), daily `convertedUsers` / `newConverted` (provider flow or clamped stock delta) and `trialUsers` / `newTrials`, materialized windows + `convertedGrowth30dPct` + the three conversion rates (`stageRates`, also refreshed on users/activation syncs), `converted` milestones. Never amounts.
+     - **identities** (any role): the action salts + hashes provider ids (`lib/identity.ts`) and upserts `identityLinks` in batches of 500 (`recordIdentities`); mutations never see raw ids.
      Then `refreshTrust`.
    - first success (or every traffic run) → `fetchHistory` (`providerRun.ts`) → `recordHistory`: backfilled snapshots (`backfilled: true`) and daily rows only for days **before** the first live snapshot; derived metrics recomputed.
    - failure → `recordFailure`: run log, `consecutiveFailures`, retry after 10/20 minutes (max 3 attempts) if retryable; 6 consecutive users-role failures demote the SaaS to `pending`.
 3. `integrations.connect` replaces the integration for that role, records a `reconnect` event (users role), marks the SaaS `pending` and triggers an immediate sync. `syncNow` has a 60 s cooldown.
 
+## Lifecycle model, visibility and identity (v0.5)
+- **Roles = lifecycle sources**: `users → signed_up`, `activation → activated`, `traffic → reached`, `conversion → trial + converted` (`ROLE_STAGE`). A project combines several roles (Clerk + PostHog + Stripe; Firebase Auth + PostHog + RevenueCat); each provider declares `capabilities` (`trial`, `converted`, `identity` …) so the UI never branches on provider kind. Sign in with Apple / Google are stored as `authMethods` (informational) and never count users.
+- **Conversion providers** (`convex/providers/conversion.ts` + stripe / revenuecat / paddle / lemonsqueezy / chargebee) normalize subscriptions into `SubRecord`s and aggregate unique subjects per `conversionMode`; amounts are never requested, persisted or displayed (`docs/PROVIDERS.md`).
+- **Visibility** (`convex/domain/visibility.ts`): `visibilityOf(saas)` merges explicit keys with legacy toggles; `stripPrivate` removes gated fields from every public projection (`publicSaas`, API DTOs, share cards, boards); `funnelOptionsFor` gates funnel stages. Defaults: growth + activation public, conversion private.
+- **Identity & cohorts** (`convex/lib/identity.ts`, `convex/cohorts.ts`): pseudonymous subjects → monthly signup cohorts (activation, trial, conversion, D7 / D30, medians) and an identity quality (`aggregate_only` · `partially_mapped` · `cohort_verified`) that drives the **Cohort Verified** badge (`docs/IDENTITY.md`).
+- **Project type** (`web` · `mobile` · `hybrid`) only changes onboarding recommendations, wording ("Registered users") and store links; the lifecycle model is identical for all.
+
 ## Funnel (`convex/domain/funnel.ts`)
-Visitors → Signups → Activated → Paying over `7d` / `30d` / `90d`, computed on read from `dailyMetrics` (one indexed range of ≤ 2 × days rows; never snapshots). `current` = rows newer than `today − days`, `previous` = the same number of days before. Visitors / signups / activated are flows (sums of `visitors`, `newUsers`, `newActivated`); paying is a stock (last `payingUsers`). Below `min(days, 2)` rows the stages fall back to the materialized `saas` fields. Each stage carries `changePct` vs the previous window, `conversionPct` / `previousConversionPct` vs the previous stage, and `source { provider, label, verification }` from the integration feeding it (`funnelSources`: only integrations with a success or status `ok`, verification from `verificationLevel`). Funnel-level `verification` = `verified` only when every stage is, `self_reported` when all are, `mixed` otherwise, `none` without sources. Surfaces: `public.funnel` (opted-in traffic/revenue only), `saas.funnel` (owner, all stages), `GET /api/v1/saas/{slug}/funnel`, MCP `usertrack_get_funnel`. Math in `docs/METRICS.md`.
+Reached → Signed up → Activated → Trial → Converted over `7d` / `30d` / `90d`, computed on read from `dailyMetrics` (one indexed range of ≤ 2 × days rows; never snapshots). Only stages with a connected source appear; adjacent + strategic rates, per-stage provenance / freshness / health, aggregate vs cohort basis — see `docs/FUNNEL.md`. Legacy description of the v0.4 mechanics: `current` = rows newer than `today − days`, `previous` = the same number of days before. Visitors / signups / activated are flows (sums of `visitors`, `newUsers`, `newActivated`); paying is a stock (last `payingUsers`). Below `min(days, 2)` rows the stages fall back to the materialized `saas` fields. Each stage carries `changePct` vs the previous window, `conversionPct` / `previousConversionPct` vs the previous stage, and `source { provider, label, verification }` from the integration feeding it (`funnelSources`: only integrations with a success or status `ok`, verification from `verificationLevel`). Funnel-level `verification` = `verified` only when every stage is, `self_reported` when all are, `mixed` otherwise, `none` without sources. Surfaces: `public.funnel` (opted-in traffic/revenue only), `saas.funnel` (owner, all stages), `GET /api/v1/saas/{slug}/funnel`, MCP `usertrack_get_funnel`. Math in `docs/METRICS.md`.
 
 ## Ranking & trending (`convex/leaderboard.ts`, `convex/lib/trending.ts`)
 - **Leaderboard rank**: public + `verified` + not demo + not under review (`rankable`), ordered by `newUsers30d`, tiebreak growth %, total. `prevRank`/`bestRank` tracked for movement and milestones.

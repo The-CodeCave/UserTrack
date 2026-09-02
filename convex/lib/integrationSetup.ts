@@ -1,8 +1,12 @@
 // Agent-executable integration knowledge: catalog, recommendation and structured setup instructions.
 // Pure data + functions, shared by the MCP server and the developer docs. No I/O.
+import { COHORT_RULES, IDENTITY_QUALITY_META } from "./identity";
 
-export type ProviderKind = "clerk" | "supabase" | "firebase" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "postgres" | "endpoint" | "manual";
-export type Role = "users" | "activation" | "traffic" | "revenue";
+export type ProviderKind = "clerk" | "supabase" | "firebase" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "revenuecat" | "paddle" | "lemonsqueezy" | "chargebee" | "postgres" | "endpoint" | "manual";
+export type Role = "users" | "activation" | "traffic" | "conversion";
+export type ProjectType = "web" | "mobile" | "hybrid";
+export type ConversionMode = "active_paid" | "ever_paid" | "first_payment";
+export type LifecycleStage = "reached" | "signed_up" | "activated" | "trial" | "converted";
 
 export interface Credential {
   key: string;
@@ -29,6 +33,8 @@ export interface CatalogEntry {
 }
 
 const NEVER = ["emails", "names", "passwords", "session tokens", "per-user records", "payment details"];
+const NEVER_PAYMENTS = [...NEVER, "amounts", "prices", "invoices", "MRR / revenue"];
+const MODE_CREDENTIAL: Credential = { key: "mode", label: "Converted means", secret: false, optional: true, whereToFind: "active_paid (default: currently has a paid subscription) | ever_paid (paid at least once) | first_payment (counted at the first successful payment). Provider-independent; change later without reconnecting.", envVarHints: [], format: "active_paid | ever_paid | first_payment" };
 
 export const INTEGRATION_CATALOG: CatalogEntry[] = [
   {
@@ -144,14 +150,81 @@ export const INTEGRATION_CATALOG: CatalogEntry[] = [
   {
     provider: "stripe",
     label: "Stripe",
-    roles: ["revenue"],
+    roles: ["conversion"],
     trust: "verified",
-    summary: "Paying customers and MRR from active subscriptions with a restricted read-only key.",
+    summary: "Converted users (paid subscription state) and trial users from a restricted read-only key. Conversion state only — UserTrack never reads or stores amounts. A Stripe customer that never paid is not a converted user.",
     detects: ["stripe", "@stripe/stripe-js", "STRIPE_SECRET_KEY"],
-    credentials: [{ key: "secretKey", label: "Restricted key", secret: true, whereToFind: "Stripe → Developers → API keys → Create restricted key: Subscriptions = Read, everything else None", envVarHints: ["STRIPE_RESTRICTED_KEY"], format: "rk_live_…" }],
-    permissions: ["Never use the full secret key (sk_live_). Create a restricted key with Subscriptions: Read only."],
-    reads: "GET /v1/subscriptions?status=active (paginated). Sums recurring prices.",
-    neverSent: NEVER,
+    credentials: [
+      { key: "secretKey", label: "Restricted key", secret: true, whereToFind: "Stripe → Developers → API keys → Create restricted key: Subscriptions = Read, everything else None", envVarHints: ["STRIPE_RESTRICTED_KEY"], format: "rk_live_…" },
+      MODE_CREDENTIAL,
+    ],
+    permissions: ["Never use the full secret key (sk_live_). Create a restricted key with Subscriptions: Read only.", "UserTrack never modifies subscriptions or customers."],
+    reads: "GET /v1/subscriptions by status (paginated): status, customer id, trial/start dates, metadata.userId. Prices, invoices and amounts are never requested.",
+    neverSent: NEVER_PAYMENTS,
+  },
+  {
+    provider: "revenuecat",
+    label: "RevenueCat",
+    roles: ["conversion"],
+    trust: "verified",
+    summary: "Trial and converted users for iOS / Android subscription apps from the v2 overview metrics (active trials, active subscriptions). RevenueCat customers — including anonymous app user ids — are never counted as registered users.",
+    detects: ["revenuecat", "react-native-purchases", "purchases_flutter", "RevenueCat", "Purchases", "REVENUECAT_API_KEY"],
+    credentials: [
+      { key: "apiKey", label: "Secret API key (v2)", secret: true, whereToFind: "RevenueCat → Project settings → API keys → New secret key (v2) with only Charts & Metrics → Read", envVarHints: ["REVENUECAT_SECRET_KEY", "REVENUECAT_API_KEY"], format: "sk_…" },
+      { key: "projectId", label: "Project ID", secret: false, whereToFind: "RevenueCat → Project settings → General", envVarHints: ["REVENUECAT_PROJECT_ID"], format: "proj1ab2c3d4" },
+      { key: "mode", label: "Converted means", secret: false, optional: true, whereToFind: "RevenueCat supports active_paid only (active subscriptions). Use a JSON endpoint for other definitions.", envVarHints: [], format: "active_paid" },
+    ],
+    permissions: ["Create a dedicated v2 secret key with only Charts & Metrics → Read. Never the public SDK key, never a key with customer or purchase permissions."],
+    reads: "GET /v2/projects/{id}/metrics/overview → active_trials and active_subscriptions only. MRR / revenue values in the same response are discarded.",
+    neverSent: NEVER_PAYMENTS,
+  },
+  {
+    provider: "paddle",
+    label: "Paddle",
+    roles: ["conversion"],
+    trust: "verified",
+    summary: "Converted (billed at least once) and trial users from Paddle Billing subscriptions with a read-only API key.",
+    detects: ["paddle", "@paddle/paddle-js", "@paddle/paddle-node-sdk", "PADDLE_API_KEY"],
+    credentials: [
+      { key: "apiKey", label: "API key", secret: true, whereToFind: "Paddle → Developer tools → Authentication → New API key with Subscriptions → Read only", envVarHints: ["PADDLE_API_KEY"], format: "pdl_live_apikey_…" },
+      { key: "environment", label: "Environment", secret: false, optional: true, whereToFind: "live (default) or sandbox", envVarHints: ["PADDLE_ENVIRONMENT"], format: "live | sandbox" },
+      MODE_CREDENTIAL,
+    ],
+    permissions: ["API key with Subscriptions: Read only. No transactions, prices or customer write permissions."],
+    reads: "GET /subscriptions by status: status, customer id, first_billed_at, custom_data.userId. No transactions or prices.",
+    neverSent: NEVER_PAYMENTS,
+  },
+  {
+    provider: "lemonsqueezy",
+    label: "Lemon Squeezy",
+    roles: ["conversion"],
+    trust: "verified",
+    summary: "Converted and trial users from Lemon Squeezy subscriptions (and paid orders for ever-paid modes).",
+    detects: ["lemonsqueezy", "@lemonsqueezy/lemonsqueezy.js", "LEMONSQUEEZY_API_KEY"],
+    credentials: [
+      { key: "apiKey", label: "API key", secret: true, whereToFind: "Lemon Squeezy → Settings → API → Create API key", envVarHints: ["LEMONSQUEEZY_API_KEY", "LEMON_SQUEEZY_API_KEY"], format: "eyJ0eXAiOiJKV1Qi…" },
+      { key: "storeId", label: "Store ID", secret: false, optional: true, whereToFind: "Settings → Stores; empty = all stores of the account", envVarHints: ["LEMONSQUEEZY_STORE_ID"], format: "12345" },
+      MODE_CREDENTIAL,
+    ],
+    permissions: ["Lemon Squeezy API keys are account-wide; UserTrack only calls the subscriptions and orders list endpoints and never writes."],
+    reads: "GET /v1/subscriptions (status, customer id, trial dates) and, for ever-paid modes, GET /v1/orders (status, customer id). Prices and emails in the response are dropped at parse time.",
+    neverSent: NEVER_PAYMENTS,
+  },
+  {
+    provider: "chargebee",
+    label: "Chargebee",
+    roles: ["conversion"],
+    trust: "verified",
+    summary: "Converted (activated subscription) and trial users from Chargebee subscriptions with a read-only API key.",
+    detects: ["chargebee", "@chargebee/chargebee-js", "CHARGEBEE_API_KEY"],
+    credentials: [
+      { key: "site", label: "Site", secret: false, whereToFind: "The part before .chargebee.com", envVarHints: ["CHARGEBEE_SITE"], format: "acme" },
+      { key: "apiKey", label: "Read-only API key", secret: true, whereToFind: "Chargebee → Settings → Configure Chargebee → API keys → Add API key → type Read-only", envVarHints: ["CHARGEBEE_API_KEY"], format: "live_…" },
+      MODE_CREDENTIAL,
+    ],
+    permissions: ["Create a Read-only API key. Never a full-access key."],
+    reads: "GET /api/v2/subscriptions by status: status, customer id, trial and activation timestamps, meta_data.userId. No invoices or amounts.",
+    neverSent: NEVER_PAYMENTS,
   },
   {
     provider: "postgres",
@@ -175,16 +248,16 @@ export const INTEGRATION_CATALOG: CatalogEntry[] = [
   {
     provider: "endpoint",
     label: "JSON endpoint on your own domain",
-    roles: ["users", "activation", "traffic", "revenue"],
+    roles: ["users", "activation", "traffic", "conversion"],
     trust: "conditional",
     summary: "A tiny authenticated route in your own app that returns aggregate counts. Verified when it lives on the product's domain. Works with any stack: Better Auth, NextAuth, Lucia, Convex, Prisma, Drizzle, Mongo, raw SQL.",
-    detects: ["better-auth", "next-auth", "@auth/core", "lucia", "convex", "@prisma/client", "drizzle-orm", "mongoose", "pg", "mysql2", "kysely", "sequelize", "typeorm"],
+    detects: ["better-auth", "next-auth", "@auth/core", "lucia", "convex", "@prisma/client", "drizzle-orm", "mongoose", "pg", "mysql2", "kysely", "sequelize", "typeorm", "amplitude", "@amplitude/analytics-browser", "mixpanel", "mixpanel-browser"],
     credentials: [
       { key: "url", label: "Endpoint URL", secret: false, whereToFind: "The route you add, on the same domain as the product (e.g. https://app.example.com/api/usertrack)", envVarHints: [], format: "https://…" },
       { key: "token", label: "Bearer token", secret: true, optional: true, whereToFind: "Generate a random secret (openssl rand -hex 32), set it as USERTRACK_ENDPOINT_TOKEN in the app, and give the same value to UserTrack", envVarHints: ["USERTRACK_ENDPOINT_TOKEN"] },
     ],
     permissions: ["The route runs inside your app with your own DB access; expose a count only."],
-    reads: "One GET per sync, expects { \"totalUsers\": n } (plus optional newUsers24h/7d/30d, activeUsers30d, activatedUsers…).",
+    reads: "One GET per sync. users: { totalUsers, newUsers24h/7d/30d?, activeUsers30d? }; activation: { activatedUsers, activated24h/7d/30d? }; traffic: { visitors30d, sessions30d? }; conversion: { convertedUsers, newConverted24h/7d/30d?, trialUsers?, newTrials7d/30d?, mode? }. Optional identities: { signedUp | activated | trial | converted: [{ id, at? }] } with stable user ids (never emails) for cohort matching.",
     neverSent: NEVER,
   },
   {
@@ -248,11 +321,51 @@ const DETECTION_ALIASES: Record<string, ProviderKind> = {
   "custom-db": "endpoint",
   custom: "endpoint",
   "custom-auth": "endpoint",
+  // Mobile SDKs
+  "react-native-firebase": "firebase",
+  firebaseauth: "firebase",
+  "posthog-react-native": "posthog",
+  "posthog-ios": "posthog",
+  "posthog-android": "posthog",
+  "posthog-flutter": "posthog",
+  // Payments (conversion state only)
+  revenuecat: "revenuecat",
+  "react-native-purchases": "revenuecat",
+  "purchases-flutter": "revenuecat",
+  purchases: "revenuecat",
+  paddle: "paddle",
+  lemonsqueezy: "lemonsqueezy",
+  "lemon-squeezy": "lemonsqueezy",
+  chargebee: "chargebee",
+  // Product analytics without a native reader: activation via the endpoint provider.
+  amplitude: "endpoint",
+  mixpanel: "endpoint",
+  "mixpanel-browser": "endpoint",
 };
+
+// Signals that are authentication *methods* (or store SDKs), never a user store: they classify the project, not a provider.
+const AUTH_METHOD_SIGNALS: [RegExp, string][] = [
+  [/apple|authenticationservices/i, "apple"],
+  [/google[-_]?sign[-_]?in|googlesignin|google-auth-library|google_sign_in/i, "google"],
+  [/github/i, "github"],
+  [/microsoft|azure-ad|entra/i, "microsoft"],
+  [/phone|sms|otp/i, "phone"],
+  [/email|password|magic[-_]?link/i, "email"],
+];
+const NOT_A_PROVIDER = /storekit|authenticationservices|sign-?in-?with-?apple|apple-authentication|google[-_]?sign[-_]?in|googlesignin|google_sign_in/i;
+
+export function detectAuthMethods(detected: readonly string[] = []) {
+  const out = new Set<string>();
+  for (const raw of detected) for (const [re, method] of AUTH_METHOD_SIGNALS) if (re.test(raw)) out.add(method);
+  return [...out];
+}
+
+export const detectProjectType = (detected: readonly string[] = []): ProjectType => (detected.some((d) => /react-native|expo|flutter|swift|kotlin|storekit|-ios$|-android$|purchases|firebase_auth/i.test(d)) ? "mobile" : "web");
 
 export function normalizeDetected(detected: readonly string[] = []) {
   const out: { raw: string; provider: ProviderKind }[] = [];
   for (const raw of detected) {
+    if (NOT_A_PROVIDER.test(raw)) continue;
     const key = raw.trim().toLowerCase().replace(/^@/, "").replace(/\/.*$/, "").replace(/_/g, "-");
     const hit = DETECTION_ALIASES[key] ?? INTEGRATION_CATALOG.find((c) => c.detects.some((d) => d.toLowerCase() === raw.trim().toLowerCase() || d.toLowerCase().replace(/^@/, "").split("/")[0] === key))?.provider;
     if (hit) out.push({ raw, provider: hit });
@@ -263,10 +376,32 @@ export function normalizeDetected(detected: readonly string[] = []) {
 // Direct auth providers first (least setup), then a read-only database, then the universal endpoint.
 const USERS_PRIORITY: ProviderKind[] = ["supabase", "clerk", "firebase", "auth0", "postgres", "endpoint", "manual"];
 
-// Best users-role source first, then optional extras (activation, traffic, revenue) the agent can offer afterwards.
-export function recommendIntegrations(input: { detectedProviders?: readonly string[]; framework?: string }) {
-  const detected = normalizeDetected(input.detectedProviders);
+// Conversion sources by preference: mobile subscriptions first, then web billing, then the universal endpoint.
+export const CONVERSION_PRIORITY: ProviderKind[] = ["revenuecat", "stripe", "paddle", "lemonsqueezy", "chargebee", "endpoint"];
+const CONVERSION_REASON: Partial<Record<ProviderKind, string>> = {
+  revenuecat: "RevenueCat detected — Trial and Converted users from active trials / active subscriptions with a Charts & Metrics read-only key. RevenueCat customers are never counted as registered users; conversion state only, no revenue; private by default.",
+  stripe: "Stripe detected — converted users from paid subscription state via a restricted read-only key. Conversion state only, no revenue; private by default.",
+  paddle: "Paddle detected — converted users from billed subscriptions via a read-only API key. Conversion state only, no revenue; private by default.",
+  lemonsqueezy: "Lemon Squeezy detected — converted users from subscriptions and paid orders via the API key. Conversion state only, no revenue; private by default.",
+  chargebee: "Chargebee detected — converted users from activated subscriptions via a read-only API key. Conversion state only, no revenue; private by default.",
+};
+
+export interface RecommendInput {
+  detectedProviders?: readonly string[];
+  framework?: string;
+  projectType?: ProjectType;
+  detectedAuth?: readonly string[];
+  detectedAnalytics?: readonly string[];
+  detectedPayments?: readonly string[];
+}
+
+// Best users-role source first, then optional extras (activation, traffic, conversion) composed into one lifecycle plan.
+export function recommendIntegrations(input: RecommendInput) {
+  const raw = [...(input.detectedProviders ?? []), ...(input.detectedAuth ?? []), ...(input.detectedAnalytics ?? []), ...(input.detectedPayments ?? [])];
+  const detected = normalizeDetected(raw);
   const kinds = new Set(detected.map((d) => d.provider));
+  const authMethods = detectAuthMethods(raw);
+  const projectType = input.projectType ?? detectProjectType(raw);
   const reasoning: string[] = [];
   let users: ProviderKind = "endpoint";
   for (const k of USERS_PRIORITY) {
@@ -277,20 +412,149 @@ export function recommendIntegrations(input: { detectedProviders?: readonly stri
     }
   }
   if (users === "postgres") reasoning.push("A read-only PostgreSQL connection counts users straight from the users table with aggregate SQL — no code change in the product, verified.");
-  if (users === "endpoint") reasoning.push(kinds.size ? "No supported auth provider or Postgres database was detected, so the safest verified path is a small JSON endpoint on the product's own domain that returns aggregate counts from your existing database." : "Nothing was detected; a JSON endpoint on the product's own domain is the universal verified option. Use manual only if no data source can be exposed.");
+  if (users === "endpoint" && authMethods.some((m) => m === "apple" || m === "google")) reasoning.push("Sign in with Apple / Google are authentication methods, not a user store, so they never become the users source. Registered users must come from where accounts are persisted (Firebase Auth, Supabase, Auth0, a database) — none was detected, so add a small JSON endpoint on your backend that returns aggregate counts.");
+  else if (users === "endpoint") reasoning.push(kinds.size ? "No supported auth provider or Postgres database was detected, so the safest verified path is a small JSON endpoint on the product's own domain that returns aggregate counts from your existing database." : "Nothing was detected; a JSON endpoint on the product's own domain is the universal verified option. Use manual only if no data source can be exposed.");
+  if (raw.some((d) => /storekit/i.test(d)) && !kinds.has("revenuecat")) reasoning.push("StoreKit detected — App Store purchases cannot be read by UserTrack directly; RevenueCat (or a JSON endpoint on your backend) provides the Trial and Converted stages.");
   const extras: { role: Role; provider: ProviderKind; reason: string }[] = [];
   if (kinds.has("posthog")) extras.push({ role: "activation", provider: "posthog", reason: "PostHog detected — pick the event that means a user really started and UserTrack will show activated users + activation rate." });
   else if (users === "supabase") extras.push({ role: "activation", provider: "supabase", reason: "A Supabase table with one row per activated user (or a custom SQL count with the database connection string) unlocks activation metrics." });
   else if (users === "postgres" || kinds.has("postgres")) extras.push({ role: "activation", provider: "postgres", reason: "The same read-only connection can count activated users: a table with one row per activated user, or one SELECT count(distinct user_id) … WHERE created_at >= $1." });
+  else if (raw.some((d) => /amplitude|mixpanel/i.test(d))) extras.push({ role: "activation", provider: "endpoint", reason: "Amplitude / Mixpanel detected — UserTrack has no native reader for them; expose { activatedUsers } from your backend (query their export API or your own events table) on the JSON endpoint." });
   if (kinds.has("plausible")) extras.push({ role: "traffic", provider: "plausible", reason: "Plausible detected — visitors and sessions for the funnel (private by default)." });
   else if (kinds.has("ga4")) extras.push({ role: "traffic", provider: "ga4", reason: "Google Analytics detected — active users and sessions for the funnel (private by default)." });
-  if (kinds.has("stripe")) extras.push({ role: "revenue", provider: "stripe", reason: "Stripe detected — paying customers and MRR from a restricted read-only key (private by default)." });
+  const conversion = CONVERSION_PRIORITY.find((k) => k !== "endpoint" && kinds.has(k));
+  if (conversion) extras.push({ role: "conversion", provider: conversion, reason: CONVERSION_REASON[conversion]! });
+  const pick = (role: Role) => { const e = extras.find((x) => x.role === role); return e ? { provider: e.provider, reason: e.reason } : undefined; };
+  const composition = { users: { provider: users, reason: reasoning[0] }, activation: pick("activation"), traffic: pick("traffic"), conversion: pick("conversion") };
+  const lifecycle: LifecycleStage[] = [...(composition.traffic ? ["reached" as const] : []), "signed_up", ...(composition.activation ? ["activated" as const] : []), ...(composition.conversion ? ["trial" as const, "converted" as const] : [])];
   return {
     recommended: { role: "users" as Role, provider: users, entry: catalogEntry(users)! },
     alternatives: USERS_PRIORITY.filter((k) => k !== users).map((k) => ({ provider: k, label: catalogEntry(k)!.label, trust: catalogEntry(k)!.trust })),
     optionalExtras: extras,
     detected,
     reasoning,
+    composition,
+    authMethods,
+    projectType,
+    lifecycle,
+  };
+}
+
+const MODE_MEANING: Record<ConversionMode, string> = {
+  active_paid: "A unique user who currently has a paid subscription (trials, cancelled and expired subscriptions excluded). Best for subscription products.",
+  ever_paid: "A unique user who paid at least once, even if they cancelled since. Best for lifetime conversion.",
+  first_payment: "Same set as ever_paid, counted at the first successful payment — the cohort-friendly definition.",
+};
+const CONVERSION_IDENTITY: Record<string, { recommendation: string; howTo: string }> = {
+  stripe: { recommendation: "Set metadata.userId on every subscription (your auth user id).", howTo: "stripe.subscriptions.create({ …, metadata: { userId } }) — or set it on the Checkout Session's subscription_data.metadata. UserTrack reads metadata.userId and falls back to the customer id." },
+  revenuecat: { recommendation: "Use your auth user id as the RevenueCat app_user_id.", howTo: "Purchases.configure({ apiKey, appUserID: uid }) after login (or Purchases.logIn(uid)). Note: RevenueCat overview metrics do not expose identities yet, so cohorts stay aggregate until a JSON endpoint reports converted ids." },
+  paddle: { recommendation: "Set custom_data.userId on subscriptions / checkouts.", howTo: "Paddle.Checkout.open({ customData: { userId } }) — UserTrack reads subscription.custom_data.userId and falls back to customer_id." },
+  chargebee: { recommendation: "Set meta_data.userId on subscriptions.", howTo: "Pass meta_data: { userId } when creating the subscription — UserTrack reads it and falls back to customer_id." },
+  lemonsqueezy: { recommendation: "Lemon Squeezy exposes only customer_id; store it next to your user.", howTo: "Save the customer_id from the order webhook on your user row; report converted ids from a JSON endpoint if you need cohort matching." },
+  endpoint: { recommendation: "Return identities.converted / identities.trial with your own user ids.", howTo: "{ convertedUsers, trialUsers, identities: { converted: [{ id, at }], trial: [{ id, at }] } } — stable ids only, never emails." },
+};
+const CONVERSION_PRIVACY = ["No amounts, prices, invoices or MRR are ever read or stored.", "No PII: only counts and salted-hashed stable ids.", "Read-only credential with the minimum permission listed; UserTrack never modifies subscriptions or customers.", "Private by default — connection ≠ publication; the founder switches conversion metrics on per metric."];
+const REVENUECAT_NOTES = ["RevenueCat customers include anonymous app user ids ($RCAnonymousID:…) and every install — they are never counted as registered users; Signed up comes from your identity source (Firebase Auth, Supabase, a database…).", "Only active_paid is supported (active subscriptions); use a JSON endpoint for ever_paid / first_payment."];
+
+// Conversion source plan: which payment provider, what "converted" means, least-privilege credential, identity matching.
+export function conversionSetup(input: { provider?: string; detectedProviders?: readonly string[]; projectType?: ProjectType; projectId?: string }) {
+  const kinds = new Set(normalizeDetected(input.detectedProviders).map((d) => d.provider));
+  const provider = (input.provider as ProviderKind | undefined) ?? CONVERSION_PRIORITY.find((k) => kinds.has(k)) ?? (input.projectType === "mobile" ? "revenuecat" : "endpoint");
+  const entry = catalogEntry(provider);
+  if (!entry || !entry.roles.includes("conversion")) return null;
+  const modes: ConversionMode[] = provider === "revenuecat" ? ["active_paid"] : ["active_paid", "ever_paid", "first_payment"];
+  const requiredCredentials = entry.credentials.filter((c) => !c.roles || c.roles.includes("conversion"));
+  const projectRef = input.projectId ?? "<projectId>";
+  const steps: SetupStep[] = [
+    ...requiredCredentials.filter((c) => c.key !== "mode").map<SetupStep>((c) => ({ id: `collect:${c.key}`, title: `${c.optional ? "Optionally locate" : "Locate"} ${c.label}`, detail: `${c.whereToFind}${c.envVarHints.length ? ` Check the repo's env files for ${c.envVarHints.join(" / ")} first.` : ""}${c.secret ? " Keep it server-side; never commit it." : ""}`, action: c.secret ? "collect_credential" : "ask_user" })),
+    { id: "configure", title: "Submit the conversion source", detail: `Call usertrack_configure_integration with { projectId: "${projectRef}", provider: "${provider}", role: "conversion", config: { ${requiredCredentials.map((r) => `${r.key}: …`).join(", ")} } }.`, action: "call_tool", tool: "usertrack_configure_integration" },
+    { id: "verify", title: "Verify", detail: `Call usertrack_verify_integration with { projectId: "${projectRef}", role: "conversion" }. detected.count = converted users; the count must be ≤ total users.`, action: "verify", tool: "usertrack_verify_integration" },
+  ];
+  return {
+    provider,
+    label: entry.label,
+    recommendedDefinition: { mode: "active_paid" as const, meaning: MODE_MEANING.active_paid },
+    alternatives: modes.filter((m) => m !== "active_paid").map((mode) => ({ mode, meaning: MODE_MEANING[mode] })),
+    requiredCredentials: requiredCredentials.map((c) => ({ ...c, roles: undefined })),
+    minimumPermissions: entry.permissions,
+    readOnly: true as const,
+    identityMatching: CONVERSION_IDENTITY[provider] ?? CONVERSION_IDENTITY.endpoint,
+    privacyRules: CONVERSION_PRIVACY,
+    trialSupported: true,
+    configShape: Object.fromEntries(requiredCredentials.map((r) => [r.key, `${r.secret ? "secret " : ""}string${r.optional ? " (optional)" : ""}`])),
+    steps,
+    notes: provider === "revenuecat" ? REVENUECAT_NOTES : provider === "stripe" ? ["A Stripe customer that never paid is never a converted user; one-time payments are not covered."] : [],
+    nextTool: "usertrack_configure_integration",
+  };
+}
+
+const IDENTITY_FIELD: Record<string, string> = { firebase: "firebase.uid", supabase: "supabase.auth.users.id", clerk: "clerk.userId", auth0: "auth0.user_id", postgres: "users.<idColumn>", endpoint: "identities.signedUp[].id (your user id)" };
+const ANALYTICS_MAPPING: Record<string, { to: string; how: string }> = {
+  posthog: { to: "posthog.distinct_id", how: "Call posthog.identify(uid) right after login (web: posthog-js; mobile: PostHog SDK identify(uid)). UserTrack reads identified distinct_ids of the activation event; anonymous device ids are skipped." },
+  supabase: { to: "supabase.<activation table>.<idColumn>", how: "The activation table must carry the auth user id (e.g. owner_id); pass idColumn in the configuration." },
+  postgres: { to: "postgres.<activation table>.<idColumn>", how: "The activation table must carry the user id; pass idColumn in the configuration." },
+  endpoint: { to: "identities.activated[].id", how: "Report the same user ids you use for signedUp under identities.activated." },
+};
+const CONVERSION_MAPPING: Record<string, { to: string; how: string }> = {
+  revenuecat: { to: "revenuecat.app_user_id", how: CONVERSION_IDENTITY.revenuecat.howTo },
+  stripe: { to: "stripe.subscription.metadata.userId", how: CONVERSION_IDENTITY.stripe.howTo },
+  paddle: { to: "paddle.subscription.custom_data.userId", how: CONVERSION_IDENTITY.paddle.howTo },
+  chargebee: { to: "chargebee.subscription.meta_data.userId", how: CONVERSION_IDENTITY.chargebee.howTo },
+  lemonsqueezy: { to: "lemonsqueezy.customer_id", how: CONVERSION_IDENTITY.lemonsqueezy.howTo },
+  endpoint: { to: "identities.converted[].id", how: CONVERSION_IDENTITY.endpoint.howTo },
+};
+
+// How to carry one stable user id across the identity, analytics and conversion sources so cohorts can be traced. No PII ever.
+export function identityMappingGuidance(input: { identitySource: string; analyticsSource?: string; conversionSource?: string; projectType?: ProjectType }) {
+  const from = IDENTITY_FIELD[input.identitySource] ?? `${input.identitySource}.userId`;
+  const recommendedMapping: { from: string; to: string; how: string }[] = [];
+  const a = input.analyticsSource ? ANALYTICS_MAPPING[input.analyticsSource] : undefined;
+  if (a) recommendedMapping.push({ from, ...a });
+  const c = input.conversionSource ? CONVERSION_MAPPING[input.conversionSource] : undefined;
+  if (c) recommendedMapping.push({ from, ...c });
+  return {
+    identitySource: input.identitySource,
+    analyticsSource: input.analyticsSource ?? null,
+    conversionSource: input.conversionSource ?? null,
+    projectType: input.projectType ?? "web",
+    recommendedMapping,
+    privacy: ["Never send emails, names, phone numbers or device fingerprints — only the opaque user id your auth system already issues.", "Ids are salted and SHA-256 hashed per project before storage; the raw id is discarded.", "UserTrack never shows a single user: only aggregate cohort counts and medians.", input.identitySource === "firebase" && input.projectType === "mobile" ? "Sign in with Apple relay emails are PII too — use the Firebase uid, never the Apple identifier or email." : "Anonymous ids (device ids, $RCAnonymousID) are skipped and never matched."],
+    howUserTrackMatches: "ids are salted + SHA-256 hashed per project before storage; only aggregate cohort counts are ever shown",
+    qualityLevels: IDENTITY_QUALITY_META,
+    rules: COHORT_RULES,
+  };
+}
+
+// Activation event ranking: outcome events win, traffic / auth / technical events are rejected with a reason.
+const REJECTED_EVENTS: [RegExp, string][] = [
+  [/^\$?(pageview|page_view|screen_view|\$screen)$/i, "fires on every visit — a traffic signal, not a value moment"],
+  [/^(app_open|app_opened|session_start|app_install|app_installed|\$identify|identify)$/i, "fires for every install / session / identify call — everyone who signs up triggers it"],
+  [/^(login|log_in|sign_in|signin|logged_in)$/i, "login is not activation: returning users fire it without doing anything"],
+  [/^(signup|sign_up|signed_up|user_created|account_created|registered|register)$/i, "this is the Signed up stage — activation must happen after the account exists"],
+  [/^(click|button_click|clicked|\$autocapture|tap)$/i, "generic interaction with no product outcome"],
+];
+const OUTCOME_SCORE: [RegExp, number][] = [
+  [/^first_/i, 4],
+  [/(onboarding_completed|project_created|workspace_created|invite_(sent|accepted))/i, 3],
+  [/(_created|_completed|_published|_sent|_deployed|_generated|_uploaded)$/i, 2],
+  [/complete|created|first|onboard|setup|run|sent|publish|deploy|invite|upload|generate|export/i, 1],
+];
+export function rankActivationEvents(candidateEvents: readonly string[] = [], source?: string) {
+  const rejected: { event: string; reason: string }[] = [];
+  const scored: { event: string; score: number }[] = [];
+  for (const event of candidateEvents) {
+    const bad = REJECTED_EVENTS.find(([re]) => re.test(event.trim()));
+    if (bad) rejected.push({ event, reason: bad[1] });
+    else scored.push({ event, score: OUTCOME_SCORE.find(([re]) => re.test(event))?.[1] ?? 0 });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0]?.score ? scored[0] : undefined;
+  return {
+    recommendedEvent: best?.event,
+    reason: best ? `${best.event} looks like a product outcome (${best.score >= 3 ? "first-value / completion event" : best.score === 2 ? "creation / completion event" : "contains an outcome keyword"}) — it should fire once per user when they reach the core value.` : candidateEvents.length ? "No candidate looks like an outcome event; add one that fires when a user reaches the core value (e.g. project_created, onboarding_completed) or pick a table / SQL count instead." : "No candidate events were given; grep the repo for capture(...) / track(...) calls.",
+    source: source ?? null,
+    rejected,
+    alternatives: scored.filter((s) => s !== best).map((s) => ({ event: s.event, looksLikeActivation: s.score > 0 })),
   };
 }
 

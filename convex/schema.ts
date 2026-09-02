@@ -11,11 +11,30 @@ export const providerKind = v.union(
   v.literal("plausible"),
   v.literal("ga4"),
   v.literal("stripe"),
+  v.literal("revenuecat"),
+  v.literal("paddle"),
+  v.literal("lemonsqueezy"),
+  v.literal("chargebee"),
   v.literal("postgres"),
   v.literal("endpoint"),
   v.literal("manual"),
 );
-export const integrationRole = v.union(v.literal("users"), v.literal("activation"), v.literal("traffic"), v.literal("revenue"));
+// "revenue" is the pre-lifecycle name of "conversion"; rows are migrated, the literal stays for old documents.
+export const integrationRole = v.union(v.literal("users"), v.literal("activation"), v.literal("traffic"), v.literal("revenue"), v.literal("conversion"));
+export const lifecycleStage = v.union(v.literal("reached"), v.literal("signed_up"), v.literal("activated"), v.literal("trial"), v.literal("converted"));
+export const projectType = v.union(v.literal("web"), v.literal("mobile"), v.literal("hybrid"));
+export const conversionMode = v.union(v.literal("active_paid"), v.literal("ever_paid"), v.literal("first_payment"));
+export const identityQuality = v.union(v.literal("aggregate_only"), v.literal("partially_mapped"), v.literal("cohort_verified"));
+// Per-metric public visibility. Connection ≠ publication: missing = defaults in domain/visibility.ts.
+export const visibility = v.object({
+  totalUsers: v.optional(v.boolean()),
+  growth: v.optional(v.boolean()),
+  activationRate: v.optional(v.boolean()),
+  conversionRate: v.optional(v.boolean()),
+  trialConversion: v.optional(v.boolean()),
+  convertedCount: v.optional(v.boolean()),
+  traffic: v.optional(v.boolean()),
+});
 export const syncStatus = v.union(v.literal("ok"), v.literal("error"), v.literal("running"));
 export const trustState = v.union(v.literal("healthy"), v.literal("anomaly"), v.literal("review"), v.literal("low_confidence"));
 export const tokenType = v.union(v.literal("api"), v.literal("mcp"));
@@ -93,11 +112,34 @@ export default defineSchema({
     sessions30d: v.optional(v.number()),
     visitorsPrev30d: v.optional(v.number()),
     showTraffic: v.optional(v.boolean()),
-    // Revenue (opt-in display, cents)
+    // Legacy revenue fields (v0.4). No longer written; mrr/currency are cleared by the lifecycle migration.
     payingUsers: v.optional(v.number()),
     mrr: v.optional(v.number()),
     currency: v.optional(v.string()),
     showRevenue: v.optional(v.boolean()),
+    // Conversion (from a conversion source: Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee, endpoint). Never amounts.
+    trialUsers: v.optional(v.number()),
+    convertedUsers: v.optional(v.number()),
+    newTrials7d: v.optional(v.number()),
+    newTrials30d: v.optional(v.number()),
+    newConverted24h: v.optional(v.number()),
+    newConverted7d: v.optional(v.number()),
+    newConverted30d: v.optional(v.number()),
+    convertedPrev30d: v.optional(v.number()),
+    convertedGrowth30dPct: v.optional(v.number()),
+    signupToConvertedPct: v.optional(v.number()),
+    activatedToConvertedPct: v.optional(v.number()),
+    trialToConvertedPct: v.optional(v.number()),
+    conversionMode: v.optional(conversionMode),
+    // Identity matching quality across connected stages (computed by the cohort engine).
+    identityQuality: v.optional(identityQuality),
+    identityCoveragePct: v.optional(v.number()),
+    // Project type + app metadata (mobile / hybrid). Informational; the lifecycle model is the same for all.
+    projectType: v.optional(projectType),
+    appStoreUrl: v.optional(v.string()),
+    playStoreUrl: v.optional(v.string()),
+    authMethods: v.optional(v.array(v.string())),
+    visibility: v.optional(visibility),
     // Trending
     trendingScore24h: v.optional(v.number()),
     trendingScore7d: v.optional(v.number()),
@@ -160,6 +202,48 @@ export default defineSchema({
     backfilled: v.optional(v.boolean()),
   }).index("by_saas_time", ["saasId", "capturedAt"]),
 
+  // Append-only per-stage snapshots for activated / trial / converted (users live in `snapshots`). Provenance per row.
+  stageSnapshots: defineTable({
+    saasId: v.id("saas"),
+    stage: lifecycleStage,
+    value: v.number(),
+    capturedAt: v.number(),
+    source: providerKind,
+    integrationId: v.optional(v.id("integrations")),
+    trust: trustLevel,
+    mode: v.optional(conversionMode),
+  }).index("by_saas_stage_time", ["saasId", "stage", "capturedAt"]),
+
+  // Pseudonymous identity map: one row per (project, stage, subject). `subject` is a salted SHA-256 of the provider's
+  // stable id — never an email, name or raw id. Enables cohort-verified funnels; never rendered individually.
+  identityLinks: defineTable({
+    saasId: v.id("saas"),
+    stage: lifecycleStage,
+    subject: v.string(),
+    source: providerKind,
+    firstSeenAt: v.number(),
+    // Provider-reported timestamp of the stage event when known (signup date, first payment), else firstSeenAt.
+    at: v.number(),
+  })
+    .index("by_saas_stage_subject", ["saasId", "stage", "subject"])
+    .index("by_saas_subject", ["saasId", "subject"])
+    .index("by_saas_stage_at", ["saasId", "stage", "at"]),
+
+  // Materialized signup cohorts (one row per project per cohort month), rebuilt by the daily sweep from identityLinks.
+  cohortMetrics: defineTable({
+    saasId: v.id("saas"),
+    cohort: v.string(),
+    signedUp: v.number(),
+    activated: v.number(),
+    trial: v.number(),
+    converted: v.number(),
+    activatedD7: v.number(),
+    convertedD30: v.number(),
+    medianTimeToActivationMs: v.optional(v.number()),
+    medianTimeToConversionMs: v.optional(v.number()),
+    computedAt: v.number(),
+  }).index("by_saas_cohort", ["saasId", "cohort"]),
+
   // One row per SaaS per UTC day; totalUsers = last snapshot of the day. Optional columns hold other funnel stages.
   dailyMetrics: defineTable({
     saasId: v.id("saas"),
@@ -172,6 +256,10 @@ export default defineSchema({
     sessions: v.optional(v.number()),
     payingUsers: v.optional(v.number()),
     mrr: v.optional(v.number()),
+    trialUsers: v.optional(v.number()),
+    newTrials: v.optional(v.number()),
+    convertedUsers: v.optional(v.number()),
+    newConverted: v.optional(v.number()),
     activeUsers30d: v.optional(v.number()),
     // Leaderboard rank at the end of the day (written by the daily sweep), used for monthly rank deltas.
     rank: v.optional(v.number()),
@@ -198,6 +286,7 @@ export default defineSchema({
     kind: v.union(
       v.literal("users"),
       v.literal("activated"),
+      v.literal("converted"),
       v.literal("best_day"),
       v.literal("best_week"),
       v.literal("rank"),

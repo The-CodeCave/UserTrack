@@ -29,13 +29,17 @@ const EXPECTED = [
   "usertrack_compare_projects",
   "usertrack_get_share_card",
   "usertrack_get_embed_code",
+  "usertrack_get_conversion_setup",
+  "usertrack_get_identity_mapping",
+  "usertrack_get_funnel_history",
+  "usertrack_get_cohorts",
 ];
 
 describe("MCP tool set", () => {
-  it("exposes exactly the 23 expected tools with unique names", () => {
+  it("exposes exactly the 27 expected tools with unique names", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toEqual(EXPECTED);
-    expect(new Set(names).size).toBe(23);
+    expect(new Set(names).size).toBe(27);
   });
 
   it("gives every tool a title, description and a known scope", () => {
@@ -62,5 +66,17 @@ describe("MCP tool set", () => {
     expect(SERVER_INSTRUCTIONS).toContain("in order");
     for (const [i, step] of SETUP_WORKFLOW.entries()) expect(SERVER_INSTRUCTIONS).toContain(`${i + 1}. ${step}`);
     expect(SERVER_INSTRUCTIONS).toMatch(/never print or log credentials/);
+    expect(SERVER_INSTRUCTIONS).toMatch(/conversion state only, never revenue/);
+    expect(SERVER_INSTRUCTIONS).toMatch(/Add this iOS app to UserTrack/);
+    expect(SETUP_WORKFLOW.some((s) => s.startsWith("optional: usertrack_get_conversion_setup"))).toBe(true);
+  });
+
+  it("uses lifecycle roles and lists the payment providers", () => {
+    const setup = TOOLS.find((t) => t.name === "usertrack_get_integration_setup")!;
+    expect((setup.input.role as unknown as { unwrap(): { options: string[] } }).unwrap().options).toEqual(["users", "activation", "traffic", "conversion"]);
+    const rec = TOOLS.find((t) => t.name === "usertrack_get_provider_recommendation")!;
+    expect(Object.keys(rec.input).sort()).toEqual(["detectedAnalytics", "detectedAuth", "detectedPayments", "detectedProviders", "framework", "projectType"]);
+    expect(rec.description).toMatch(/RevenueCat/);
+    expect(TOOLS.find((t) => t.name === "usertrack_get_conversion_setup")!.description).toMatch(/never amounts/);
   });
 });

@@ -6,8 +6,10 @@ How a provider count becomes the numbers on a growth page. Source: `convex/sync.
 
 ```
 provider.fetch ──► snapshots (append-only, users role only: totalUsers, capturedAt, source, trust, backfilled?)
+                ──► stageSnapshots (append-only per stage: activated · trial · converted — value, capturedAt, source, integrationId, trust, mode)
                 ──► dailyMetrics (one row per SaaS per UTC day: totalUsers, newUsers, activatedUsers, newActivated,
-                                  visitors, sessions, payingUsers, mrr, activeUsers30d, rank)
+                                  visitors, sessions, trialUsers, newTrials, convertedUsers, newConverted, activeUsers30d, rank)
+                ──► identityLinks (pseudonymous per-stage subjects) ──► cohortMetrics (daily cohort engine, docs/IDENTITY.md)
                 ──► saas (materialized: everything the UI and boards read)
 ```
 
@@ -25,6 +27,7 @@ For each users snapshot the engine loads the latest and first snapshot plus the 
 | `growth30dPct`, `growth7dPct` | `(total − base) / base × 100`, base = baseline or first snapshot, rounded to 0.1; `0` when base ≤ 0 |
 | `newUsersPrevXd` | `max(0, snapshot(now−X).total − snapshot(now−2X).total)`, first snapshot as floor (`previousWindowDelta`) |
 | `activationRatePct` | `activatedUsers / total × 100`, rounded to 0.1 (`pct`) |
+| `signupToConvertedPct` · `activatedToConvertedPct` · `trialToConvertedPct` | `stageRates()`: `convertedUsers / total`, `convertedUsers / activatedUsers`, `newConverted30d / newTrials30d` (or `converted / (trial + converted)` when only stocks exist) — recomputed on every users, activation **and** conversion sync |
 | `firstSnapshotAt` | timestamp of the oldest snapshot (backfilled rows count) |
 
 24-hour growth on boards is computed on the fly as `new24h / (total − new24h)`.
@@ -50,20 +53,38 @@ An activated user is one who reached the first meaningful value in the product, 
 | History | 30-day cumulative series on connect (PostHog, Postgres/Supabase with a timestamp) |
 | Derived signals | `activated` threshold milestones (never on the first activation sync), `activation_spike` events, `activation_exceeds_users` flag when activated > 1.05 × users, +5 trust when present |
 
-**Not supported: time-to-activation / median activation delay.** UserTrack only ever receives aggregate counts (`count(*)`, `count(distinct person_id)`, `{ activatedUsers: n }`). A median delay needs per-user pairs of `(signed_up_at, activated_at)`, which would require reading individual rows or events; that contradicts the aggregate-only contract every provider and the endpoint template are built on, and two independent cumulative series cannot be joined into per-user latencies. The dashboard's activation section says so explicitly rather than showing an estimate.
+**Time-to-activation** is available only through cohorts: when the identity source and the activation source report pseudonymous ids for the same users (`docs/IDENTITY.md`), the cohort engine computes median time-to-activation and D7 activation per signup month. Aggregate counts alone can never yield per-user latencies, so the aggregate funnel does not show an estimate.
+
+## Conversion model
+
+Conversion is an optional third stage family (`role: "conversion"`, stages `trial` + `converted`) fed by a payment provider used **only for conversion state** — never amounts. See `docs/PROVIDERS.md` (no-revenue policy, conversion modes) and `docs/FUNNEL.md`.
+
+| | |
+|---|---|
+| Sources | Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee, JSON endpoint (`convertedUsers`, `trialUsers`, `newConverted*`, `newTrials*`, `mode`, `identities`) |
+| Definition | `conversionMode`: `active_paid` (default) · `ever_paid` · `first_payment`; a provider customer is never a converted user by itself |
+| Stored on `saas` | `convertedUsers`, `trialUsers`, `newConverted24h/7d/30d`, `newTrials7d/30d`, `convertedPrev30d`, `convertedGrowth30dPct`, the three rates above, `conversionMode` |
+| Daily | `dailyMetrics.convertedUsers`, `newConverted` (provider-reported 24h flow, else stock delta clamped at 0), `trialUsers`, `newTrials` |
+| Snapshots | `stageSnapshots` rows for `converted` (with `mode`) and `trial` on every sync |
+| Derived signals | `converted` threshold milestones (never on the first conversion sync), benchmarks (`docs/BENCHMARKS.md`), secondary boards, a small trending multiplier (`docs/TRENDING.md`), monthly report lines |
+| Visibility | private by default: `visibility.conversionRate` / `trialConversion` / `convertedCount` (`convex/domain/visibility.ts`); connection ≠ publication |
+
+Amounts (`mrr`, `currency`, `payingUsers`) from v0.4 are no longer written; `migrations:lifecycleV1` clears them and maps `payingUsers` → `convertedUsers`.
 
 ## Funnel (`convex/domain/funnel.ts`)
 
-Visitors → Signups → Activated → Paying over `7d | 30d | 90d`, always from `dailyMetrics` (at most `2 × days` indexed rows), never from raw snapshots.
+Reached → Signed up → Activated → Trial → Converted over `7d | 30d | 90d`, always from `dailyMetrics` (at most `2 × days` indexed rows), never from raw snapshots. Full semantics (stages, flows vs stocks, strategic rates, aggregate vs cohort, health, visibility, history) in **`docs/FUNNEL.md`**; the notes below are the maths summary.
 
 - **Windows.** `current` = rows with `day > today − days`, `previous` = the `days` rows before that. `coverageDays = current.length`.
-- **Flow vs stock.** Visitors, signups and activated are *flows* (sums of `visitors`, `newUsers`, `newActivated` inside the window). Paying is a *stock* (the last `payingUsers` value in the window).
-- **Fallbacks.** When fewer than `min(days, 2)` daily rows exist, signups fall back to `saas.newUsers7d` / `newUsers30d` (90d uses the 30-day figure) and previous windows to `newUsersPrev7d/30d`. Activated falls back to `activated7d/30d`, then `activatedUsers`; visitors to `visitors30d` / `visitorsPrev30d` for the 30-day timeframe only; paying to `saas.payingUsers`.
-- **Stages present.** Signups always. Activated only with an activation source. Visitors only with a traffic source *and* `showTraffic` (public) — the owner view passes `includeTraffic: true`. Paying likewise with `showRevenue`.
+- **Flow vs stock.** Every stage is a *flow* (sums of `visitors`, `newUsers`, `newActivated`, `newTrials`, `newConverted` inside the window). Trial / converted fall back to a *stock* (last `trialUsers` / `convertedUsers` in the window, `kind: "stock"`) only when no daily flow exists yet.
+- **Fallbacks.** When fewer than `min(days, 2)` daily rows exist, signups fall back to `saas.newUsers7d` / `newUsers30d` (90d uses the 30-day figure) and previous windows to `newUsersPrev7d/30d`. Activated falls back to `activated7d/30d`, then `activatedUsers`; visitors to `visitors30d` / `visitorsPrev30d` for the 30-day timeframe only; converted / trial to `newConverted7d/30d` / `newTrials7d/30d`, then the stocks.
+- **Stages present.** Signed up always. Activated only with an activation source (public: `visibility.activationRate`). Reached only with a traffic source (public: `visibility.traffic`). Converted with a conversion source (public: `conversionRate` or `convertedCount`; the count is `null` when only the rate is public). Trial only when the conversion source has the `trial` capability (public: `trialConversion`). The owner view (`OWNER_FUNNEL`) includes everything connected.
 - **Conversion.** `conversionPct = stage / previous stage × 100` (rounded to 0.1, capped at 999 %), and `previousConversionPct` from the previous window. `changePct = (now − prev) / prev × 100`, undefined when `prev ≤ 0`.
 - **Provenance.** Every stage carries `source { provider, label, verification }` from the integration that feeds it (only integrations with a successful sync or status `ok`), using the source-level verification rule in `docs/PROVIDERS.md`. The funnel-level `verification` is `verified` only when **every** stage is `verified`; all `self_reported` → `self_reported`; any mix → `mixed`; no sources → `none`. A funnel with one self-reported stage is therefore never labelled "Verified funnel".
 
-Surfaces: `public.funnel` / `saas.funnel` (Convex), `GET /api/v1/saas/{slug}/funnel`, MCP `usertrack_get_funnel` (adds `missingStages` and a hint to connect activation).
+- **Rates and history.** `rates[]` holds the strategic pairs (Signup → Converted, Activated → Converted, Trial → Converted …) computed from real values even when a count is hidden; `funnelHistory` returns trailing-7-day ratios per day.
+
+Surfaces: `public.funnel` / `saas.funnel` / `*.funnelHistory` (Convex), `GET /api/v1/saas/{slug}/funnel` (+ `/funnel/history`, `/conversion`, `/engagement`, `/cohorts`), MCP `usertrack_get_funnel`, `usertrack_get_funnel_history`, `usertrack_get_cohorts`.
 
 ## Retention estimate (`convex/lib/retention.ts`)
 

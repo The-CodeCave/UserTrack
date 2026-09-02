@@ -26,6 +26,10 @@ Size buckets (`SIZE_BUCKETS` in `convex/lib/metrics.ts`, also the leaderboard `s
 
 `BENCHMARK_METRICS = growth30dPct · newUsers30d · activationRatePct · growth7dPct · trendingScore7d`. A product contributes to a `(cohort, metric)` pair only when the value is a finite number, so the activation cohorts contain only products with an activation source.
 
+### Conversion metrics (v0.5)
+
+`signupToConvertedPct`, `activatedToConvertedPct`, `trialToConvertedPct` and `convertedGrowth30dPct` are benchmarked with the same cohorts and the same `MIN_SAMPLE`. Only **aggregate** definitions are compared (`BENCHMARK_METRIC_BASIS`): a cohort-verified conversion rate is never mixed into an aggregate decile set, and the public "Top X %" statement is emitted for a conversion metric only when the founder published `visibility.conversionRate`. Example insights: "Your signup-to-converted rate is 1.6× the median for SaaS with 1K–10K users." · "Your converted-user growth is in the top 10 % this month." Values are only present for products with a conversion source, so cohorts for these metrics are smaller and appear later.
+
 ## Minimum sample (`MIN_SAMPLE = 5`)
 
 Below five members a `(cohort, metric)` aggregate is not computed, and an existing one is deleted. With two or three members a "median" is one specific competitor's number; five is the smallest size at which nine interpolated deciles stop being a lookup table of individual values. The constant is one line and the plan is to raise it to 10 once the public set is large enough that category cohorts still exist (see `docs/ASSUMPTIONS.md`).

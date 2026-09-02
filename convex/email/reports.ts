@@ -6,6 +6,7 @@ import { getProfileForUser, requireProfile } from "../profiles";
 import { enqueue } from "./send";
 import { getPreferences } from "./prefs";
 import { monthRange, monthlySummary, nextLocalHour, previousMonthKey, projectReport, type MonthlyPayload } from "../lib/emailRules";
+import { visibilityOf } from "../domain/visibility";
 
 async function buildReport(ctx: MutationCtx, profile: Doc<"profiles">, period: string, now: number): Promise<MonthlyPayload | null> {
   const { firstDay, lastDayExclusive, start, end } = monthRange(period);
@@ -16,7 +17,8 @@ async function buildReport(ctx: MutationCtx, profile: Doc<"profiles">, period: s
     const before = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).lt("day", firstDay)).order("desc").first();
     const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).gte("day", firstDay).lt("day", lastDayExclusive)).collect();
     const milestones = await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", s._id).gte("achievedAt", start).lt("achievedAt", end)).collect();
-    projects.push(projectReport({ _id: s._id, name: s.name, slug: s.slug, isPublic: s.isPublic, totalUsers: s.totalUsers, activatedUsers: s.activatedUsers }, before, rows, milestones.map((m) => ({ title: m.title, achievedAt: m.achievedAt }))));
+    // The owner's own report includes conversion even when it is private on the public page.
+    projects.push(projectReport({ _id: s._id, name: s.name, slug: s.slug, isPublic: s.isPublic, totalUsers: s.totalUsers, activatedUsers: s.activatedUsers, convertedUsers: s.convertedUsers, signupToConvertedPct: s.signupToConvertedPct, trialToConvertedPct: s.trialToConvertedPct, conversionPublic: visibilityOf(s).conversionRate }, before, rows, milestones.map((m) => ({ title: m.title, achievedAt: m.achievedAt }))));
   }
   if (!projects.some((p) => p.hasData)) return null;
   projects.sort((a, b) => b.newUsers - a.newUsers);

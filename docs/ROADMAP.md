@@ -42,13 +42,22 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 - Public API: `/saas/{slug}/funnel`, `/saas/{slug}/benchmarks`, `/discover`, `/compare`. MCP: 8 new tools (23 total), 10-step workflow with provider recommendation + optional activation.
 - Dashboard IA: "Next actions" on the overview, anchored manage-page sections with "Next steps", compact benchmark cards.
 
+### v0.5 — Growth → Activation → Conversion (lifecycle model)
+- Normalized lifecycle **Reached → Signed up → Activated → Trial → Converted** with dynamic partial funnels, strategic rates, per-stage provenance / freshness / health, funnel history and an owner/public visibility model (connection ≠ publication). `docs/FUNNEL.md`.
+- Provider roles as lifecycle sources (`users` · `activation` · `traffic` · `conversion`), capability flags `trial` / `converted` / `identity`, `revenue` role migrated to `conversion`.
+- Conversion providers, read-only and amount-free: **Stripe** (rewritten: subscription state, no MRR), **RevenueCat** (mobile trial / active subscriptions), **Paddle**, **Lemon Squeezy**, **Chargebee**, JSON endpoint; provider-independent conversion modes (`active_paid` default, `ever_paid`, `first_payment`).
+- Identity matching architecture: salted-hash identity links from Postgres/Supabase/PostHog/Stripe/Paddle/Chargebee/endpoint, daily cohort engine (signup cohorts, D7 activation, D30 conversion, medians), identity quality + **Cohort Verified** badge. `docs/IDENTITY.md`.
+- Dashboard IA Growth / Engagement / Conversion with per-group health; public profile sections; mobile / hybrid project type with App Store / Google Play links; onboarding platform step + stack questions + recommendations; conversion share card.
+- Benchmarks + secondary leaderboards for conversion rates, small trending conversion multiplier, monthly report conversion lines, API (`/conversion`, `/engagement`, `/cohorts`, `/funnel/history`) and MCP (`usertrack_get_conversion_setup`, `usertrack_get_identity_mapping`, `usertrack_get_cohorts`, `usertrack_get_funnel_history`, mobile-aware provider recommendation).
+
 ## Next opportunities
 1. **Verified retention cohorts** — providers with per-user `last_active_at` (Clerk list API, Auth0 logs) could yield true cohort retention instead of the estimate; also weekly cohort curves.
 2. **Domain verification** (DNS TXT / meta tag) so endpoints on other hosts can become verified, and to strengthen the trust score.
 3. **Envelope encryption** of `integrations.config` with a KMS-style key in env (Convex already encrypts at rest).
 4. **Materialized board table** once the public set exceeds a few thousand products (today boards sort the public set in one query).
 5. **Owner-added annotations** (launches, Product Hunt day) on the chart; annotation clustering when > 8.
-6. **More traffic/revenue sources**: Umami, Fathom, Paddle, Lemon Squeezy; more databases (MySQL, MongoDB) behind the same Node-runtime pattern.
+6. **More sources**: Umami, Fathom (traffic); Amplitude, Mixpanel, Firebase Analytics via BigQuery (activation, today through the endpoint); RevenueCat identities (customers API or webhooks) and per-day trial flows; StoreKit / Google Play Billing directly; more databases (MySQL, MongoDB) behind the same Node-runtime pattern.
+6b. **Cohort-verified benchmarks** once enough products are `cohort_verified` (kept separate from aggregate cohorts by construction).
 7. **Notifications**: in-app + email on milestones / rank changes for followed products (the `events`/`milestones` data already exists).
 8. **"vs" SEO pages** for popular compare pairs (compare permalinks + OG images exist since v0.4).
 9. **OAuth for MCP** (authorization-code flow with dynamic client registration) so clients can connect without copying tokens.
@@ -61,6 +70,9 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 
 ## Known limitations
 - Retention is an estimate (active − new over the 30-day-old cohort) and is labelled as such.
+- Conversion: Stripe covers subscriptions only (one-time payments via the endpoint); RevenueCat reports stocks (daily flows are clamped deltas) and no identities; each conversion provider lists at most 50 pages per status (5,000 subscriptions) per sync.
+- Identity matching needs ids from both ends (identity source *and* activation/conversion source); Clerk / Firebase Auth / Auth0 do not report identities, so those stacks reach `cohort_verified` only with a database or endpoint identity source. Coverage is measured over the last 90 days and capped at 100k subjects per stage.
+- Amplitude, Mixpanel, Firebase Analytics, StoreKit and Google Play Billing are not native providers yet — the onboarding recommends the JSON endpoint for them.
 - History backfill is 30 days and only for providers that support it; Stripe/manual, Supabase API mode without a `createdAtColumn`, Firebase projects above 100k accounts (or with `scanSignups: false`) and custom-SQL activation sources start from the first live snapshot.
 - Firebase signup windows and history come from a full `accounts:batchGet` scan (pages of 1,000) on every sync; it is capped at `FIREBASE_SCAN_LIMIT = 100,000` accounts, beyond which the provider silently reports totals only.
 - PostgreSQL: the host must accept connections from the internet (Convex IPs are not fixed) or via a pooler; `ssl: require` uses `rejectUnauthorized: false` (encrypted, no CA validation); one 20 s statement timeout per query; the wizard lists at most 200 tables.

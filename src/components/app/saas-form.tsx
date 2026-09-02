@@ -11,13 +11,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CATEGORIES } from "@/lib/categories";
+import type { PlatformValue } from "./platform-picker";
 
 export function SaasForm({
   initial,
+  platform,
   submitLabel = "Save",
   onSaved,
 }: {
   initial?: Doc<"saas"> | null;
+  platform?: PlatformValue;
   submitLabel?: string;
   onSaved?: (id: Id<"saas">) => void;
 }) {
@@ -36,6 +39,7 @@ export function SaasForm({
       logoUrl: s("logoUrl") || undefined,
       category: s("category") || undefined,
       tags: s("tags").split(",").map((t) => t.trim()).filter(Boolean),
+      ...platform,
     };
     setSaving(true);
     try {

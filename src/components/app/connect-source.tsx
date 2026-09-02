@@ -30,18 +30,18 @@ export interface IntegrationView {
   consecutiveFailures?: number;
   publicConfig?: Record<string, string>;
   verification?: "verified" | "partially_verified" | "self_reported";
-  capabilities?: { totalUsers: boolean; createdUsers: boolean; historicalUsers: boolean; activationEvents: boolean; retention: boolean; traffic: boolean; revenue: boolean };
+  capabilities?: { createdUsers: boolean; historicalUsers: boolean; retention: boolean };
 }
 
 const VERIFICATION_LABEL = { verified: "Verified", partially_verified: "Partially verified", self_reported: "Self-reported" } as const;
 
 const errMsg = (err: unknown) => (err as Error).message.replace(/^.*Uncaught Error: /, "").split("\n")[0];
 
-export function ConnectSource({ saasId, role = "users", current, onConnected }: { saasId: Id<"saas">; role?: Role; current?: IntegrationView | null; onConnected?: () => void }) {
+export function ConnectSource({ saasId, role = "users", current, onConnected, platform, recommended }: { saasId: Id<"saas">; role?: Role; current?: IntegrationView | null; onConnected?: () => void; platform?: "web" | "mobile"; recommended?: ProviderKind }) {
   const connect = useMutation(api.integrations.connect);
   const testSource = useAction(api.integrations.test);
-  const list = providersForRole(role);
-  const [kind, setKind] = useState<ProviderKind>(current?.provider && list.some((p) => p.kind === current.provider) ? current.provider : list[0].kind);
+  const list = providersForRole(role, platform);
+  const [kind, setKind] = useState<ProviderKind>([current?.provider, recommended].find((k) => k && list.some((p) => p.kind === k)) ?? list[0].kind);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
@@ -97,7 +97,7 @@ export function ConnectSource({ saasId, role = "users", current, onConnected }: 
       <div className={cn("grid gap-2", list.length > 4 ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" : "grid-cols-2 sm:grid-cols-4")}>
         {list.map((p) => (
           <button key={p.kind} type="button" onClick={() => setKind(p.kind)} className={cn("flex min-h-[64px] flex-col items-start gap-1 border p-3 text-left transition-colors", kind === p.kind ? "border-pink bg-pink/5" : "border-line hover:border-line-strong")}>
-            <span className="text-sm font-medium">{p.label}</span>
+            <span className="flex w-full items-center justify-between gap-1 text-sm font-medium">{p.label}{p.kind === recommended && <span className="border border-pink/60 px-1 font-mono text-[9px] uppercase tracking-wider text-pink">Rec</span>}</span>
             <span className={cn("font-mono text-[10px] uppercase tracking-wider", p.trust === "verified" ? "text-pink" : "text-muted-foreground")}>
               {p.trust === "verified" ? "Verified" : p.trust === "conditional" ? "Verified on your domain" : "Self-reported"}
             </span>
@@ -146,6 +146,10 @@ export function ConnectSource({ saasId, role = "users", current, onConnected }: 
             <Label htmlFor={f.name} className="text-label">{f.label}{f.optional && <span className="normal-case tracking-normal"> (optional)</span>}</Label>
             {f.type === "textarea" ? (
               <Textarea id={f.name} name={f.name} placeholder={f.placeholder} required={!f.optional} rows={5} className="bg-background font-mono text-xs" autoComplete="off" spellCheck={false} />
+            ) : f.type === "select" ? (
+              <select id={f.name} name={f.name} defaultValue={f.options?.[0]?.value} className="h-11 w-full border border-line bg-background px-3 font-mono text-sm text-foreground">
+                {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
             ) : (
               <Input id={f.name} name={f.name} type={f.type ?? "text"} placeholder={f.placeholder} required={!f.optional} min={f.type === "number" ? 0 : undefined} className="h-11 bg-background font-mono text-sm" autoComplete="off" />
             )}
