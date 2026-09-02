@@ -2,11 +2,80 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, or a human decision. Developer work is **not** listed here — it is done.
 
-Last updated: 2026-09-02 (v0.2 deployment).
+Last updated: 2026-09-02 (Google sign-in + usertrack.dev).
 
 ## Critical Before Production
 
-_None blocking._ The v0.2 release is deployed and smoke-tested with the credentials that already existed. The items below unlock optional capabilities.
+### Google sign-in — create the OAuth client
+
+**Why this is needed**
+"Continue with Google" is implemented on `/sign-in` and `/sign-up` (Better Auth social provider, callback proxied through `/api/auth/callback/google`). It only works once Google knows the app: without `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` on the Convex deployment the button sends users to a Google `invalid_client` error page. Email + password keeps working regardless.
+
+**Where**
+Google Cloud Console → https://console.cloud.google.com
+
+**Steps**
+1. Create (or pick) a project, e.g. `usertrack`.
+2. **APIs & Services → OAuth consent screen** (now "Google Auth Platform → Branding/Audience"):
+   - User type: **External**. App name `UserTrack`, support email, developer email.
+   - App domain: `https://usertrack.dev`. Authorized domain: `usertrack.dev`.
+   - Privacy policy / Terms links are required for the app to leave "Testing" — see the Legal pages item below. While in "Testing" only up to 100 test users you add manually can sign in.
+   - Scopes: leave default (`email`, `profile`, `openid` are all Better Auth requests).
+   - When ready for everyone: **Publish app** (no verification needed for these basic scopes, only a brand review if you upload a logo).
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - Application type: **Web application**, name `UserTrack web`.
+   - Authorized JavaScript origins:
+     - `https://usertrack.dev`
+     - `http://localhost:3000`
+   - Authorized redirect URIs (exact, no trailing slash):
+     - `https://usertrack.dev/api/auth/callback/google`
+     - `http://localhost:3000/api/auth/callback/google`
+   - Copy **Client ID** and **Client secret**.
+4. Set them on **both** Convex deployments (Better Auth runs inside Convex, not Railway):
+   ```bash
+   npx convex env set GOOGLE_CLIENT_ID        "xxx.apps.googleusercontent.com"   # dev
+   npx convex env set GOOGLE_CLIENT_SECRET    "GOCSPX-xxx"
+   npx convex env set --prod GOOGLE_CLIENT_ID     "xxx.apps.googleusercontent.com"
+   npx convex env set --prod GOOGLE_CLIENT_SECRET "GOCSPX-xxx"
+   ```
+   No redeploy needed — Convex env changes apply immediately.
+5. Make sure `SITE_URL` on Convex prod is exactly `https://usertrack.dev` (the redirect URI is derived from it and must match Google byte for byte). See the domain item below.
+6. Test: open `https://usertrack.dev/sign-in` → Continue with Google → you land on `/app/onboarding` (new user) or `/app` (existing). Existing email+password users with the same Gmail address are linked automatically on first Google sign-in (Better Auth trusts Google's verified email).
+
+**Value to provide**
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+
+**Where to put it**
+Convex dashboard → usertrack → Development *and* Production → Settings → Environment Variables (or the CLI above)
+
+**Status**
+* [ ] Pending
+
+---
+
+### Point usertrack.dev at production
+
+**Why this is needed**
+The domain is decided: `usertrack.dev`. Public pages, OG images, badges, the API and — new — the Google OAuth redirect URI all depend on it. Until this is done the app lives on `usertrack-production.up.railway.app` and Google sign-in on production cannot be configured correctly.
+
+**Where**
+Railway → project `usertrack` → service `usertrack` → Settings → Networking → Custom Domain; your DNS provider (registrar for `usertrack.dev`).
+
+**Steps**
+1. Railway → Custom Domain → add `usertrack.dev` (and `www.usertrack.dev` if you want the redirect). Create the CNAME / ALIAS records Railway shows at your DNS provider. `.dev` is HSTS-preloaded, so HTTPS is mandatory — Railway issues the certificate automatically once DNS resolves.
+2. Railway variables: `NEXT_PUBLIC_SITE_URL=https://usertrack.dev`.
+3. Convex prod: `npx convex env set --prod SITE_URL https://usertrack.dev` (Better Auth base URL, trusted origin, OAuth redirect, digest links).
+4. Redeploy so the URL is baked into the client bundle: `railway up --service usertrack --ci`.
+5. Google Search Console → add property `usertrack.dev` → submit `https://usertrack.dev/sitemap.xml`.
+
+**Value to provide**
+Nothing — just perform the steps.
+
+**Where to put it**
+Railway → usertrack → Variables (`NEXT_PUBLIC_SITE_URL`); Convex prod env (`SITE_URL`)
+
+**Status**
+* [ ] Pending
 
 ---
 
@@ -36,32 +105,6 @@ Resend dashboard → https://resend.com
 
 **Where to put it**
 Convex dashboard → usertrack → Production → Settings → Environment Variables (or the CLI above)
-
-**Status**
-* [ ] Pending
-
----
-
-### Custom domain for production
-
-**Why this is needed**
-Public pages, OG images, badges and the API currently live on `usertrack-production.up.railway.app`. A real domain improves sharing, SEO and trust (and the `SITE_URL` shows up in every badge embed founders paste on their sites, so switching later means old embeds keep pointing at the Railway URL).
-
-**Where**
-Railway → project `usertrack` → service `usertrack` → Settings → Networking → Custom Domain; your DNS provider.
-
-**Steps**
-1. Add the domain in Railway and create the CNAME it shows.
-2. Update `NEXT_PUBLIC_SITE_URL` on Railway (service variables) to `https://yourdomain.com`.
-3. Update `SITE_URL` on Convex prod: `npx convex env set --prod SITE_URL https://yourdomain.com` (Better Auth trusted origin + digest links).
-4. Redeploy (`railway up --service usertrack --ci`) so the new URL is baked into the client bundle.
-5. Google Search Console → add property → submit `https://yourdomain.com/sitemap.xml`.
-
-**Value to provide**
-The domain name.
-
-**Where to put it**
-Railway → usertrack → Variables (`NEXT_PUBLIC_SITE_URL`); Convex prod env (`SITE_URL`)
 
 **Status**
 * [ ] Pending
@@ -109,4 +152,4 @@ The Firebase, Auth0, PostHog, Plausible, GA4 and Stripe adapters are unit-tested
 
 ### Legal pages
 
-There is no privacy policy / terms page yet. UserTrack stores founder email + password (Better Auth), provider API keys (encrypted at rest by Convex) and aggregate counts only — no end-user PII. A short privacy page is recommended before public launch. **Status** [ ] Optional
+There is no privacy policy / terms page yet. UserTrack stores founder email + password or Google account id/name/avatar (Better Auth), provider API keys (encrypted at rest by Convex) and aggregate counts only — no end-user PII. A short privacy page is recommended before public launch, and Google requires a privacy policy URL before the OAuth consent screen can leave "Testing" mode (see the Google sign-in item). **Status** [ ] Recommended

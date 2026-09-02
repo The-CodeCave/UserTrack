@@ -19,6 +19,7 @@ Convex crons ──► provider APIs (Clerk / Supabase / Firebase / Auth0 / Post
 | | `NEXT_PUBLIC_SITE_URL` | `https://usertrack-production.up.railway.app` |
 | Convex prod (`npx convex env set --prod`) | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
 | | `SITE_URL` | same as `NEXT_PUBLIC_SITE_URL` (Better Auth `baseURL` + trusted origin, digest links) |
+| | `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` | Google OAuth client; redirect URI `<SITE_URL>/api/auth/callback/google` (see `HUMAN_TODO.md`) |
 | | `RESEND_API_KEY` · `DIGEST_FROM_EMAIL` | optional — weekly digest email (see `HUMAN_TODO.md`) |
 
 Local dev uses `.env.local` (created by `npx convex dev`) plus the dev deployment's env (`npx convex env set …` without `--prod`).

@@ -56,6 +56,7 @@ Useful one-offs: `npx convex run leaderboard:rerank`, `npx convex run daily:run`
 | | `NEXT_PUBLIC_SITE_URL` | yes | Public URL used in metadata, OG, badges, share links |
 | Convex prod (`npx convex env set --prod`) | `BETTER_AUTH_SECRET` | yes | Auth secret |
 | | `SITE_URL` | yes | Better Auth base URL / trusted origin, digest links |
+| | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | yes | Google sign-in (OAuth client, redirect URI `<SITE_URL>/api/auth/callback/google`) |
 | | `RESEND_API_KEY`, `DIGEST_FROM_EMAIL` | no | Weekly digest email (see `HUMAN_TODO.md`) |
 
 Provider credentials (Clerk keys, service accounts, Stripe restricted keys…) are entered by founders in the app and stored only in `integrations.config` on Convex; they are never returned by any query and never reach the browser.
