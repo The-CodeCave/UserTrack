@@ -30,6 +30,12 @@ export interface SaasRow {
   activated7d?: number;
   activated30d?: number;
   activationRatePct?: number;
+  convertedUsers?: number;
+  newConverted30d?: number;
+  convertedGrowth30dPct?: number;
+  trialUsers?: number;
+  signupToConvertedPct?: number;
+  trialToConvertedPct?: number;
   trendingScore7d?: number;
   spark: number[];
   owner?: { username: string; displayName: string } | null;
@@ -37,7 +43,7 @@ export interface SaasRow {
   explain?: string;
 }
 
-export type BoardKind = "trending" | "fastest" | "most-users" | "most-new" | "most-activated" | "activation-rate" | "new-rising";
+export type BoardKind = "trending" | "fastest" | "most-users" | "most-new" | "most-activated" | "activation-rate" | "new-rising" | "best-conversion" | "best-trial-conversion" | "converted-growth";
 export type Window = "24h" | "7d" | "30d";
 
 export function SaasLogo({ name, logoUrl, size = 40, className }: { name: string; logoUrl?: string; size?: number; className?: string }) {
@@ -60,6 +66,10 @@ export function primaryMetric(s: SaasRow, board: BoardKind, w: Window) {
     case "most-activated": return { label: `Activated · ${w}`, value: formatDelta((w === "24h" ? undefined : w === "7d" ? s.activated7d : s.activated30d) ?? s.activatedUsers ?? 0), sub: `${formatRate(s.activationRatePct)} activation` };
     case "activation-rate": return { label: "Activation rate", value: formatRate(s.activationRatePct), sub: `${formatCompact(s.activatedUsers ?? 0)} activated` };
     case "new-rising": return { label: "New · 7d", value: formatDelta(s.newUsers7d), sub: formatPct(s.growth7dPct ?? 0) };
+    // Conversion boards only list products that publish the rate; counts appear only when published too.
+    case "best-conversion": return { label: "Signup → Converted", value: formatRate(s.signupToConvertedPct), sub: s.convertedUsers !== undefined ? `${formatCompact(s.convertedUsers)} converted` : `${formatCompact(s.totalUsers)} users` };
+    case "best-trial-conversion": return { label: "Trial → Converted", value: formatRate(s.trialToConvertedPct), sub: s.trialUsers !== undefined ? `${formatCompact(s.trialUsers)} on trial` : "trial conversion" };
+    case "converted-growth": return { label: "Converted · 30d", value: formatPct(s.convertedGrowth30dPct ?? 0), sub: s.newConverted30d !== undefined ? `${formatDelta(s.newConverted30d)} converted` : "converted-user growth" };
     default: return { label: `New · ${w}`, value: formatDelta(newIn), sub: formatPct(growth) };
   }
 }

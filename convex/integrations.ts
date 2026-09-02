@@ -1,3 +1,4 @@
+import type { Id } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
 import { action, internalQuery, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -56,7 +57,14 @@ export const getForSync = internalQuery({
 
 export const listAll = internalQuery({
   args: {},
-  handler: async (ctx) => (await ctx.db.query("integrations").collect()).map((i) => i._id),
+  handler: async (ctx) => {
+    const ids: Id<"integrations">[] = [];
+    for (const i of await ctx.db.query("integrations").collect()) {
+      const s = await ctx.db.get(i.saasId);
+      if (s && !s.isDemo) ids.push(i._id);
+    }
+    return ids;
+  },
 });
 
 // Live "test connection" for the dashboard wizards: validates, fetches once, returns counts + what the source can do. Nothing is stored.

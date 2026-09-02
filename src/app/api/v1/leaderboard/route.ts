@@ -7,7 +7,7 @@ import { CATEGORY_SLUGS } from "@/lib/categories";
 export const dynamic = "force-dynamic";
 export const OPTIONS = options;
 
-const BOARDS = ["trending", "fastest", "most-users", "most-new", "most-activated", "activation-rate", "new-rising"] as const;
+const BOARDS = ["trending", "fastest", "most-users", "most-new", "most-activated", "activation-rate", "new-rising", "best-conversion", "best-trial-conversion", "converted-growth"] as const;
 const WINDOWS = ["24h", "7d", "30d"] as const;
 const SIZES = ["0-100", "100-1k", "1k-10k", "10k-100k", "100k+"] as const;
 const BOOLS = ["true", "false"] as const;

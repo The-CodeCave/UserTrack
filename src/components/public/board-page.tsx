@@ -65,7 +65,7 @@ export async function BoardPage({
           <Panel className="p-8 text-center">
             <div className="text-lg font-medium">Nothing here yet</div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {state.board === "most-activated" || state.board === "activation-rate" ? "No product has connected an activation source with these filters yet." : state.verified ? "No verified SaaS matches these filters. Try “All sources” or another category." : "No SaaS matches these filters yet."}
+              {state.board === "most-activated" || state.board === "activation-rate" ? "No product has connected an activation source with these filters yet." : state.board === "best-conversion" || state.board === "best-trial-conversion" || state.board === "converted-growth" ? "No product has published its conversion metrics with these filters yet — connecting a payment provider alone never lists a product here." : state.verified ? "No verified SaaS matches these filters. Try “All sources” or another category." : "No SaaS matches these filters yet."}
             </p>
             <Button className="mt-4" render={<Link href="/sign-up" />}>List your SaaS</Button>
           </Panel>

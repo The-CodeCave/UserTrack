@@ -84,7 +84,7 @@ export function FunnelView({ data, timeframe, onTimeframe, className }: { data: 
       <div className="relative mt-5 hidden md:grid" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }}>
         <span aria-hidden className="pointer-events-none absolute inset-x-0 top-3 h-px bg-line" />
         {stages.map((s, i) => (
-          <div key={s.key} className={cn("relative px-3", i > 0 && "border-l border-line")}>
+          <div key={s.key} className={cn("relative px-3 pt-12", i > 0 && "border-l border-line")}>
             {i > 0 && <Connector pct={s.conversionPct} prev={s.previousConversionPct} label={`${stages[i - 1].label} → ${s.label}`} />}
             <StageHeader s={s} />
             <div className="mt-3 flex h-28 items-end border-b border-line-strong">
@@ -166,9 +166,9 @@ function Provenance({ s, className }: { s: Stage; className?: string }) {
 
 function Connector({ pct, prev, label }: { pct?: number; prev?: number; label: string }) {
   return (
-    <div className="absolute -left-8 top-0 z-10 flex w-16 flex-col items-center">
+    <div className="absolute -left-14 top-0 z-10 flex w-28 flex-col items-center">
       <span className="border border-line bg-background px-1.5 py-0.5 font-mono text-[11px] text-foreground">{formatRate(pct)}</span>
-      <span className="mt-0.5 max-w-full truncate font-mono text-[9px] uppercase tracking-wider text-muted-foreground" title={label}>{label}</span>
+      <span className="mt-0.5 max-w-full truncate bg-card px-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground" title={label}>{label}</span>
       {pct !== undefined && prev !== undefined && <Delta now={pct} prev={prev} suffix="pt" />}
     </div>
   );
@@ -190,6 +190,8 @@ export function CohortTable({ data, className }: { data: CohortData; className?:
   const latest = rows[0];
   const hasTrial = rows.some((r) => r.trialPct !== undefined);
   const hasConverted = rows.some((r) => r.convertedD30Pct !== undefined);
+  // Counts hidden by the founder → the column is only dashes; drop it on small screens.
+  const countCol = rows.every((r) => r.signedUp === null) ? "hidden sm:table-cell" : "";
   const sentence = [
     latest.signedUp !== null ? `${formatCompact(latest.signedUp)} signed up` : null,
     latest.activationPct !== undefined ? `${formatRate(latest.activationPct)} activated` : null,
@@ -209,17 +211,17 @@ export function CohortTable({ data, className }: { data: CohortData; className?:
         <thead>
           <tr className="text-label border-b border-line text-left">
             <th className="py-1.5 font-normal">Cohort</th>
-            <th className="py-1.5 text-right font-normal">Signed up</th>
-            <th className="py-1.5 text-right font-normal">Activated</th>
-            {hasTrial && <th className="py-1.5 text-right font-normal">Trial</th>}
-            {hasConverted && <th className="py-1.5 text-right font-normal">Converted · 30d</th>}
+            <th className={cn("py-1.5 pl-2 text-right font-normal whitespace-nowrap", countCol)}>Signed up</th>
+            <th className="py-1.5 pl-2 text-right font-normal">Activated</th>
+            {hasTrial && <th className="py-1.5 pl-2 text-right font-normal">Trial</th>}
+            {hasConverted && <th className="py-1.5 pl-2 text-right font-normal whitespace-nowrap">Conv. · 30d</th>}
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.cohort} className="border-b border-line last:border-0">
               <td className="py-1.5">{r.cohort}</td>
-              <td className="py-1.5 text-right">{count(r.signedUp)}</td>
+              <td className={cn("py-1.5 text-right", countCol)}>{count(r.signedUp)}</td>
               <td className="py-1.5 text-right">{formatRate(r.activationPct)}</td>
               {hasTrial && <td className="py-1.5 text-right">{formatRate(r.trialPct)}</td>}
               {hasConverted && <td className="py-1.5 text-right text-pink">{formatRate(r.convertedD30Pct)}</td>}

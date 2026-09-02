@@ -32,6 +32,10 @@ async function applyLifecycle(ctx: MutationCtx, saasId: Id<"saas">, d: Demo, now
   for (const r of await ctx.db.query("cohortMetrics").withIndex("by_saas_cohort", (q) => q.eq("saasId", saasId)).collect()) await ctx.db.delete(r._id);
   const profile: Partial<Doc<"saas">> = { category: d.category, projectType: d.projectType, appStoreUrl: d.appStoreUrl, visibility: d.visibility, identityQuality: d.cohorts ? "cohort_verified" : undefined, identityCoveragePct: d.cohorts ? 92 : undefined };
   const c = d.conversion;
+  // One "connected" source per lifecycle stage so the funnel shows provenance; demo integrations are never synced (integrations.listAll skips demo products).
+  for (const r of await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", saasId)).collect()) await ctx.db.delete(r._id);
+  const roles: Doc<"integrations">["role"][] = ["users", ...(d.activation ? ["activation" as const] : []), ...(c ? ["conversion" as const] : [])];
+  for (const role of roles) await ctx.db.insert("integrations", { saasId, provider: "endpoint", role, config: { url: `${d.site}/api/usertrack`, token: "demo" }, status: "ok", trust: "verified", lastSyncAt: now, lastSuccessAt: now, connectedAt: now, backfilledAt: now });
   const rows = (await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", saasId)).collect()).sort((a, b) => a.day.localeCompare(b.day));
   if (!c || rows.length === 0) return ctx.db.patch(saasId, profile);
   const daily: { day: string; convertedUsers: number; newConverted: number; trialUsers?: number; newTrials?: number }[] = [];
