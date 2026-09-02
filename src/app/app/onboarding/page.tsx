@@ -143,8 +143,13 @@ export default function OnboardingPage() {
             )}
             {!ai && step === 3 && saasId && (
               <Panel className="p-6">
-                <SectionLabel>Step 4 of 5 · optional</SectionLabel>
-                <h1 className="mt-2 text-2xl font-semibold tracking-tight">Track activation too? (optional)</h1>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <SectionLabel>Step 4 of 5 · optional</SectionLabel>
+                    <h1 className="mt-2 text-2xl font-semibold tracking-tight">Track activation too? (optional)</h1>
+                  </div>
+                  <Button variant="outline" size="sm" className="shrink-0" onClick={() => setStep(4)}>Skip for now</Button>
+                </div>
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">Activation tells UserTrack how many people actually reach value in your product — e.g. onboarding_completed, project_created.</p>
                 <ConnectSource saasId={saasId} role="activation" onConnected={() => setStep(4)} />
                 <Button variant="ghost" className="mt-4 h-11 w-full sm:w-auto" onClick={() => setStep(4)}>Skip for now</Button>

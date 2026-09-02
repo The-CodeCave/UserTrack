@@ -8,6 +8,7 @@ Browser ──► Railway (Next.js 16, node)  ──► Convex prod (handsome-wa
                  │  /api/auth/*  proxies to Convex HTTP router (Better Auth)
                  └─ OG images rendered with next/og
 Convex crons ──► provider APIs (Clerk / Supabase / Firebase / Auth0 / PostHog / Plausible / GA4 / Stripe / endpoint)
+             ──► Node runtime action (convex/node/postgres.ts, `pg` via convex.json node.externalPackages) ──► PostgreSQL / Supabase DB (TCP, read-only)
   every 4h sync (staggered) · +20min rerank+trending · 03:30 UTC daily sweep (+ quiet-product check) · Mon 08:00 UTC digest
   · 1st 05:00 UTC monthly report (delivered 09:00 local) · per-user/per-SaaS scheduled reminders (24h)
 Convex actions ──► Resend API (mail.usertrack.dev) · Resend webhooks ──► Convex HTTP /webhooks/resend

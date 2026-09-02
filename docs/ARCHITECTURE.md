@@ -1,29 +1,30 @@
 # UserTrack Architecture
 
 ## TL;DR
-Next.js 16 on Railway renders public pages, share images, badges, the JSON API and the MCP server from Convex functions. Convex holds the data, runs Better Auth, the provider sync engine, ranking/trending, daily milestone + benchmark + trust jobs, the weekly digest, and the token-authenticated gateway. A domain layer (`convex/domain/*`) holds the project/integration/metrics rules once; the dashboard, the REST API and MCP are thin adapters over it. Provider adapters live behind one interface and only ever run server-side. Snapshots are append-only; everything the UI ranks by is materialized on the `saas` row.
+Next.js 16 on Railway renders public pages, share images, badges, the JSON API and the MCP server from Convex functions. Convex holds the data, runs Better Auth, the provider sync engine, ranking/trending, daily milestone + benchmark + trust jobs, the weekly digest, and the token-authenticated gateway. A domain layer (`convex/domain/*`) holds the project/integration/metrics/funnel/event rules once; the dashboard, the REST API and MCP are thin adapters over it. Provider adapters live behind one interface and only ever run server-side; the only TCP work (PostgreSQL, Supabase database mode) happens in one Node-runtime action. Snapshots are append-only; everything the UI ranks by is materialized on the `saas` row.
 
 ```
 Browser ──► Next.js (Railway)
               ├─ RSC pages ─ fetchQuery(api.public.*) ──────────► Convex queries
-              ├─ /api/v1/* (DTO + rate limit) · /api/badge/*.svg ─► Convex queries
-              ├─ /mcp (Streamable HTTP, stateless) ─ tools ─► Convex gateway (token hash + UT_GATEWAY_SECRET)
+              ├─ /api/v1/* (DTO + rate limit) · /api/badge/*.svg (SVG, per-IP burst) ─► Convex queries
+              ├─ /mcp (Streamable HTTP, stateless) ─ 23 tools ─► Convex gateway (token hash + UT_GATEWAY_SECRET)
               ├─ /api/auth/[...all] ─────────────────────────────► Convex HTTP (Better Auth)
-              ├─ opengraph-image + /s/[slug]/share/[kind]/card ──► next/og (vendored Geist)
-              └─ client: ConvexBetterAuthProvider (live queries, follow/connect mutations)
+              ├─ opengraph-image · /s/[slug]/share/[kind]/card[?size=square] · /compare/og ─► next/og (vendored Geist)
+              └─ client: ConvexBetterAuthProvider (live queries, follow/connect mutations, wizards)
 
 Convex
   ├─ Better Auth component (users, sessions)
   ├─ tables: profiles, saas, integrations, snapshots, dailyMetrics, syncRuns, milestones, events,
-  │          follows, fraudFlags, benchmarkAggregates, digests, developerTokens, apiUsage, auditLogs
-  ├─ domain/: projects · integrations · metrics (shared rules) ◄── saas.ts / integrations.ts / gateway.ts
-  │          follows, fraudFlags, benchmarkAggregates, digests,
+  │          follows, fraudFlags, benchmarkAggregates, digests, developerTokens, apiUsage, auditLogs,
   │          emailPreferences, emailEvents, emailRecipients, monthlyReports
-  ├─ crons: sync every 4h (staggered) · rerank+trending +20min · daily sweep 03:30 UTC · digest Mon 08:00 UTC
-  │         · monthly report 1st 05:00 UTC · per-entity scheduled reminders (24h)
+  ├─ domain/: projects · integrations · metrics · funnel · events (shared rules) ◄── saas.ts / integrations.ts / public.ts / gateway.ts
+  ├─ crons: sync every 4h (staggered) · rerank+trending +20min · daily sweep 03:30 UTC (milestones → benchmarks → trust review)
+  │         · digest Mon 08:00 UTC · monthly report 1st 05:00 UTC · per-entity scheduled reminders (24h)
   ├─ email/: send (Resend) · templates · prefs · lifecycle · growth · reports · webhook  ──► api.resend.com
   ├─ HTTP: /api/auth/* (Better Auth) · /webhooks/resend (Svix-verified) · /email/unsubscribe (one-click)
-  └─ providers/: clerk | supabase | firebase | auth0 | posthog | plausible | ga4 | stripe | endpoint | manual
+  ├─ providers/: clerk | supabase | firebase | auth0 | posthog | plausible | ga4 | stripe | postgres | endpoint | manual
+  ├─ providerRun.ts: V8 fetch ─or─ runtime "node" ──► node/postgres.ts ("use node", pg) ──► PostgreSQL / Supabase (read-only TCP)
+  └─ lib/: metrics · trending · trust · milestones · spikes · retention · benchmarks · tokens · domain · integrationSetup
 ```
 
 ## Auth
@@ -33,13 +34,13 @@ Better Auth (email + password, Google) runs inside Convex via `@convex-dev/bette
 | Table | Purpose | Indexes |
 |---|---|---|
 | `profiles` | founder identity, links (website/X/GitHub/LinkedIn), `digestOptIn`, `followerCount` | `by_userId`, `by_username`, search `displayName` |
-| `saas` | listing + category + visibility + **all derived metrics**: totals, new 24h/7d/30d (+ previous windows), growth %, ranks (+ prev/best), trending scores 24h/7d/30d + rank, activation, retention (estimated), traffic/revenue (+ `showTraffic`/`showRevenue`), `trustScore`/`trustState`, `followerCount`, `streakDays` | `by_slug`, `by_owner`, `by_public_trust_new30d`, `by_public_new30d`, `by_public_category`, search `name` + `description` |
-| `integrations` | one per SaaS **per role** (`users` · `activation` · `traffic` · `revenue`); `config` holds secrets and is only read by `internal.integrations.getForSync`; status, trust, last success/failure, consecutive failures, `connectedAt`, `backfilledAt` | `by_saas`, `by_saas_role` |
+| `saas` | listing + category + visibility + **all derived metrics**: totals, new 24h/7d/30d (+ previous windows), growth %, ranks (+ prev/best), trending scores 24h/7d/30d + **per-window ranks** (`trendingRank24h` / `trendingRank` (7d) / `trendingRank30d`, each with `prev*`), activation, retention (estimated), traffic/revenue (+ `showTraffic`/`showRevenue`), `trustScore`/`trustState`, `followerCount`, `streakDays`, `firstSnapshotAt`, **`launchedAt`** (first publish) and **`verifiedAt`** (first verified users sync) | `by_slug`, `by_owner`, `by_public_trust_new30d`, `by_public_new30d`, `by_public_category`, search `name` + `description` |
+| `integrations` | one per SaaS **per role** (`users` · `activation` · `traffic` · `revenue`); `provider` now includes `postgres`; `config` holds secrets (incl. connection strings) and is only read by `internal.integrations.getForSync` and the owner-only `integrations.test` / `introspectPostgres` actions; status, trust, last success/failure, consecutive failures, `connectedAt`, `backfilledAt` | `by_saas`, `by_saas_role` |
 | `snapshots` | append-only `{totalUsers, capturedAt, source, trust, syncRunId, backfilled?}` | `by_saas_time` |
 | `dailyMetrics` | one row per SaaS per UTC day: `totalUsers`, `newUsers`, optional `activatedUsers`, `newActivated`, `visitors`, `sessions`, `payingUsers`, `mrr`, `activeUsers30d` | `by_saas_day` |
 | `syncRuns` | audit log per attempt: role, provider, duration, attempt, status, error | `by_saas_time` |
 | `milestones` | persisted achievements, unique `key` per SaaS, title + shareable copy | `by_saas_key`, `by_saas_time`, `by_time` |
-| `events` | chart annotations: growth/activation spikes, reconnects, source changes (one per kind per day) | `by_saas_time`, `by_saas_kind_day` |
+| `events` | chart annotations **and discovery-feed items**: `spike`, `activation_spike`, `reconnect`, `source_changed` (one per kind per day) plus the once-per-SaaS `launched` and `verified` events (`convex/domain/events.ts`, keyed by kind); `value` / `multiple` on spikes | `by_saas_time`, `by_saas_kind_day`, `by_time` |
 | `follows` | profile → saas/profile | `by_follower`, `by_target`, `by_follower_target` |
 | `fraudFlags` | internal anomaly model (kind, severity, detail, resolvedAt); never rendered verbatim publicly | `by_saas`, `by_saas_open` |
 | `benchmarkAggregates` | deciles per `(groupKey, metric)`; individual values are never stored | `by_group_metric` |
@@ -54,13 +55,13 @@ Better Auth (email + password, Google) runs inside Convex via `@convex-dev/bette
 
 `integrations` additionally carries `healthState` / `unhealthySince` (email state machine) and `dailyMetrics.rank` stores the leaderboard rank at the end of each closed day.
 
-All v0.2 fields are optional so the schema migrated in place over v0.1 data. `integrations.role === undefined` is treated as `users`.
+All v0.2+ fields are optional so the schema migrated in place over older data (v0.4 added `postgres`, the per-window trending ranks, `launchedAt` / `verifiedAt`, the `launched` / `verified` event kinds and `events.by_time` without a migration). `integrations.role === undefined` is treated as `users`.
 
 ## Provider architecture
-`convex/providers/types.ts`:
+`convex/providers/types.ts` (details, matrix and per-provider limits in `docs/PROVIDERS.md`):
 ```ts
 interface Provider<Config> {
-  kind; label; roles: Role[]; capabilities: Capability[];
+  kind; label; roles: Role[]; capabilities: Capability[];   // static: totalUsers | usersInRange | activeUsers | history | activation | traffic | revenue
   validate(config, role) → { ok, config } | { ok: false, error }
   trust(config, saasWebsiteUrl) → "verified" | "unverified" | "pending"
   fetch(config, role) → ProviderMetrics        // normalized: totalUsers, newUsers24h/7d/30d, activeUsers30d,
@@ -68,41 +69,59 @@ interface Provider<Config> {
                                                // payingUsers, mrr (cents), currency
   fetchHistory?(config, role, days) → { metric, points[{day, value}] } | null
   publicConfig(config) → masked, secret-free view for the owner UI
+  describe?(config, role) → ProviderCapabilities   // v3: per configuration (totalUsers, createdUsers, historicalUsers,
+                                                   //     activationEvents, retention, traffic, revenue); default = static list
+  runtime?(config) → "v8" | "node"                 // v3: "node" = needs a TCP socket
+  toPostgres?(config, role) → PostgresQuery        // v3: aggregate SQL description for the Node runtime
 }
 ```
-| Provider | Roles | Reads | History |
-|---|---|---|---|
-| Clerk | users | `/v1/users/count` with `created_at_after`, `last_active_at_since` | 30 daily `created_at_before` counts |
-| Supabase | users, activation | admin users count, or PostgREST `count=exact` on a table (+ `created_at` column for ranges) | per-day counts when a created_at column exists |
-| Firebase | users | Identity Toolkit `accounts:query` (`recordsCount`) via service-account JWT (WebCrypto RS256) | – |
-| Auth0 | users | Management API totals (+ `created_at` search), `/stats/active-users`, `/stats/daily` | daily signups → totals reconstructed backwards |
-| PostHog | activation, traffic | HogQL `count(distinct person_id)` for the activation event / `$pageview` | daily activation (cumulative) / visitors |
-| Plausible | traffic | `stats/aggregate` (+ previous period) | `stats/timeseries` |
-| GA4 | traffic | Data API `runReport` activeUsers + sessions, two date ranges | daily activeUsers |
-| Stripe | revenue | active subscriptions paginated → distinct customers, MRR normalized to monthly cents | – |
-| JSON endpoint | any | `GET url` → role-specific keys; verified only when host matches the SaaS website | – |
-| Manual | users | the typed number | – |
+- **Capability model.** `describeProvider(p, config, role)` is what one configured source can deliver; it drives the connect wizard's capability list, `integrations.test` / `usertrack_verify_integration`, the manage page and the funnel's per-stage provenance. Postgres, Supabase and Firebase override `describe()` because ranges/history depend on the configuration (timestamp column, custom SQL, scan enabled).
+- **Verification levels.** `verificationLevel(kind, trust, caps, role)` → `self_reported` (trust ≠ verified, or manual) · `partially_verified` (verified `users` source that can read neither totals nor ranges) · `verified`. This is the *source* wording; the *SaaS* wording (`publicTrustLabel`) still comes from the trust score below.
+- **Runtime dispatch.** `convex/providerRun.ts` is the only switch: `runtime() !== "node"` → `provider.fetch` in V8; otherwise `ctx.runAction(internal.node.postgres.fetch | fetchHistory, { pg: toPostgres(config, role) })`. `convex/node/postgres.ts` (`"use node"`, `pg` listed in `convex.json` → `node.externalPackages`) opens a read-only session (`SET default_transaction_read_only = on`), 10 s connect / 20 s statement timeouts, runs only `count(*)` / `GROUP BY day` / `version()` / catalog listings, and maps driver errors to secret-free `{ message, retryable }` (`explain()`), re-thrown as `ProviderError` on the V8 side. Same file serves the wizard (`introspect`: tables ≤ 200 with row estimates, or columns + suggested mapping + preview count).
 
-`ProviderError(message, retryable)` distinguishes transient (429/5xx) from configuration errors; only transient failures are retried.
+| Provider | Roles | Runtime | Reads | History |
+|---|---|---|---|---|
+| Clerk | users | v8 | `/v1/users/count` with `created_at_after`, `last_active_at_since`; 429/503 backoff | 30 daily `created_at_before` counts, 4 in flight |
+| Supabase (database mode) | users, activation | node | `count(*)` on `auth.users` (`deleted_at IS NULL`, `created_at >= $1`) or any table; custom `$1` SELECT for activation; Supabase hosts only | `GROUP BY day` signups / cumulative activations |
+| Supabase (API mode) | users, activation | v8 | admin users count (`X-Total-Count`), or PostgREST `count=exact` on a table (+ `created_at` column for ranges) | per-day counts when a created_at column exists |
+| Firebase | users | v8 | Identity Toolkit `accounts:query` (`recordsCount`) + `accounts:batchGet` scan of `createdAt` (≤ 100k accounts) via service-account JWT (WebCrypto RS256) | daily signups from the same scan |
+| Auth0 | users | v8 | Management API totals (+ `created_at` search), `/stats/active-users`, `/stats/daily` | daily signups → totals reconstructed backwards |
+| PostgreSQL | users, activation | node | `count(*)` with optional created-at / soft-delete / status filters (identifiers validated + quoted, epoch columns supported); custom `$1` SELECT for activation | `GROUP BY day` signups / cumulative activations (not for custom SQL) |
+| PostHog | activation, traffic | v8 | HogQL `count(distinct person_id)` for the activation event / `$pageview` | daily activation (cumulative) / visitors |
+| Plausible | traffic | v8 | `stats/aggregate` (+ previous period) | `stats/timeseries` |
+| GA4 | traffic | v8 | Data API `runReport` activeUsers + sessions, two date ranges | daily activeUsers |
+| Stripe | revenue | v8 | active subscriptions paginated → distinct customers, MRR normalized to monthly cents | – |
+| JSON endpoint | any | v8 | `GET url` → role-specific keys; verified only when host matches the SaaS website | – |
+| Manual | users | v8 | the typed number | – |
+
+`ProviderError(message, retryable)` distinguishes transient (429/5xx, timeouts, `57014`) from configuration errors; only transient failures are retried. `fetchJson` retries 429/503 itself (Retry-After, ≤ 5 s, ≤ 2 retries). `integrations.test` (owner-only action) runs one live fetch with an unsaved config and returns counts, trust, verification level, capabilities and the masked config; nothing is stored. `integrations.connect` replaces the source for the role and schedules the first sync + backfill.
 
 ## Sync engine (`convex/sync.ts`)
 1. Cron every 4h → `runAll` schedules `runOne(integrationId, attempt=1)` for every integration **spread evenly over 10 minutes**.
-2. `runOne` (action) calls `provider.fetch(config, role)`.
+2. `runOne` (action) calls `fetchMetrics(ctx, kind, config, role)` (`providerRun.ts`: V8 fetch or the Node action).
    - success → `recordSuccess`: `syncRuns` row, integration status/last success; by role:
-     - **users**: append `snapshots` row, upsert today's `dailyMetrics`, `recomputeDerived` (windows from indexed snapshot lookups at now−1/2/7/14/30/60 d; provider-reported window counts fill in while history is shorter than the window), threshold milestones (never on the first snapshot), spike detection (≥3× trailing 14-day average and ≥20), anomaly checks → `fraudFlags`.
+     - **users**: append `snapshots` row, upsert today's `dailyMetrics`, `recomputeDerived` (windows from indexed snapshot lookups at now−1/2/7/14/30/60 d; provider-reported window counts fill in while history is shorter than the window), first verified sync stamps `verifiedAt` and writes the once-only `verified` event, threshold milestones (never on the first snapshot), spike detection (≥3× trailing 14-day average and ≥20), anomaly checks → `fraudFlags`.
      - **activation**: activated fields + rate, daily rows, activated milestones, activation spikes, `activation_exceeds_users` flag.
      - **traffic**: rolling 30-day visitors/sessions (+ previous period); traffic history refreshed for the last 7 days on every run.
      - **revenue**: paying users, MRR, currency.
      Then `refreshTrust`.
-   - first success (or every traffic run) → `provider.fetchHistory` → `recordHistory`: backfilled snapshots (`backfilled: true`) and daily rows only for days **before** the first live snapshot; derived metrics recomputed.
+   - first success (or every traffic run) → `fetchHistory` (`providerRun.ts`) → `recordHistory`: backfilled snapshots (`backfilled: true`) and daily rows only for days **before** the first live snapshot; derived metrics recomputed.
    - failure → `recordFailure`: run log, `consecutiveFailures`, retry after 10/20 minutes (max 3 attempts) if retryable; 6 consecutive users-role failures demote the SaaS to `pending`.
 3. `integrations.connect` replaces the integration for that role, records a `reconnect` event (users role), marks the SaaS `pending` and triggers an immediate sync. `syncNow` has a 60 s cooldown.
 
+## Funnel (`convex/domain/funnel.ts`)
+Visitors → Signups → Activated → Paying over `7d` / `30d` / `90d`, computed on read from `dailyMetrics` (one indexed range of ≤ 2 × days rows; never snapshots). `current` = rows newer than `today − days`, `previous` = the same number of days before. Visitors / signups / activated are flows (sums of `visitors`, `newUsers`, `newActivated`); paying is a stock (last `payingUsers`). Below `min(days, 2)` rows the stages fall back to the materialized `saas` fields. Each stage carries `changePct` vs the previous window, `conversionPct` / `previousConversionPct` vs the previous stage, and `source { provider, label, verification }` from the integration feeding it (`funnelSources`: only integrations with a success or status `ok`, verification from `verificationLevel`). Funnel-level `verification` = `verified` only when every stage is, `self_reported` when all are, `mixed` otherwise, `none` without sources. Surfaces: `public.funnel` (opted-in traffic/revenue only), `saas.funnel` (owner, all stages), `GET /api/v1/saas/{slug}/funnel`, MCP `usertrack_get_funnel`. Math in `docs/METRICS.md`.
+
 ## Ranking & trending (`convex/leaderboard.ts`, `convex/lib/trending.ts`)
-- **Leaderboard rank**: public + `verified` + not demo + not under review, ordered by `newUsers30d`, tiebreak growth %, total. `prevRank`/`bestRank` tracked for movement and milestones.
-- **Trending score** (per window 24h/7d/30d):
-  `score = 100 · log10(1+new)^1.5 · (1 + min(new/max(base,50), 2)) · (1 + 0.5·clamp((new−prev)/max(prev,10), −0.5, 2)) · (0.5 + 0.5·trust/100) · (1 + 0.25·activationRate)`; < 5 new users → 0. `trendingRank` is the 7-day order; `prevTrendingRank` gives movement. Recomputed 20 minutes after each sync cycle.
-- **Boards** (`public.board`): trending, fastest (≥10 new users), most-users, most-new, most-activated, activation-rate (≥50 users), new-rising (first snapshot ≤30 days). Filters: window, category, size bucket, verified-only. The public set is small, so boards are field sorts over one indexed read; ranks and trending are the precomputed parts.
+- **Leaderboard rank**: public + `verified` + not demo + not under review (`rankable`), ordered by `newUsers30d`, tiebreak growth %, total. `prevRank`/`bestRank` tracked for movement and milestones.
+- **Trending Score v2** (per window 24h/7d/30d, `trendingInputs` builds the input from the `saas` row):
+  `score = 100 · log10(1+new)^1.5 · (1 + min(new/max(base,50), 2)) · (1 + 0.5·clamp((new−prev)/max(prev,10), −0.5, 2)) · (0.5 + 0.5·trust/100) · (1 + 0.25·activationRate) · freshness · history`, where `freshness` = 1 while the last sync is ≤ 24 h old, linear to 0.5 at 72 h, 0 after, and `history = 0.6 + 0.4·min(1, trackedDays/14)`. No signal (0) below 5 new users, for stale sources or products under review. `trendingFactors` returns every factor so `public.trendingExplain`, the ⓘ tooltip, board rows (`explain`) and `usertrack_get_trending` can explain a rank.
+- **Per-window ranks**: `rerank` (cron `20 */4 * * *`, also scheduled on publish/unpublish and delete) writes `trendingScore24h/7d/30d` and, for rankable products with score > 0, `trendingRank24h`, `trendingRank` (7d — boards, milestones, share cards, badges) and `trendingRank30d`; each `prev*` is the position at the previous rerank. Order is total (`score → newUsers30d → totalUsers → slug`), so reruns are deterministic. Details: `docs/TRENDING.md`.
+- **Boards** (`public.board`): trending (score > 0, with `movement` + `explain`), fastest (≥10 new users), most-users, most-new, most-activated, activation-rate (≥50 users), new-rising (first snapshot ≤30 days). Filters: window, category, size bucket, verified-only. The public set is small, so boards are field sorts over one indexed read; ranks and trending are the precomputed parts.
+
+## Discovery (`convex/public.ts`: `discover`, `feed`, `feedItems`)
+- `discover` reads the public set once and derives: Trending now (7d), Fastest today (24h) / this week (7d), New & rising, **Recently verified** (`verifiedAt` desc), **Biggest movers** (largest `prevTrendingRank − trendingRank` on 7d), **Hidden gems** (`HIDDEN_GEM_RULES`: verified, not demo, < 1,000 users, ≥ 10 new and ≥ 10 % growth in 7d, ≥ 7 days of history, trust ≥ 60; rules are returned so the section is explainable), Top developer tools / Top AI (`most-new` per category), verified counts per category, and a 12-item feed.
+- **Feed** (`feedItems`): a merge of two stored, deduplicated logs — `milestones` (unique key per SaaS) and `events` of kind `spike` / `activation_spike` / `launched` / `verified` — read via `by_time` (≤ 200 rows each), filtered to verified non-demo products (optionally one category), with stable ids `milestone:{saasId}:{key}` / `{kind}:{saasId}:{day}`, sorted by time. Nothing is synthesized at read time. `launched` is written once by `markLaunched` on the first publish (`saas.launchedAt`); `verified` once by the sync engine. `public.feed(limit ≤ 100, category?)` backs `GET /api/v1/discover`.
 
 ## Trust model (`convex/lib/trust.ts`, `convex/trust.ts`)
 Score = provider base (auth 40 · analytics/endpoint 30 · foreign endpoint 10 · manual 5) + connection age (≤25 over 30 days) + sync continuity (≤20) + activation data (5) − open flags (high 15 / medium 8 / low 3).
@@ -112,7 +131,7 @@ Public label: `pending` → Pending · `review` → **Data under review** · `un
 ## Milestones, spikes, benchmarks (`convex/daily.ts`)
 - Thresholds detected on each snapshot; rank/trending milestones after each rerank; best day/week, streaks (7/30/90) and monthly growth (+25/50/100 %) in the daily sweep. Keys are unique per SaaS so nothing is re-created.
 - Spikes and reconnects become `events` and render as chart annotations (`public.annotations`, capped at 8 + 8 per range).
-- Benchmarks: daily deciles for `growth30dPct`, `growth7dPct`, `newUsers30d`, `activationRatePct` per group `all`, `cat:<category>`, `size:<bucket>`; groups with < 5 verified non-demo products are dropped. Owner percentile is interpolated and rounded to 5.
+- Benchmarks (`convex/lib/benchmarks.ts`, `daily.benchmarks`, scheduled right after `daily.run`): daily deciles for `growth30dPct`, `newUsers30d`, `activationRatePct`, `growth7dPct`, `trendingScore7d` per cohort `all`, `cat:<category>`, `size:<bucket>` over rankable products; cohorts with < `MIN_SAMPLE` (5) finite values are deleted. Only nine deciles + `sampleSize` are stored. `percentileOf` interpolates inside the decile band and rounds to steps of 5 (`5 … 95`); `benchmarkInsight` builds the owner sentence; `publicBenchmarkStatement` returns a sentence only at percentile ≥ 75, and `public.benchmarkHighlight` picks it (category → size → all, best metric) for the product page and `GET /api/v1/saas/{slug}/benchmarks`. Owner cards: `saas.benchmarks`, MCP `usertrack_get_benchmark`. Policy and privacy analysis in `docs/BENCHMARKS.md`.
 
 ## Follow & digest
 `follows.toggle` is idempotent and maintains `followerCount`. `digest.generate` (Monday 08:00 UTC, paged 50 profiles per mutation) builds one payload per profile with `weeklyDigest` enabled (own products, followed movers, milestones, leaderboard movers, trending), stores it in-app (`/app/digest`) and enqueues the `weekly-digest` email only when there is a signal (own movement, followed products or milestones). "Preview this week" rebuilds the caller's digest without emailing.
@@ -151,28 +170,34 @@ trigger (auth hook · sync · rerank · daily · cron · scheduler)
      session (Better Auth)  │        convex/gateway.ts (token hash + gateway secret)
      saas.ts / integrations │                  │                          │
                             │        ┌─────────┴──────────┐    ┌──────────┴──────────┐
-                     Dashboard      REST API /api/v1        MCP /mcp (15 tools)
+                     Dashboard      REST API /api/v1        MCP /mcp (23 tools)
                      /app/*         src/lib/api/*           src/lib/mcp/*
 ```
 
-- **Domain layer** (`convex/domain/`): pure rules over `ctx.db`, no auth. `projects.ts` normalizes input, allocates slugs, resolves a project by id *or* slug and enforces ownership (`requireOwnedProject`), and finds an owned project by canonical domain (`findOwnedByDomain`, via `convex/lib/domain.ts`: lowercase, trailing dots and `www.` stripped) which makes agent retries idempotent. `integrations.ts` connects one source per role (replacing the previous one, recording a `reconnect` event, scheduling the first sync) and requests syncs with a 60 s cooldown per source. `metrics.ts` produces the owner-facing summaries, chart series, milestone lists and share URLs. Failures are typed `DomainError(code, message, retryAfterSec?)` so every interface maps them without string matching.
+- **Domain layer** (`convex/domain/`): pure rules over `ctx.db`, no auth. `projects.ts` normalizes input, allocates slugs, resolves a project by id *or* slug and enforces ownership (`requireOwnedProject`), finds an owned project by canonical domain (`findOwnedByDomain`, via `convex/lib/domain.ts`: lowercase, trailing dots and `www.` stripped) which makes agent retries idempotent, and marks the first publish (`markLaunched`). `integrations.ts` connects one source per role (replacing the previous one, recording a `reconnect` event, scheduling the first sync) and requests syncs with a 60 s cooldown per source. `metrics.ts` produces the owner-facing summaries, chart series, milestone lists and share URLs. `funnel.ts` builds the timeframe funnel with provenance; `events.ts` writes the once-only `launched` / `verified` events. Failures are typed `DomainError(code, message, retryAfterSec?)` so every interface maps them without string matching.
 - **Gateway** (`convex/gateway.ts`): every function takes `auth: { hash, gateway }`. `authenticate` checks `gateway === UT_GATEWAY_SECRET` (proves the call came from the Next.js server), looks the hash up in `developerTokens.by_hash`, rejects the wrong token type, revoked and expired tokens, checks the required scope, and loads the owner profile. `authorize` (one mutation per request) additionally applies the daily quota and increments the `apiUsage` bucket. Writes append to `auditLogs`. Create is idempotent by domain and capped at 10 new projects/hour/token; verify has a 20 s cooldown per project; sync 60 s per source.
 - **Token model** (`convex/lib/tokens.ts`, `convex/tokens.ts`): secrets are `ut_api_` / `ut_mcp_` + 40 base62 chars, hashed with a runtime-agnostic SHA-256 (same function in Convex and Node), shown once. Six scopes; API keys always get `metrics:read`, MCP tokens default to all six. Plan limits live in `PLANS.free` so per-plan limits can be added without touching call sites. Max 25 active tokens per account.
 - **REST adapter** (`src/lib/api/respond.ts`, `gateway.ts`, `dto.ts`, `openapi.ts`): `withApi(category, handler)` picks the anonymous IP bucket or, when a `ut_api_` key is present, the burst bucket + `gateway.authorize`; sets `X-RateLimit-*` and `Retry-After`; forces `private, no-store` on keyed responses. DTOs copy fields explicitly so nothing internal leaks. The OpenAPI document is generated from code.
-- **MCP adapter** (`src/app/mcp/route.ts`, `src/lib/mcp/server.ts`, `tools.ts`, `snippets.ts`): Streamable HTTP, stateless, JSON responses; one `McpServer` + transport per request. Each tool is a typed (zod) wrapper over one gateway function; before running it, the server applies the per-token burst bucket and `gateway.authorize` with the tool's scope. Gateway failures become `isError` tool results with a `hint`. Server instructions carry the 9-step setup workflow; `convex/lib/integrationSetup.ts` turns the provider catalog into executable step lists with code templates.
+- **MCP adapter** (`src/app/mcp/route.ts`, `src/lib/mcp/server.ts`, `tools.ts`, `snippets.ts`): Streamable HTTP, stateless, JSON responses; one `McpServer` + transport per request. Each of the 23 tools is a typed (zod) wrapper over one gateway function; before running it, the server applies the per-token burst bucket and `gateway.authorize` with the tool's scope. Gateway failures become `isError` tool results with a `hint`. Server instructions carry the 10-step setup workflow (provider recommendation → create → setup → configure → verify → publish → optional activation → share URL); `convex/lib/integrationSetup.ts` turns the provider catalog into executable step lists with code templates (endpoint routes per framework/ORM, the `usertrack_ro` SQL role for Postgres) and `recommendIntegrations` picks the users source by `supabase → clerk → firebase → auth0 → postgres → endpoint` plus optional activation / traffic / revenue extras. The v0.4 gateway functions (`providerRecommendation`, `activationSetup`, `funnel`, `trending`, `benchmark`, `compareProjects`, `shareCard`, `embedCode`) reuse `public.ts` helpers (`sortBoard`, `trendingRankFor`, `publicSaas`) so MCP and the website compute the same numbers.
 - **Rate-limit design**: two layers. Per-day quotas are bucketed counters in Convex (`apiUsage`, one row per token/day/category, summed on each call) so they survive deploys and are visible in the dashboard. Burst limits (anonymous 60/min per IP, API key 120/min, MCP 60/min) are in-process token buckets in `src/lib/api/rate-limit.ts` that reset on deploy, which is acceptable for a single Railway replica.
 - **Onboarding status** (`convex/onboarding.ts`): the "Set up with AI" page derives progress purely from data that already exists: the onboarding token's `lastUsedAt` (agent connected), the `create_project` audit entry or the newest project created after the token (project created), the `users` integration and its status, a successful `verify_integration` entry, `saas.lastSyncedAt` and `isPublic`. Funnel events (`onboarding_ai_setup_selected`, `mcp_setup_started`, `agent_prompt_copied`, …) are stored as `event:*` rows in `auditLogs` because no analytics stack exists.
 
 ## Public surface
-- **Pages** are dynamic RSC (`force-dynamic`) reading Convex; Convex caches query results.
-- **Share cards**: `/s/[slug]/share/[kind]` (`users`, `growth`, `rank`, `trending`, `activation`, `milestone-<id>`) with an `opengraph-image` and a `/card` PNG route sharing one renderer (`src/lib/og/share-card.tsx`).
-- **Badges**: `/api/badge/[slug].svg?type=users|growth|trending|verified&theme=dark|light`, `s-maxage=3600`.
-- **API**: `src/lib/api/dto.ts` maps rows field-by-field (never spreads), so internal fields (`ownerId`, `trustState`, flags, config) cannot leak. Anonymous: 60/min/IP; with an API key: 1,000/day + 120/min burst. OpenAPI at `/api/openapi.json`. See `docs/API.md`.
-- **MCP**: `/mcp`, bearer `ut_mcp_` tokens, 15 tools scoped to the token owner's projects. See `docs/MCP.md`.
+- **Pages** are dynamic RSC (`force-dynamic`) reading Convex; Convex caches query results. Product pages show the funnel (timeframe tabs), the trending ⓘ explanation and the public benchmark statement; `/discover` renders the sections + feed (`discovery-feed.tsx`).
+- **Share engine** (`src/lib/share.ts`, `src/lib/og/share-card.tsx`): kinds `users` · `growth` (30d) · `week` (7d) · `rank` · `trending` · `activation` · `milestone-<id>` · `spike-<id>` (`parseShareKind`); `shareCopy` yields eyebrow / value / sub / post text per kind; `availableShareKinds` lists only kinds backed by data. Routes: `/s/[slug]/share/[kind]` (page with X / copy / download buttons), its `opengraph-image`, and `/s/[slug]/share/[kind]/card[?size=square]` (1200×630 or 1080×1080) — one renderer (`renderShareCard`) for all three, `Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400`. Milestones and spikes are loaded through `public.milestone` / `public.event` (spike kinds only).
+- **Badges** (`src/lib/badge.ts`, `/api/badge/[slug].svg`): `type=users|growth|trending|verified|chart`, `theme=dark|light`, `window=7d|30d` (growth, chart), `compact=1`; the `chart` type is a 320×120 (96 compact) SVG widget with total, window delta + growth % and the 30-day sparkline from `saasBySlug.spark`. Headers: `image/svg+xml`, `Access-Control-Allow-Origin: *`, `nosniff`, the same cache policy as share cards; 120 req/min per IP (`take("badge:<ip>")`) → 429 + `Retry-After`; unknown or draft slugs → 404 with a neutral "not found" SVG. Embed UIs: `EmbedBadge` (manage page) and the full `EmbedConfigurator` at `/app/saas/[id]/embed`; the same HTML/Markdown comes from MCP `usertrack_get_embed_code`. Branding is always rendered.
+- **Compare**: `/compare?s=a,b,c,d&days=7|30|90|365|all` → `public.compare` (≤ 4 public products, daily rows since the window start) → `CompareChart` (Total / Indexed = 100 at each product's first day) + metric table + share buttons; OG image at `/compare/og?s=&days=` (plain route because `opengraph-image` files cannot read search params), cached 1 h. `GET /api/v1/compare` and MCP `usertrack_compare_projects` return the same series with an `index` per point.
+- **API**: `src/lib/api/dto.ts` maps rows field-by-field (never spreads), so internal fields (`ownerId`, `trustState`, flags, config) cannot leak; v0.4 added `funnelDto`, `feedItemDto`, `compareDto` for `/saas/{slug}/funnel`, `/saas/{slug}/benchmarks`, `/discover`, `/compare`. Anonymous: 60/min/IP; with an API key: 1,000/day + 120/min burst. OpenAPI at `/api/openapi.json`. See `docs/API.md`.
+- **MCP**: `/mcp`, bearer `ut_mcp_` tokens, 23 tools scoped to the token owner's projects (compare and trending read public data). See `docs/MCP.md`.
 - **SEO**: canonical URLs, OG/Twitter metadata, JSON-LD `SoftwareApplication` on product pages, `sitemap.ts` (products, profiles, categories, boards), `robots.ts` (disallows `/app`, auth).
 
+## Dashboard (`src/app/app/*`)
+- `/app` overview: totals, primary product detail, state-derived **Next actions** (publish → connect activation → add badge → share card → see how you compare), compact benchmark cards, digest preview.
+- `/app/saas/[id]`: anchored sections `#overview` (with "Next steps"), `#growth`, `#funnel` (owner funnel, all stages), `#benchmarks`, `#integrations` (per-role sources with verification level + capabilities, `ConnectSource` with live test, `PostgresWizard` for `postgres` and Supabase database mode), `#sharing`, `#embeds` (badge + link to the configurator), `#settings`. `/app/saas/[id]/embed`: full configurator.
+- Onboarding: manual path Profile → Your SaaS → Data source → Activation (optional) → Publish; AI path Profile → Set up with AI → Live.
+
 ## Charts
-Recharts 3. `public.series` returns snapshots for 24H/7D and daily rows for 30D+ (with optional `activated`/`visitors`). The growth chart draws the total (white) with a pink wash, an optional dashed activated series, annotation markers snapped to the nearest point (▲ milestone, ○ spike, ◇ source change) with tooltips, "New" bar mode, and respects `prefers-reduced-motion`. `/compare` uses a 4-series line chart with an "indexed = 100" mode so products of different sizes are comparable.
+Recharts 3. `public.series` returns snapshots for 24H/7D and daily rows for 30D+ (with optional `activated`/`visitors`). The growth chart draws the total (white) with a pink wash, an optional dashed activated series, annotation markers snapped to the nearest point (▲ milestone, ○ spike, ◇ source change) with tooltips, "New" bar mode, and respects `prefers-reduced-motion`. `/compare` uses a 4-series line chart (`COMPARE_COLORS`) with Total and Indexed (= 100 at the first day in the window) modes so products of different sizes are comparable; the badge `chart` type and OG sparklines are plain SVG paths.
 
 ## Environments
 See `docs/DEPLOYMENT.md`.

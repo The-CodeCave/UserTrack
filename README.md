@@ -4,26 +4,29 @@
 
 UserTrack is a public growth and discovery platform for SaaS. Founders connect a read-only data source, UserTrack snapshots their user count every 4 hours, and every product gets a public growth page, trending score, milestones, share cards, an embeddable badge and a place on the leaderboards. Numbers are pulled from connected providers — never typed in. The same data is available as a free JSON API, and founders can let an AI agent do the whole setup through MCP.
 
-**Live:** https://usertrack-production.up.railway.app · **API:** `/api/v1` ([docs](docs/API.md)) · **MCP:** `/mcp` ([docs](docs/MCP.md)) · **Architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+**Live:** https://usertrack-production.up.railway.app · **API:** `/api/v1` ([docs](docs/API.md)) · **MCP:** `/mcp` ([docs](docs/MCP.md)) · **Architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · **Providers:** [docs/PROVIDERS.md](docs/PROVIDERS.md) · **Metrics:** [docs/METRICS.md](docs/METRICS.md) · **Trending:** [docs/TRENDING.md](docs/TRENDING.md) · **Benchmarks:** [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 
 ## What it does
 
 | Area | Features |
 |---|---|
-| **Verified data** | Clerk · Supabase · Firebase Auth · Auth0 · JSON endpoint (verified on own domain) · Manual (self-reported, never ranked). 30-day history backfill where the provider supports it. |
-| **Activation** | Optional activation source (PostHog event, Supabase table, endpoint) → activated users 24h/7d/30d, activation rate, second chart series. |
+| **Verified data** | Clerk · Supabase (read-only database mode via the session pooler, or service-role API mode) · **PostgreSQL** (read-only role, aggregate SQL only, 4-step wizard) · Firebase Auth (signup scan ≤100k accounts) · Auth0 · JSON endpoint (verified on own domain) · Manual (self-reported, never ranked). Per-source capability model + verification level (verified / partially verified / self-reported), live "Test connection" before saving, 30-day history backfill where the source supports it. `docs/PROVIDERS.md`. |
+| **Activation** | Optional activation source (PostHog event, Supabase / PostgreSQL table or custom `$1` SELECT, endpoint) → activated users 24h/7d/30d, activation rate, second chart series; optional onboarding step. |
 | **Retention** | Estimated retained / churned / retention rate from providers that expose "active in 30 days" (Clerk, Auth0, endpoint). Labelled *estimated*; never fabricated. |
-| **Traffic & revenue** | Plausible · GA4 · PostHog visitors/sessions; Stripe paying customers + MRR. Opt-in to display publicly. Funnel: Visitors → Signups → Activated → Paying. |
-| **Ranking** | 30-day leaderboard, **Trending Score** (volume × growth × acceleration × trust × activation, documented in `convex/lib/trending.ts`), 7 boards × 24h/7d/30d × category × size × verification filters. |
+| **Traffic & revenue** | Plausible · GA4 · PostHog visitors/sessions; Stripe paying customers + MRR. Opt-in to display publicly. |
+| **Funnel** | Visitors → Signups → Activated → Paying over 7d / 30d / 90d from daily rows, previous-window comparison, conversion per stage, per-stage provenance (provider + verification level) and a funnel-level verification. `docs/METRICS.md`. |
+| **Ranking** | 30-day leaderboard, **Trending Score v2** (volume × growth × acceleration × trust × activation × freshness × history, every factor public via ⓘ / API / MCP, `docs/TRENDING.md`), per-window trending ranks with movement, 7 boards × 24h/7d/30d × category × size × verification filters. |
 | **Trust** | Trust score 0–100 + anomaly heuristics (impossible jumps, drops, reconnect churn, source switching, stale sources). Public labels: Verified · Partially verified · Data under review · Self-reported. Under-review products are unranked, never accused. |
 | **Milestones** | 10 → 1M users, activated thresholds, biggest day/week, top 10 / top 100, best rank, streaks, +X% month, trending top 10. Persisted once; each has a share page + OG image. |
-| **Sharing** | Share cards (`/s/[slug]/share/[kind]`) with 1200×630 PNGs, X/copy/download; SVG badges (`/api/badge/[slug].svg`) with copy-paste HTML/Markdown. |
-| **Discovery** | `/discover` search (name, description, tags, category, founders), Trending Now, Fastest This Week, New, Hidden Gems, Top Dev Tools, Top AI, recent milestones. Category pages, `/trending`, `/fastest-growing-saas`, `/fastest-growing-ai-saas`, `/new-saas`, `/most-new-users`, `/compare`. |
+| **Sharing** | Share cards (`/s/[slug]/share/[kind]`: users, growth, week, rank, trending, activation, milestone, spike) as 1200×630 and 1080×1080 PNGs, X/copy/download, edge-cached. |
+| **Embeds** | SVG badges (`/api/badge/[slug].svg`: users, growth, trending, verified, **mini chart**; dark/light, 7d/30d, compact) with copy-paste HTML/Markdown, per-IP rate limit, configurator at `/app/saas/[id]/embed`. |
+| **Discovery** | `/discover` search (name, description, tags, category, founders), Trending now, Fastest today / this week, New & rising, Recently verified, Biggest movers, Hidden gems (public rules), Top dev tools, Top AI, and an activity feed built from stored milestones and events (launched, verified, spikes). Category pages, `/trending`, `/fastest-growing-saas`, `/fastest-growing-ai-saas`, `/new-saas`, `/most-new-users`. |
+| **Compare** | `/compare?s=a,b,c,d&days=7\|30\|90\|365\|all` — up to four products, Total or Indexed (= 100) chart, metric table, shareable permalink with its own OG image (`/compare/og`). |
 | **Social** | Follow products and founders; `/app/following` feed; optional weekly digest (in-app + email). Profile links: website, X, GitHub, LinkedIn. |
 | **Email** | Resend-backed, three categories: **transactional** (welcome + verification, password reset, source stopped syncing / recovered), **product nudges** (profile unfinished after 24h, product without source after 24h, first sync confirmed) and **growth** (user milestones 10→1M, Top 100/50/25/10/5/#1, spike ≥2.5× baseline, 7 quiet days, monthly report, weekly digest, followed-product updates). Per-user preferences at `/app/settings/notifications`, signed preference/unsubscribe links, one-click unsubscribe, delivery log with dedupe keys, bounce/complaint suppression. |
-| **Benchmarks** | Daily deciles per group (all / category / size bucket), min sample 5. "Your 30-day growth is ahead of 82% of products your size." |
-| **Public API** | `/api/v1/saas/{slug}`, `/metrics`, `/history`, `/milestones`, `/leaderboard`, `/trending`, `/categories`, `/users/{username}`. Stable DTOs, error envelope, CORS, OpenAPI. Anonymous 60 req/min; API key 1,000 req/day. |
-| **MCP** | `/mcp` — 15 tools for Claude Code, Cursor, Codex, VS Code or any MCP client: create project, detect stack, configure + verify data source, publish, metrics, history, rank, milestones, share URLs. Scoped, hashed tokens; audit trail. |
+| **Benchmarks** | Daily deciles per cohort (all / category / size bucket) for 30d + 7d growth, new users, activation rate and trending score; min sample 5; percentiles in steps of 5. Owner cards: "Your 30-day growth is ahead of 80% of products your size." Public page shows only top-quarter statements. `docs/BENCHMARKS.md`. |
+| **Public API** | `/api/v1/saas/{slug}`, `/metrics`, `/history`, `/milestones`, `/funnel`, `/benchmarks`, `/leaderboard`, `/trending`, `/categories`, `/discover`, `/compare`, `/users/{username}`. Stable DTOs, error envelope, CORS, OpenAPI. Anonymous 60 req/min; API key 1,000 req/day. |
+| **MCP** | `/mcp` — 23 tools for Claude Code, Cursor, Codex, VS Code or any MCP client: provider recommendation, create project, setup instructions, configure + verify data source, activation setup, publish, metrics, history, rank, milestones, funnel, trending, benchmarks, compare, share cards, embed code. Scoped, hashed tokens; audit trail. |
 | **SEO** | Server-rendered pages, canonical URLs, OG/Twitter metadata, JSON-LD on product pages, `sitemap.xml`, `robots.txt`, custom 404. |
 
 ## Public API
@@ -46,7 +49,7 @@ Set up with AI in 60 seconds:
    ```
    (Cursor, Codex CLI, VS Code and generic snippets are on `/developers#mcp`.)
 3. Tell the agent: *"Add this project to UserTrack. Detect the current authentication/user stack, choose the safest supported UserTrack integration, configure it, verify it, and return the public UserTrack URL."*
-4. The agent creates the project, connects Clerk / Supabase / Firebase / Auth0 (or adds a tiny count endpoint), verifies, publishes and hands back the public URL.
+4. The agent asks for a provider recommendation (Supabase → Clerk → Firebase → PostgreSQL → endpoint), creates the project, connects the source (read-only key, read-only database role, or a tiny count endpoint), verifies, publishes, optionally adds an activation source, and hands back the public URL.
 
 Tools, scopes, limits, security model and troubleshooting: [docs/MCP.md](docs/MCP.md).
 
@@ -76,7 +79,7 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | Command | Purpose |
 |---|---|
 | `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
-| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (115 tests: metrics, trending, trust, milestones, providers, API DTOs, badge, rate limit, email rules, templates, tokens, webhook signatures, and `convex-test` function tests for dedupe / preferences / lifecycle / milestones / reports) |
+| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (262 tests in 28 files: metrics, funnel, trending, trust, milestones, benchmarks, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, share, rate limit, email rules, templates, tokens, webhook signatures, MCP tools, and `convex-test` function tests for discovery / dedupe / preferences / lifecycle / milestones / reports / gateway) |
 | `node scripts/email-preview.mjs` | Render every email template with sample data to `/tmp/ut-emails/*.html` |
 | `pnpm convex:dev` · `pnpm convex:deploy` | Convex dev watch · deploy to prod |
 | `node scripts/smoke.mjs [base] [mobile]` | E2E: sign-up → onboarding → publish → public page → dashboard (needs Chrome) |
@@ -98,32 +101,37 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | | `EMAIL_TOKEN_SECRET` | yes | Signs preference / unsubscribe links (falls back to `BETTER_AUTH_SECRET`) |
 | | `RESEND_WEBHOOK_SECRET` | for delivery state | Svix signing secret of the Resend webhook → `<convex site url>/webhooks/resend` |
 
-Provider credentials (Clerk keys, service accounts, Stripe restricted keys…) are entered by founders in the app or passed by an agent through MCP and stored only in `integrations.config` on Convex; they are never returned by any query, tool or audit entry and never reach the browser. Developer tokens are stored as SHA-256 hashes.
+Provider credentials (Clerk keys, service accounts, Stripe restricted keys, read-only database connection strings…) are entered by founders in the app or passed by an agent through MCP and stored only in `integrations.config` on Convex; they are never returned by any query, tool or audit entry and never reach the browser. Database sources are read in a Node-runtime action with a read-only session and aggregate SQL only (`pg` is declared in `convex.json` → `node.externalPackages`; no extra env vars). Developer tokens are stored as SHA-256 hashes.
 
 ## Layout
 ```
-convex/                schema, auth, profiles, saas, integrations, sync engine, trust, leaderboard/trending,
-                       daily jobs (milestones, benchmarks), follows, digest, public queries, seed, crons,
-                       tokens (developer credentials), onboarding (AI setup status)
-convex/domain/         projects · integrations · metrics — the rules shared by dashboard, REST API and MCP
-convex/gateway.ts      token-authenticated entry points: scopes, ownership, quotas, audit, idempotent create
+convex/                schema, auth, profiles, saas, integrations (+ live test, Postgres introspection), sync engine,
+                       providerRun (V8 / Node dispatch), trust, leaderboard/trending, daily jobs (milestones, benchmarks),
+                       follows, digest, public queries (boards, discover, feed, funnel, compare, benchmark highlight,
+                       trending explain), seed, crons, tokens (developer credentials), onboarding (AI setup status)
+convex/domain/         projects · integrations · metrics · funnel · events — the rules shared by dashboard, REST API and MCP
+convex/gateway.ts      token-authenticated entry points: scopes, ownership, quotas, audit, idempotent create, all MCP tool backends
 convex/email/          mailer: send (dedupe + prefs + Resend), templates, prefs + signed tokens, lifecycle,
                        growth (milestones/rank/spike/followers), reports (monthly), webhook, testSend
 convex/providers/      provider adapters behind one interface (clerk, supabase, firebase, auth0, posthog,
-                       plausible, ga4, stripe, endpoint, manual) + google service-account helper
-convex/lib/            pure, unit-tested math: metrics, trending, trust, milestones, spikes, retention, benchmarks,
-                       tokens (format, SHA-256, scopes, plans), domain normalization, integrationSetup (catalog + plans)
-src/app/(public)/      /, /leaderboard, /trending, /discover, /compare, /categories/*, SEO boards, /s/[slug] (+ share/[kind]),
-                       /u/[username], /developers, opengraph-image routes
+                       plausible, ga4, stripe, postgres, endpoint, manual) + google service-account helper;
+                       capability model + verification levels in types.ts
+convex/node/           postgres.ts — the only Node-runtime action ("use node", pg): read-only TCP, aggregate SQL, introspection
+convex/lib/            pure, unit-tested math: metrics, trending (v2), trust, milestones, spikes, retention, benchmarks,
+                       tokens (format, SHA-256, scopes, plans), domain normalization, integrationSetup (catalog + recommendation + plans)
+src/app/(public)/      /, /leaderboard, /trending, /discover, /compare (+ /compare/og), /categories/*, SEO boards,
+                       /s/[slug] (+ share/[kind], share/[kind]/card), /u/[username], /developers, opengraph-image routes
 src/app/api/           /api/v1/* public API, /api/openapi.json, /api/badge/[slug], /api/auth (+ /forgot-password, /reset-password pages)
 src/app/mcp/           /mcp — MCP endpoint (Streamable HTTP, stateless)
-src/app/app/           dashboard: overview, saas manage, following, digest, reports, profile, settings (+ notifications), developer (keys + tokens), onboarding
+src/app/app/           dashboard: overview (next actions), saas manage (anchored sections) + embed configurator, following, digest,
+                       reports, profile, settings (+ notifications), developer (keys + tokens), onboarding (5 steps, optional activation)
 src/app/email/         /email/preferences — signed-link preference page (no login)
-src/components/        blueprint primitives, charts (growth w/ annotations, compare), public cards, app forms
-src/lib/api/           respond (rate limits + envelope), gateway bridge, DTOs, OpenAPI
-src/lib/mcp/           server, tools (15), config snippets + agent prompt
-src/lib/               format, categories, providers-ui (setup instructions), share copy, badge SVG
-docs/                  ARCHITECTURE · API · MCP · BACKLOG · ASSUMPTIONS · DEPLOYMENT · ROADMAP · CHANGELOG
+src/components/        blueprint primitives, charts (growth w/ annotations, compare), public cards (funnel, discovery feed,
+                       trending explain, embed badge), app forms (connect source, postgres wizard, test result, embed configurator)
+src/lib/api/           respond (rate limits + envelope), gateway bridge, DTOs (incl. funnel / feed / compare), OpenAPI
+src/lib/mcp/           server, tools (23) + setup workflow, config snippets + agent prompt
+src/lib/               format, categories, providers-ui (setup instructions), share copy + kinds, badge SVG (+ chart widget), og renderers
+docs/                  ARCHITECTURE · API · MCP · PROVIDERS · METRICS · TRENDING · BENCHMARKS · BACKLOG · ASSUMPTIONS · DEPLOYMENT · ROADMAP · CHANGELOG
 HUMAN_TODO.md          the only things left that need a human
 ```
 

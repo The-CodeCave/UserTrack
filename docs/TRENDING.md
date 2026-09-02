@@ -59,7 +59,7 @@ Reading: the large product keeps the lead through volume; the small product with
 | 7d (default board, milestones, share cards, badges) | `trendingRank` | `prevTrendingRank` |
 | 30d | `trendingRank30d` | `prevTrendingRank30d` |
 
-`prev*` is only rewritten when the rank changes, so movement (`up` / `down` / `same` / `new`, `delta = prev − rank`) survives cycles with no change. The 30-day leaderboard rank (`rank`, by `newUsers30d`) is computed in the same job.
+`prev*` is the position at the previous rerank (rewritten on every run), so a product that holds its place reads `same` rather than `new` forever; movement is `up` / `down` / `same` / `new` with `delta = prev − rank`. The 30-day leaderboard rank (`rank`, by `newUsers30d`) is computed in the same job, and its `prevRank` is only rewritten when that rank changes.
 
 ## Determinism
 

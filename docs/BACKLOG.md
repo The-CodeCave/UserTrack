@@ -68,3 +68,66 @@ Ordering is by vertical slice: every epic leaves the app deployable. Dependencie
 | UT-2701 | Lint / typecheck / tests / build green; smoke test; screenshots 390 & 1440 | ☑ |
 | UT-2702 | README, ARCHITECTURE, ROADMAP, ASSUMPTIONS, API docs, HUMAN_TODO, CHANGELOG | ☑ |
 | UT-2703 | Convex deploy + Railway deploy + production smoke | ☑ |
+
+## v0.4 — "Growth data layer"
+
+Same vertical-slice ordering. v0.3 (domain layer, tokens, gateway, API keys, MCP, onboarding with AI) had no ticketed backlog; it is recorded in `docs/CHANGELOG.md` 0.3.0. Numbering continues at Epic 30.
+
+### Epic 30 — Provider architecture v3 (P0)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-3001 | Capability model | `ProviderCapabilities` per configured source (`describe()`), `capabilitiesFromList` default, shown in the connect wizard, returned by `integrations.test` / `usertrack_verify_integration`, used for funnel provenance. | – | Postgres / Supabase / Firebase report ranges + history only when the configuration allows it; UI shows "windows derived from snapshot deltas" otherwise | ☑ |
+| UT-3002 | Verification levels | `verificationLevel(kind, trust, caps, role)` → `verified` / `partially_verified` / `self_reported`; labels on sources, test card and funnel stages; SaaS-level label unchanged. | 3001 | Manual and foreign endpoints are `self_reported`; unit-tested | ☑ |
+| UT-3003 | Node runtime dispatch | `runtime()` / `toPostgres()` on the interface, `convex/providerRun.ts` as the only switch, `convex/node/postgres.ts` (`"use node"`, `pg` external), `ConvexError { message, retryable }` → `ProviderError`. | – | Sync engine, `integrations.test` and `gateway.verifyIntegration` all go through `fetchMetrics` / `fetchHistory`; no provider branching elsewhere | ☑ |
+| UT-3004 | Rate-limit hardening | `fetchJson` backoff on 429/503 (Retry-After ≤ 5 s, ≤ 2 retries), `mapLimit` for bounded backfills. | – | Clerk history runs 4 in flight; tests for backoff | ☑ |
+
+### Epic 31 — Providers (P0)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-3101 | PostgreSQL provider | Read-only session, `count(*)` with created-at / soft-delete / status filters, `GROUP BY day` history, epoch columns, validated identifiers, custom `$1` SELECT for activation, secret-free `explain()` error mapping, 10 s / 20 s timeouts, SSL default by host. | 3003 | Write attempts fail (`25006`); connection strings never appear in errors; SQL builders + error mapping unit-tested | ☑ |
+| UT-3102 | Postgres / Supabase wizard | `postgres-wizard.tsx`: connect + SSL → ranked table list (≤ 200, estimates) → columns + suggestions + preview count → confirm with live test; `integrations.introspectPostgres`; read-only-role SQL in UI and MCP setup plan. | 3101 | Nothing stored before the last step; `auth.users` pre-selected for Supabase | ☑ |
+| UT-3103 | Supabase database mode | `mode: "database"` (session-pooler hosts only) with `auth.users` signups + history; API mode kept as fallback; mode derived from the config. | 3101 | Verified 24h/7d/30d + 30-day history from one query; `publicConfig` masks the project ref | ☑ |
+| UT-3104 | Firebase signup scan | `accounts:batchGet` scan of `createdAt` (pages of 1,000, ≤ 100k) → windows + history; `scanSignups` opt-out; fallback to totals above the cap. | – | Pagination + cap unit-tested; user records discarded immediately | ☑ |
+| UT-3105 | Clerk backoff + catalog | Clerk 429 backoff, bounded history concurrency; catalog + aliases for `postgres` (`DATABASE_URL`, `pg`, Neon, Vercel Postgres, Prisma/Drizzle), recommendation order `supabase → clerk → firebase → auth0 → postgres → endpoint`. | 3004 | `recommendIntegrations` tests; `manual` never recommended | ☑ |
+| UT-3106 | Live test-connection card | `integrations.test` action + `TestResultCard` / `CapabilityList` in every connect flow. | 3001 | Counts, verification, masked config and capabilities shown before saving | ☑ |
+
+### Epic 32 — Activation + funnel v2 (P0)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-3201 | Funnel timeframes | `convex/domain/funnel.ts`: 7d / 30d / 90d from `dailyMetrics`, previous window, flow vs stock, fallbacks below `min(days, 2)` rows. | – | ≤ 2 × days indexed rows per read; unit tests for fallbacks and conversions | ☑ |
+| UT-3202 | Per-stage provenance | `source { provider, label, verification }` per stage from `funnelSources`; funnel-level `verification` (`verified` / `mixed` / `self_reported` / `none`). | 3002, 3201 | A funnel with one self-reported stage is never "verified" | ☑ |
+| UT-3203 | Funnel surfaces | `public.funnel` (opted-in stages), `saas.funnel` (owner), `Funnel` component with timeframe tabs on public + dashboard, `GET /api/v1/saas/{slug}/funnel`, MCP `usertrack_get_funnel`. | 3201 | Same numbers on every surface | ☑ |
+| UT-3204 | Activation in onboarding | Optional, skippable activation step; publish preview shows 7d growth + activation; celebrate step nudges only when no activation source exists; `usertrack_get_activation_setup`. | 3203 | Smoke test passes; `docs/METRICS.md` states that time-to-activation is out of scope | ☑ |
+
+### Epic 33 — Trending v2 + discovery (P0/P1)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-3301 | Trending Score v2 | Freshness (24 h → 72 h) and history (14 days) factors, no-signal rules (< 5 new, stale, under review), `trendingFactors` + `explainTrending`. | – | Worked examples in `docs/TRENDING.md` reproduce; `growth.test.ts` | ☑ |
+| UT-3302 | Per-window ranks + movement | `trendingRank24h` / `trendingRank` / `trendingRank30d` with `prev*` = previous rerank; deterministic order; `movement` + `explain` on trending boards. | 3301 | Stable #1 reads "same"; reruns with unchanged data change nothing | ☑ |
+| UT-3303 | Trending explain UI | `public.trendingExplain`, ⓘ tooltip on product pages, one-line explain on `/trending` and boards. | 3301 | Factors shown are exactly the ones used | ☑ |
+| UT-3304 | Stored discovery events | `launched` (first publish) and `verified` (first verified sync) events written once (`convex/domain/events.ts`), `saas.launchedAt` / `verifiedAt`, `events.by_time`. | – | Never duplicated across syncs / republishes; `discovery.test.ts` | ☑ |
+| UT-3305 | Feed + discover v2 | `feedItems` merge of milestones + events with stable ids, `public.feed`, `/discover` sections (Recently verified, Biggest movers, Hidden gems with `HIDDEN_GEM_RULES`, category counts), `discovery-feed.tsx`, richer cards. | 3304 | Real stored data only; empty sections hidden; rules returned with the section | ☑ |
+
+### Epic 34 — Share + embeds v2 (P1)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-3401 | Share engine | `week` and `spike-<id>` kinds, `parseShareKind`, `availableShareKinds`, one renderer for OG image + `/card` PNG, `?size=square` (1080×1080), edge cache headers. | – | Cards for kinds without data are not offered; `share.test.ts` | ☑ |
+| UT-3402 | Badge v2 | `chart` widget (320×120 / 96), `window=7d\|30d`, `compact=1`, 120/min per-IP burst, CORS + nosniff, 404 with neutral SVG. | – | `badge.test.ts`; branding always rendered | ☑ |
+| UT-3403 | Embed configurator | `/app/saas/[id]/embed` (type, timeframe, theme, size, live preview, HTML / Markdown / image URL), `#embeds` section linking to it, MCP `usertrack_get_embed_code`. | 3402 | Snippets match `/api/badge` params exactly (`badgeSrc` shared) | ☑ |
+| UT-3404 | Share tooling for agents | MCP `usertrack_get_share_card` (page, image, square, X intent, milestone cards). | 3401 | Unknown kinds → `bad_request` | ☑ |
+
+### Epic 35 — Benchmarks + compare (P1)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-3501 | Benchmarks v2 | Five metrics, `MIN_SAMPLE = 5` (delete below), deciles only, `percentileOf` steps of 5, `medianMultiple`, `benchmarkInsight`, `publicBenchmarkStatement` (≥ 75). | – | `benchmarks.test.ts`; no raw values stored | ☑ |
+| UT-3502 | Benchmark surfaces | `saas.benchmarks` cards (compact variant on the overview), `public.benchmarkHighlight` on product pages, `GET /api/v1/saas/{slug}/benchmarks`, MCP `usertrack_get_benchmark`. | 3501 | Public page never states a below-top-quarter position | ☑ |
+| UT-3503 | Compare v2 | `days=7\|30\|90\|365\|all`, `public.compare` on daily rows, Total / Indexed modes, window-growth row, share buttons, `/compare/og` image, `GET /api/v1/compare`, MCP `usertrack_compare_projects`. | – | ≤ 4 products; OG image only with ≥ 2 slugs | ☑ |
+
+### Epic 36 — API / MCP / onboarding / QA (P1)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-3601 | API v1 additions | `/saas/{slug}/funnel`, `/saas/{slug}/benchmarks`, `/discover`, `/compare`; `funnelDto` / `feedItemDto` / `compareDto`; OpenAPI + `docs/API.md`. | 3203, 3305, 3502, 3503 | Field-by-field DTOs; `dto.test.ts` | ☑ |
+| UT-3602 | 8 new MCP tools | `usertrack_get_provider_recommendation`, `usertrack_get_activation_setup`, `usertrack_get_funnel`, `usertrack_get_trending`, `usertrack_get_benchmark`, `usertrack_compare_projects`, `usertrack_get_share_card`, `usertrack_get_embed_code`; 10-step workflow; `postgres` in the tool enums. | 3601 | `tools.test.ts` / `server.test.ts` register 23 tools; `docs/MCP.md` | ☑ |
+| UT-3603 | Dashboard IA | Overview "Next actions", anchored manage sections with "Next steps", compact benchmark cards, verification + capabilities on connected sources. | 3106 | Every action links to the section that resolves it | ☑ |
+| UT-3604 | QA + docs | Lint / typecheck / 262 tests / build green; smoke script updated; `docs/PROVIDERS.md`, `METRICS.md`, `TRENDING.md`, `BENCHMARKS.md` new; CHANGELOG, ROADMAP, ASSUMPTIONS, ARCHITECTURE, MCP, README, BACKLOG updated. | – | `pnpm test` → 262 passed | ☑ |
+| UT-3605 | Live provider verification | Exercise PostgreSQL, Supabase database mode and the Firebase scan against real accounts / databases. | 3101, 3103, 3104 | Not done: no live third-party credentials available to the agent (see `docs/ROADMAP.md`, known limitations) | ☐ |

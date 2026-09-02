@@ -41,15 +41,15 @@ Tokens created from the onboarding "Set up with AI" flow get the default scopes 
 | `profile:read` | Founder profile and account summary | `usertrack_get_account` |
 | `projects:read` | List and inspect projects, integration state, verification | `usertrack_get_projects`, `usertrack_get_project` |
 | `projects:write` | Create projects, edit metadata, publish. Never deletes. | `usertrack_create_project`, `usertrack_update_project` |
-| `integrations:read` | Provider catalog and setup instructions | `usertrack_get_supported_integrations`, `usertrack_get_integration_setup` |
+| `integrations:read` | Provider catalog, recommendations and setup instructions | `usertrack_get_supported_integrations`, `usertrack_get_integration_setup`, `usertrack_get_provider_recommendation`, `usertrack_get_activation_setup` |
 | `integrations:write` | Connect data sources, verify, trigger syncs | `usertrack_configure_integration`, `usertrack_verify_integration`, `usertrack_sync_project` |
-| `metrics:read` | Metrics, history, ranks, milestones, share URLs | `usertrack_get_metrics`, `usertrack_get_growth_history`, `usertrack_get_rank`, `usertrack_get_milestones`, `usertrack_get_share_url` |
+| `metrics:read` | Metrics, history, ranks, milestones, funnel, trending, benchmarks, compare, share cards, embeds | `usertrack_get_metrics`, `usertrack_get_growth_history`, `usertrack_get_rank`, `usertrack_get_milestones`, `usertrack_get_share_url`, `usertrack_get_funnel`, `usertrack_get_trending`, `usertrack_get_benchmark`, `usertrack_compare_projects`, `usertrack_get_share_card`, `usertrack_get_embed_code` |
 
 Recommendation: all six scopes for onboarding (the default). A reporting-only agent (weekly summaries, launch posts) needs `projects:read` + `metrics:read`.
 
 ## Tools
 
-Every tool takes a project reference `{ projectId?: string, slug?: string }` where noted (`ref`); either is accepted and ownership is enforced on both. All tools are annotated `idempotentHint: true`, `destructiveHint: false`. Results are returned as JSON text plus `structuredContent`.
+23 tools: the 15 from v0.3 and 8 added in v0.4 (marked **v0.4** below). Every tool takes a project reference `{ projectId?: string, slug?: string }` where noted (`ref`); either is accepted and ownership is enforced on both. All tools are annotated `idempotentHint: true`, `destructiveHint: false`, `readOnlyHint` per tool. Results are returned as JSON text plus `structuredContent`.
 
 | Tool | Scope | Mode | Input | Output (summary) |
 | --- | --- | --- | --- | --- |
@@ -58,16 +58,24 @@ Every tool takes a project reference `{ projectId?: string, slug?: string }` whe
 | `usertrack_get_project` | `projects:read` | read | `ref` | Project summary + `urls` + `integrations[]` (role, provider, status, trust, lastError, timestamps, secret-free `publicConfig`) + `setup` (`hasUsersSource`, `usersSourceStatus`, `firstSyncDone`, `published`, `underReview`, `nextStep`). |
 | `usertrack_create_project` | `projects:write` | write | `name`, `websiteUrl`, `description?`, `category?`, `tags?` (≤5), `logoUrl?`, `detectedStack?` | `created: true|false`, `project`, `recommendation` (best users source + optional extras), `warnings[]`. If the account already has a project for the same domain: `created: false`, `duplicateOf`, existing project. |
 | `usertrack_update_project` | `projects:write` | write | `ref`, `name?`, `description?`, `websiteUrl?`, `category?`, `tags?`, `logoUrl?`, `newSlug?`, `isPublic?` | `updated[]` (changed fields), `project`. `isPublic: true` publishes and triggers a rerank. |
-| `usertrack_get_supported_integrations` | `integrations:read` | read | `detectedProviders?[]`, `framework?` | `providers[]` (catalog: roles, trust, summary, detects, credential keys, permissions, reads, neverSent) + `recommendation` (`recommended`, `alternatives`, `optionalExtras`, `detected`, `reasoning`). |
-| `usertrack_get_integration_setup` | `integrations:read` | read | `ref?`, `provider`, `role?`, `framework?`, `detectedProviders?[]` | Executable plan: `requirements[]` (where to find each credential, env var hints), `permissions`, `reads`, `steps[]` (`collect_credential` / `ask_user` / `modify_repo` / `deploy` / `call_tool` / `verify`), `securityRules`, `configShape`, `codeTemplates[]` (endpoint provider), `verification` call, `nextTool`. |
+| `usertrack_get_supported_integrations` | `integrations:read` | read | `detectedProviders?[]`, `framework?` | `providers[]` (catalog of 11 providers incl. `postgres`: roles, trust, summary, detects, credential keys, permissions, reads, neverSent) + `recommendation` (`recommended`, `alternatives`, `optionalExtras`, `detected`, `reasoning`). |
+| `usertrack_get_integration_setup` | `integrations:read` | read | `ref?`, `provider` (11 kinds incl. `postgres`), `role?`, `framework?`, `detectedProviders?[]` | Executable plan: `requirements[]` (where to find each credential, env var hints), `permissions`, `reads`, `steps[]` (`collect_credential` / `ask_user` / `modify_repo` / `deploy` / `call_tool` / `verify`), `securityRules`, `configShape`, `codeTemplates[]` (endpoint route per framework/ORM; `usertrack-readonly-role.sql` for `postgres` and for `supabase` when a Postgres driver was detected), `verification` call, `nextTool`. |
 | `usertrack_configure_integration` | `integrations:write` | write | `ref`, `provider`, `role?` (default `users`), `config` | `integration` (secret-free view), `message`, `nextTool: usertrack_verify_integration`. Validates the config, encrypts secrets, starts the first sync. Replaces the existing source for that role. |
-| `usertrack_verify_integration` | `integrations:write` | write | `ref`, `role?`, `provider?`, `config?` | `connected`, `status` (`connected` / `failed` / `missing` / `invalid_config`), `detected {count, metrics}`, `verificationLevel`, `verificationLabel`, `durationMs`, `stored`, `project`, `nextTool`, `hint`; on failure `error`, `retryable`, `missingRequirements`. Pass `provider` + `config` to test before saving. |
+| `usertrack_verify_integration` | `integrations:write` | write | `ref`, `role?`, `provider?`, `config?` | `connected`, `status` (`connected` / `failed` / `missing` / `invalid_config`), `provider`, `role`, `mode` (`stored` / `inline`), `detected {count, metrics}`, `verificationLevel` (provider trust), `verificationLabel`, **`sourceVerification`** (`verified` / `partially_verified` / `self_reported`), **`capabilities`** (`totalUsers`, `createdUsers`, `historicalUsers`, `activationEvents`, `retention`, `traffic`, `revenue`), `durationMs`, `stored`, `project`, `nextTool`, `hint`; on failure `error`, `retryable`, `missingRequirements`. Pass `provider` + `config` to test before saving. Database providers run in the Node runtime; errors are secret-free (`Host not found`, `Password authentication failed`, `Permission denied — grant SELECT…`). |
 | `usertrack_sync_project` | `integrations:write` | write | `ref`, `role?` | `started` (number of sources), `message`, `nextTool`. |
 | `usertrack_get_metrics` | `metrics:read` | read | `ref`, `timeframe?` (`24h` / `7d` default / `30d`) | `totalUsers`, `window` (new users vs previous window, `changeVsPreviousPct`, growth %, activated, trending score), `windows` (all three), `activated`, `retention`, `ranks` (+ movement, best), `verification`, `streakDays`, `lastSyncedAt`, `recentMilestones[]` (3). |
 | `usertrack_get_growth_history` | `metrics:read` | read | `ref`, `range?` (`24h` `7d` `30d` default `90d` `1y` `all`) | `points[] { t, totalUsers, newUsers, activatedUsers?, visitors? }`. Snapshots for 24h/7d, daily rows otherwise. |
 | `usertrack_get_rank` | `metrics:read` | read | `ref` | `eligible`, `reason` (why not ranked), leaderboard/trending positions with previous + movement, `best`, `boards` URLs, `trendingScore7d`. |
 | `usertrack_get_milestones` | `metrics:read` | read | `ref`, `limit?` (1–50, default 20) | `milestones[] { id, key, kind, metric, value, title, copy, achievedAt, sharePage, shareImage }`. |
 | `usertrack_get_share_url` | `metrics:read` | read | `ref` | `page`, `profile`, `badge`, `ogImage`, `api`, `share{users,growth,rank,trending,activation}`, `shareImages`, `milestoneShares[]`, `headline`, `nextSyncWithinMs`; `note` if not published. |
+| `usertrack_get_provider_recommendation` **v0.4** | `integrations:read` | read | `detectedProviders?[]` (packages, env var names, e.g. `['@supabase/supabase-js', 'posthog-js', 'DATABASE_URL']`), `framework?` | Same shape as the catalog recommendation (`recommended {role, provider, entry}`, `alternatives[]`, `optionalExtras[] {role, provider, reason}`, `detected[] {raw, provider}`, `reasoning[]`) plus `priority: ["supabase","clerk","firebase","postgres","endpoint"]`, `signals` (env var / package hints per provider) and `nextTool: usertrack_get_integration_setup`. Safe to call before a project exists. |
+| `usertrack_get_activation_setup` **v0.4** | `integrations:read` | read | `ref?`, `detectedProviders?[]`, `candidateEvents?[]` (event names found in the repo) | `definition`, `examples[]` (`onboarding_completed`, `project_created`, …), `candidateEvents[] {event, looksLikeActivation}` (regex on complete/created/first/onboard/setup/run/sent/publish/deploy/invite), `project {id, slug, usersSource, activationSource}` when `ref` given, `recommended` + `options[] {provider, role: "activation", why, configShape}` in order PostHog (if detected) → Supabase (same connection) → PostgreSQL (same connection) → endpoint, `steps[]`, `optional: true`, `nextTool`. |
+| `usertrack_get_funnel` **v0.4** | `metrics:read` | read | `ref`, `timeframe?` (`7d` / `30d` default / `90d`) | Owner funnel (all connected stages, including private traffic/revenue): `timeframe`, `days`, `coverageDays`, `verification` (`verified` / `mixed` / `self_reported` / `none`), `stages[] {key, label, value, previous, changePct, conversionPct, previousConversionPct, kind: flow|stock, source {provider, label, verification}}`, `missingStages[]`, `hint` (connect activation) and `publicUrl` (`…/s/<slug>#funnel`). |
+| `usertrack_get_trending` **v0.4** | `metrics:read` | read | `ref?`, `window?` (`24h` / `7d` default / `30d`), `category?`, `limit?` (1–50, default 20) | Public trending board: `window`, `category`, `formula` (string), `rows[] {slug, name, category, totalUsers, newUsers, score, rank, previousRank, explain, url}`, `boardUrl`; with `ref`: `own` = the same row for the caller's project plus `eligible` and `factors {volume, growth, acceleration, trust, activation, freshness, history, signal}`. |
+| `usertrack_get_benchmark` **v0.4** | `metrics:read` | read | `ref` | `eligible` (public + verified + not demo), `minCohortSize` (5), `cards[] {cohort, metric, metricLabel, value, percentile, median, p10, p90, medianMultiple, sampleSize, insight}` for the cohorts all / category / size bucket and the metrics `growth30dPct`, `newUsers30d`, `activationRatePct`, `growth7dPct`, `trendingScore7d` (only cohorts with a stored aggregate), `note` when not eligible or no data, `hiddenGemRules`. Private view; the public API exposes only the top-quarter statement. |
+| `usertrack_compare_projects` **v0.4** | `metrics:read` | read | `slugs[]` (2–4, any public products), `days?` (`7` / `30` default / `90` / `365` / `0` = all) | `days`, `products[] {slug, name, category, totalUsers, newUsers7d, newUsers30d, growth30dPct, activationRatePct, trendingScore7d, trendingRank, rank, verification, windowGrowthPct, indexEnd, series[] {day, totalUsers, newUsers, index}, url}`, `url` (shareable `/compare?s=…&days=…`). `bad_request` below 2 slugs, `not_found` when fewer than two are public. Not owner-scoped: public data only. |
+| `usertrack_get_share_card` **v0.4** | `metrics:read` | read | `ref`, `kind?` | `card {kind, page, image (1200×630), square (1080×1080), xIntent}` for `kind` (default `users`), `available[]` (`users`, `growth`, `week`, plus `rank` / `trending` / `activation` when backed by data), `milestones[]` (last 5 as `milestone-<id>` cards with `title`), `note` for drafts. `kind` may also be `milestone-<id>` or `spike-<id>`; anything else is `bad_request`. |
+| `usertrack_get_embed_code` **v0.4** | `metrics:read` | read | `ref`, `type?` (`users` default / `growth` / `trending` / `verified` / `chart`), `theme?` (`dark` default / `light`), `window?` (`30d` default / `7d`), `compact?` | `imageUrl` (`/api/badge/<slug>.svg?type=…`), `html` (`<a><img height=28|120|96>`), `markdown`, `types[]`, `cache` (rendered on request, cached 1 h, public metrics, no key), `note` for drafts. |
 
 ### Prompt
 
@@ -77,31 +85,34 @@ Every tool takes a project reference `{ projectId?: string, slug?: string }` whe
 
 ### Server instructions
 
-The server sends instructions on `initialize` that describe UserTrack, the ordered setup workflow below, and four rules: never print or log credentials; prefer verified providers over manual numbers; only aggregate counts are ever sent to UserTrack; ask the founder for any credential not found in the repo's env files.
+The server sends instructions on `initialize` that describe UserTrack, the ordered 10-step setup workflow below, and four rules: never print or log credentials; prefer verified providers over manual numbers; only aggregate counts are ever sent to UserTrack; ask the founder for any credential not found in the repo's env files.
 
 ## The agent-native setup flow
 
-The workflow the server asks agents to run, in order:
+The workflow the server asks agents to run, in order (`SETUP_WORKFLOW` in `src/lib/mcp/tools.ts`):
 
 1. `usertrack_get_account`
-2. `usertrack_get_supported_integrations` (pass `detectedProviders` + `framework` from the repo)
+2. `usertrack_get_provider_recommendation` (pass `detectedProviders` + `framework` from the repo: Supabase → Clerk → Firebase → PostgreSQL → endpoint)
 3. `usertrack_create_project` (idempotent by domain)
 4. `usertrack_get_integration_setup` (recommended provider)
 5. edit the repo only if the instructions say so (endpoint provider)
 6. `usertrack_configure_integration`
 7. `usertrack_verify_integration` (wait ~5s, retry ≤3×)
 8. `usertrack_update_project { isPublic: true }`
-9. `usertrack_get_share_url` → hand the public URL to the founder
+9. optional: `usertrack_get_activation_setup` → configure an activation source (PostHog event, Supabase/Postgres table) so the funnel shows activated users
+10. `usertrack_get_share_url` → hand the public URL to the founder
 
 What the agent does in the repository:
 
-- Reads `package.json`, lock files and `.env*` names (not values it would print) to detect the auth/analytics stack: Clerk, Supabase, Firebase, Auth0, PostHog, Plausible, GA4, Stripe, or a generic database/auth library (Better Auth, NextAuth, Lucia, Convex, Prisma, Drizzle, Mongoose, …).
-- Provider priority for the `users` role: Clerk → Supabase → Auth0 → Firebase → JSON endpoint → manual. When no supported auth provider is detected, the recommendation is a small JSON endpoint on the product's own domain.
+- Reads `package.json`, lock files and `.env*` names (not values it would print) to detect the auth/analytics stack: Clerk, Supabase, Firebase, Auth0, PostHog, Plausible, GA4, Stripe, a PostgreSQL driver or URL (`pg`, `postgres.js`, `DATABASE_URL`, `prisma:postgresql`, `drizzle-pg`, Neon, Vercel Postgres, …), or a generic database/auth library (Better Auth, NextAuth, Lucia, Convex, Prisma, Drizzle, Mongoose, …).
+- Provider priority for the `users` role (`recommendIntegrations`): **Supabase → Clerk → Firebase → Auth0 → PostgreSQL → JSON endpoint**; `manual` is never recommended. Direct auth providers come first (read-only key, no code change), then a read-only database connection (no code change either), then the universal endpoint. When nothing supported is detected, the recommendation is a small JSON endpoint on the product's own domain.
+- For **Supabase**, the preferred configuration is the database mode (session-pooler connection string with a `SELECT`-only role on `auth.users`); the service role key is the fallback. For **PostgreSQL**, the setup plan starts with a `modify_repo` step to create a read-only role from the `usertrack-readonly-role.sql` template and asks for a connection string with `sslmode=require`; the host must accept connections from the internet or via a pooler.
 - For the **endpoint** provider only, the agent adds one read-only route (template provided per framework/ORM, e.g. `app/api/usertrack/route.ts`) that returns `{ "totalUsers": n }` behind a bearer token, adds `USERTRACK_ENDPOINT_TOKEN` to the environment, and asks the founder to deploy. The route is `verified` only when it lives on the product's domain.
 - For every other provider it locates the credential (env var hints and dashboard paths are in the setup instructions), asks the founder if it is missing, and passes it straight into `usertrack_configure_integration`.
-- Optional extras suggested after the users source is verified: PostHog or a Supabase table for activation, Plausible / GA4 for traffic, Stripe for revenue (traffic and revenue stay private unless the founder opts in).
+- **Activation (optional, step 9)**: `usertrack_get_activation_setup` explains what an activated user is, scores event names found in the repo (`candidateEvents`) and returns the configuration options — PostHog event (if detected), the same Supabase / Postgres connection with a table or one custom `SELECT count(...) WHERE … >= $1`, or the endpoint's `activatedUsers` keys — followed by the usual setup → configure → verify calls with `role: "activation"`. The verify result must be ≤ total users.
+- Other optional extras suggested by the recommendation: Plausible / GA4 for traffic, Stripe for revenue (traffic and revenue stay private unless the founder opts in).
 
-Security rules attached to every setup plan: least-privilege credentials only; credentials never printed, logged, committed or pasted into chat; only aggregate counts are sent; no changes to auth, billing or database code beyond the optional count endpoint; never guess or create credentials without telling the founder.
+Security rules attached to every setup plan: least-privilege credentials only; credentials never printed, logged, committed or pasted into chat; only aggregate counts are sent; no changes to auth, billing or database code beyond the optional count endpoint (and the read-only database role); never guess or create credentials without telling the founder.
 
 ## Client configuration
 
@@ -155,19 +166,37 @@ export USERTRACK_MCP_TOKEN=ut_mcp_…
 
 > Add this project to UserTrack. Detect the current authentication/user stack, choose the safest supported UserTrack integration, configure it, verify it, and return the public UserTrack URL.
 
-Agent: `get_account` → `get_supported_integrations { detectedProviders: ["@clerk/nextjs", "posthog-js"], framework: "nextjs" }` → `create_project { name, websiteUrl, detectedStack }` → `get_integration_setup { provider: "clerk" }` → finds `CLERK_SECRET_KEY` in `.env.local` → `configure_integration { provider: "clerk", config: { secretKey } }` → waits 5 s → `verify_integration` → `update_project { isPublic: true }` → `get_share_url` → "Your page is live at https://usertrack.dev/s/acme. PostHog was detected; want me to add activation tracking?"
+Agent: `get_account` → `get_provider_recommendation { detectedProviders: ["@clerk/nextjs", "posthog-js"], framework: "nextjs" }` → `create_project { name, websiteUrl, detectedStack }` → `get_integration_setup { provider: "clerk" }` → finds `CLERK_SECRET_KEY` in `.env.local` → `configure_integration { provider: "clerk", config: { secretKey } }` → waits 5 s → `verify_integration` → `update_project { isPublic: true }` → `get_activation_setup { slug, candidateEvents: ["project_created", "page_viewed"] }` → `configure_integration { provider: "posthog", role: "activation", config: { …, activationEvent: "project_created" } }` → `get_share_url` → "Your page is live at https://usertrack.dev/s/acme, activation is tracked from PostHog's `project_created`."
+
+**Postgres-only repo**
+
+> Add this project to UserTrack.
+
+Agent: `get_provider_recommendation { detectedProviders: ["DATABASE_URL", "drizzle-orm", "pg"] }` → recommended `postgres` → `get_integration_setup { provider: "postgres" }` → shows the founder the `usertrack-readonly-role.sql` template and asks for a read-only connection string → `verify_integration { provider: "postgres", config: { connectionString, tableRef: "public.users", createdAtColumn: "created_at" } }` (inline test) → `configure_integration` → `update_project { isPublic: true }`.
 
 **Weekly report**
 
 > How did my SaaS perform this week?
 
-Agent: `get_projects` → `get_metrics { slug: "acme", timeframe: "7d" }` → `get_rank { slug: "acme" }` → "312 new users this week vs 241 last week (+29%), activation 39%, moved from #6 to #4 on the leaderboard, #9 trending."
+Agent: `get_projects` → `get_metrics { slug: "acme", timeframe: "7d" }` → `get_funnel { slug: "acme", timeframe: "7d" }` → `get_trending { slug: "acme" }` → "312 new users this week vs 241 last week (+29%), 38% of them activated, moved from #6 to #4 on the leaderboard, #9 trending (2.1× prev period, short history)."
 
 **Launch post**
 
 > Write a post about my biggest milestone.
 
-Agent: `get_milestones { slug: "acme", limit: 10 }` → picks the largest `users` threshold → `get_share_url` → drafts the post with the milestone copy and attaches `sharePage` / `shareImage`.
+Agent: `get_milestones { slug: "acme", limit: 10 }` → picks the largest `users` threshold → `get_share_card { slug: "acme", kind: "milestone-<id>" }` → drafts the post with the milestone copy and attaches `card.image` (or `card.square` for Instagram/LinkedIn) and `card.xIntent`.
+
+**README badge**
+
+> Add a UserTrack badge to the README.
+
+Agent: `get_embed_code { slug: "acme", type: "chart", theme: "light" }` → pastes `markdown` into `README.md`.
+
+**Benchmark check**
+
+> How do we compare with similar products?
+
+Agent: `get_benchmark { slug: "acme" }` → reads `cards[].insight` ("Your 30-day growth is ahead of 80% of products with 1K – 10K users. Top 20%.") → optionally `compare_projects { slugs: ["acme", "rival"], days: 90 }` for a shareable `/compare` link.
 
 ## Idempotency
 
@@ -246,12 +275,17 @@ Every token-authenticated write (`create_project`, `update_project`, `configure_
 | Tool error `not_found` | Wrong slug/id, or the project belongs to another account | `usertrack_get_projects` |
 | `verify_integration` returns `status: "failed"` with `retryable: false` | Wrong credential or insufficient permissions | Re-read `requirements`/`permissions` from `usertrack_get_integration_setup`, reconfigure |
 | `verify_integration` returns `verificationLevel: "unverified"` for an endpoint | The endpoint host differs from the product domain | Host the route on the product domain; otherwise the project is labelled self-reported and never ranked |
+| `verify_integration` fails for `postgres` / Supabase database mode with "Connection timed out" or "Connection refused" | The database is not reachable from the internet, or the port is wrong | Use the provider's pooler / allow inbound connections; the error is `retryable: true` only for timeouts |
+| `verify_integration` fails with "Permission denied — grant SELECT…" or "Query tried to write" | The role cannot read the table, or the custom SQL is not a plain SELECT | Run the `usertrack-readonly-role.sql` template; keep custom SQL to one `SELECT` with `$1` |
+| `capabilities.createdUsers` is `false` after verifying a database source | No timestamp column was mapped | Pass `createdAtColumn` (and `createdAtKind` for epoch columns); otherwise windows come from snapshot deltas and there is no history backfill |
 | Public URL 404s | Project not published | `usertrack_update_project { isPublic: true }` |
 | Client tries to open an SSE stream and fails | Server is stateless | Use a client that supports Streamable HTTP with JSON responses; the discovery document at `GET /mcp` confirms the transport |
 
 ## FAQ
 
-**Does the agent need write access to my repo?** Only for the JSON-endpoint provider, where it adds one read-only route. For Clerk, Supabase, Firebase, Auth0 and the analytics providers it only reads env var names to locate credentials.
+**Does the agent need write access to my repo?** Only for the JSON-endpoint provider, where it adds one read-only route. For Clerk, Supabase, Firebase, Auth0, PostgreSQL and the analytics providers it only reads env var names to locate credentials (PostgreSQL additionally needs a read-only database role, created by the founder from the SQL template).
+
+**Does UserTrack ever read rows from my database?** No. The PostgreSQL / Supabase database mode runs `count(*)`, per-day counts and catalog listings in a session forced to read-only (`default_transaction_read_only = on`); connection strings are stored encrypted and never returned.
 
 **Can an agent delete my project?** No. There is no delete tool. `update_project` can unpublish (`isPublic: false`) but never removes data.
 
@@ -263,4 +297,4 @@ Every token-authenticated write (`create_project`, `update_project`, `configure_
 
 **Is there OAuth?** Not yet; bearer tokens created in the dashboard are the only auth method today. OAuth for MCP clients is on the roadmap.
 
-**Where is the source?** `src/app/mcp/route.ts` (HTTP adapter), `src/lib/mcp/server.ts` (server + per-request transport), `src/lib/mcp/tools.ts` (tool definitions), `convex/gateway.ts` (auth, scopes, quotas, audit), `convex/lib/integrationSetup.ts` (catalog and setup plans).
+**Where is the source?** `src/app/mcp/route.ts` (HTTP adapter), `src/lib/mcp/server.ts` (server + per-request transport), `src/lib/mcp/tools.ts` (tool definitions and `SETUP_WORKFLOW`), `convex/gateway.ts` (auth, scopes, quotas, audit, all tool backends), `convex/lib/integrationSetup.ts` (catalog, recommendation order and setup plans), `convex/domain/funnel.ts`, `convex/lib/trending.ts`, `convex/lib/benchmarks.ts` (the numbers behind the v0.4 tools).

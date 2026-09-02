@@ -137,7 +137,7 @@ Railway → project `usertrack` → service `usertrack` → Settings → Network
 > **Also depends on this:** the MCP endpoint (`https://usertrack.dev/mcp`, printed in every agent config snippet), `/api/v1`, `/api/openapi.json` and `/developers`. As of 2026-09-02 `usertrack.dev` has no DNS records at all, so everything — including the new API and MCP — is only reachable on `usertrack-production.up.railway.app`. All docs and discovery documents render `NEXT_PUBLIC_SITE_URL`, so they become correct automatically once the variables are changed. Afterwards re-run: `curl https://usertrack.dev/api/v1/leaderboard?limit=1`, `curl https://usertrack.dev/mcp`, open `https://usertrack.dev/developers`.
 
 **Steps**
-1. Railway → Custom Domain → add `usertrack.dev` (and `www.usertrack.dev` if you want the redirect). Railway shows a CNAME target.
+1. Railway dashboard → service `usertrack` → Settings → Networking → Custom Domain → add `usertrack.dev` (and `www.usertrack.dev` if you want the redirect). Railway shows a CNAME target. (The agent tried `railway domain usertrack.dev --service usertrack` on 2026-09-02; the CLI answered `Unauthorized` although `railway whoami` / `railway up` work, so this has to be done in the dashboard.)
 2. Cloudflare → DNS → add `CNAME` `@` → `<target>.up.railway.app` and `CNAME` `www` → same target. Proxy status: **DNS only** first until the Railway certificate is issued (`.dev` is HSTS-preloaded, HTTPS is mandatory); you can switch to proxied afterwards, with SSL mode **Full (strict)**.
 3. Railway variables: `NEXT_PUBLIC_SITE_URL=https://usertrack.dev`.
 4. Convex prod: `npx convex env set --prod SITE_URL https://usertrack.dev` (Better Auth base URL, trusted origin, OAuth redirect, all email links).
