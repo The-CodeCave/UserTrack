@@ -197,6 +197,19 @@ The registry CLIs / web forms above (nothing in the codebase).
 ---
 
 
+### Remove the leftover Better Auth smoke-test account (optional)
+
+**Why this is needed**
+The production smoke test on 2026-09-02 verified the Better Auth integration end to end (real signed pull through a temporary tunnel, first sync, live events); the verified test project was deleted afterwards. One earlier attempt left a throwaway founder account (`ba-*@example.com`, project "BA SaaS …", private, never synced, integration still *awaiting verification* — it is skipped by the scheduler and invisible publicly). The agent cannot delete another account's project.
+
+**Where**
+Convex dashboard → usertrack → Production → Data → `saas` (filter name "BA SaaS") and the matching `integrations` row, or leave it.
+
+**Status**
+* [ ] Optional
+
+---
+
 ### Decide what to do with the demo listings
 
 **Why this is needed**

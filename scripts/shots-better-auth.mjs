@@ -37,7 +37,7 @@ if (phase === "create") {
   await page.waitForSelector("text=Create integration", { timeout: 30000 });
   await shot(page, "02-wizard-create");
   await page.click("button:has-text('Create integration')");
-  await page.waitForSelector("text=Environment variables", { timeout: 30000 });
+  await page.waitForSelector("text=Your integration secret", { timeout: 30000 });
   await shot(page, "03-wizard-install-secret");
   const env = await page.locator("code").filter({ hasText: "USERTRACK_SECRET=" }).first().innerText();
   const projectId = /USERTRACK_PROJECT_ID=(\S+)/.exec(env)[1]; const secret = /USERTRACK_SECRET=(\S+)/.exec(env)[1];
