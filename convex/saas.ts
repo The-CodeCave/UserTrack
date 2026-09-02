@@ -9,6 +9,7 @@ import { getProvider } from "./providers";
 import { percentileOf } from "./lib/benchmarks";
 import { sizeBucket } from "./lib/metrics";
 import { publicTrustLabel } from "./lib/trust";
+import { scheduleMissingSourceReminder } from "./email/lifecycle";
 
 export async function requireOwnedSaas(ctx: QueryCtx | MutationCtx, id: Id<"saas">) {
   const { profile } = await requireProfile(ctx);
@@ -57,7 +58,7 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const { profile } = await requireProfile(ctx);
     const data = normalize(args);
-    return ctx.db.insert("saas", {
+    const id = await ctx.db.insert("saas", {
       ...data,
       ownerId: profile._id,
       slug: await uniqueSlug(ctx, data.name),
@@ -69,6 +70,8 @@ export const create = mutation({
       newUsers30d: 0,
       growth30dPct: 0,
     });
+    await scheduleMissingSourceReminder(ctx, id);
+    return id;
   },
 });
 

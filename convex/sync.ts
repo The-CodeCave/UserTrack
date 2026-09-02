@@ -10,6 +10,8 @@ import { detectSpike } from "./lib/spikes";
 import { thresholdMilestones } from "./lib/milestones";
 import { checkSnapshot } from "./lib/trust";
 import { addMilestones, openFlags, refreshTrust } from "./trust";
+import { onSourceFailure, onSourceSuccess } from "./email/lifecycle";
+import { onSpikeCheck, onUsersSnapshot } from "./email/growth";
 import { integrationRole, providerKind, trustLevel } from "./schema";
 
 const STAGGER_WINDOW_MS = 10 * 60_000;
@@ -155,6 +157,7 @@ export const recordSuccess = internalMutation({
     if (role === "users" && metrics.totalUsers !== undefined) {
       const totalUsers = metrics.totalUsers;
       const prev = await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", saasId)).order("desc").first();
+      const firstEver = !prev && integration.lastSuccessAt === undefined;
       await ctx.db.insert("snapshots", { saasId, totalUsers, capturedAt: now, source: integration.provider, trust, syncRunId });
 
       const yesterday = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", saasId).lt("day", day)).order("desc").first();
@@ -183,6 +186,12 @@ export const recordSuccess = internalMutation({
           activatedUsers: saas.activatedUsers,
         });
         await openFlags(ctx, saasId, flags);
+        // Email hooks: threshold crossings, spike alerts, source connected / recovered.
+        const fresh = (await ctx.db.get(saasId))!;
+        if (prev) await onUsersSnapshot(ctx, fresh, prev.totalUsers, totalUsers);
+        const closed = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", saasId).lt("day", day)).order("desc").take(30);
+        await onSpikeCheck(ctx, fresh, closed.reverse().map((r) => r.newUsers));
+        await onSourceSuccess(ctx, integration, fresh, totalUsers, firstEver);
       }
     }
 
@@ -233,6 +242,7 @@ export const recordFailure = internalMutation({
     // ~1 day of failed users syncs demotes the SaaS to pending so stale numbers aren't ranked.
     if ((integration.role ?? "users") === "users" && failures >= 6) await ctx.db.patch(integration.saasId, { trust: "pending" });
     await refreshTrust(ctx, integration.saasId);
+    await onSourceFailure(ctx, integration, failures, error);
   },
 });
 

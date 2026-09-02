@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — Email system (2026-09-02)
+- Resend mailer behind one entry point (`convex/email/send.ts`): dedupe ledger (`emailEvents`), preference + suppression checks, retries with backoff, Resend idempotency keys, `List-Unsubscribe` one-click headers, delivery log with provider message ids.
+- Typed, table-based HTML templates in the blueprint brand (dark graphite, white linework, pink accent), plain-text twins, XSS-safe escaping; every template unit-tested.
+- Better Auth: welcome email (doubles as email verification for email+password signups, plain for Google), verification re-send from settings, password reset flow (`/forgot-password`, `/reset-password`).
+- Lifecycle: profile unfinished after 24h, product without source after 24h (per-entity scheduled functions, once each), first-sync confirmation, source stopped syncing (6 consecutive failures or ≥3 with 24h silence, once per episode), source recovered.
+- Growth: user milestones (10 → 1M, highest crossing mails, lower ones recorded), ranking milestones (Top 100/50/25/10/5/#1, board-size aware), spike alerts (≥2.5× the 30-day daily baseline, ≥20 users, 14-day history, 7-day cooldown), 7 quiet days (once per quiet period, healthy sources only), followed-product updates (opt-in, major events only).
+- Monthly growth report: one consolidated email per founder for the completed calendar month (per project: start/end users, new, net, %, activation, rank start → end from daily rank history, biggest day, milestones; overall summary), generated on the 1st in pages of 50, delivered at 09:00 local time; in-app at `/app/reports`.
+- Weekly digest rewired to the mailer and preferences (opt-in by default; silent when there is nothing to report).
+- Preferences: `emailPreferences` per Better Auth user (product nudges, user / ranking milestones, growth alerts, monthly report, weekly digest, followed updates, timezone), `/app/settings/notifications`, signed 90-day preference links (`/email/preferences?token=…`), one-click unsubscribe endpoint, transactional mail never gated.
+- Resend webhook (`/webhooks/resend`, Svix signature verified): delivered / bounced / complained / failed → event status; hard bounces and complaints suppress non-essential mail (`emailRecipients`).
+- Google sign-in button + provider config (needs OAuth client, see `HUMAN_TODO.md`).
+- Tests: 115 (rules, templates, tokens, webhook signatures, Resend adapter, and `convex-test` function tests for dedupe, preferences, lifecycle state machine, milestones, spikes, followers, monthly reports, webhook, token access).
+
 ## 0.2.0 — Trustworthy, discoverable, shareable (2026-09-02)
 - Provider interface v2 (roles, capabilities, normalized metrics, history backfill); new adapters: Firebase Auth, Auth0, PostHog, Plausible, Google Analytics 4, Stripe; Clerk/Supabase/endpoint upgraded with range + active-user metrics.
 - Sync engine v2: staggered cron, retries with backoff, run durations, last success/failure, previous-window deltas, multi-role integrations, one-time 30-day backfill.

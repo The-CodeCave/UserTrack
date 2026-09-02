@@ -3,6 +3,7 @@ import type { Doc } from "./_generated/dataModel";
 import { trendingScore } from "./lib/trending";
 import { rankMilestones, trendingMilestones } from "./lib/milestones";
 import { addMilestones } from "./trust";
+import { onRerank } from "./email/growth";
 
 export const rankable = (s: Doc<"saas">) => s.isPublic && s.trust === "verified" && !s.isDemo && s.trustState !== "review";
 
@@ -44,6 +45,7 @@ export const rerank = internalMutation({
       if (!s.isDemo) {
         await addMilestones(ctx, s._id, rankMilestones(s.rank, rank, s.name, s.bestRank));
         await addMilestones(ctx, s._id, trendingMilestones(s.trendingRank, trendingRank, s.name));
+        await onRerank(ctx, s, s.rank, rank, eligible.length);
       }
     }
   },

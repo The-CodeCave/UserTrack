@@ -1,8 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { internal } from "./_generated/api";
 import { authComponent } from "./auth";
 import { isValidHandle } from "../src/lib/slug";
+import { setPreferences } from "./email/prefs";
 
 export async function getProfileForUser(ctx: QueryCtx | MutationCtx) {
   const user = await authComponent.safeGetAuthUser(ctx);
@@ -58,8 +58,8 @@ const profileFields = {
 };
 
 export const upsert = mutation({
-  args: profileFields,
-  handler: async (ctx, args) => {
+  args: { ...profileFields, timezone: v.optional(v.string()) },
+  handler: async (ctx, { timezone, ...args }) => {
     const { user, profile } = await getProfileForUser(ctx);
     if (!user) throw new Error("Not signed in");
     if (!isValidHandle(args.username)) throw new Error("Invalid username");
@@ -71,11 +71,12 @@ export const upsert = mutation({
       .unique();
     if (clash && clash._id !== profile?._id) throw new Error("Username already taken");
     const data = { ...args, displayName: args.displayName.trim(), x: handle(args.x), github: handle(args.github), linkedin: handle(args.linkedin), website: args.website?.trim() || undefined };
+    if (timezone) await setPreferences(ctx, user._id, { timezone });
     if (profile) {
       await ctx.db.patch(profile._id, data);
       return profile._id;
     }
-    return ctx.db.insert("profiles", { ...data, userId: user._id, onboardingCompleted: false, digestOptIn: true });
+    return ctx.db.insert("profiles", { ...data, userId: user._id, onboardingCompleted: false });
   },
 });
 
@@ -87,18 +88,3 @@ export const completeOnboarding = mutation({
   },
 });
 
-export const setDigestOptIn = mutation({
-  args: { optIn: v.boolean() },
-  handler: async (ctx, { optIn }) => {
-    const { profile } = await requireProfile(ctx);
-    await ctx.db.patch(profile._id, { digestOptIn: optIn });
-  },
-});
-
-export const previewDigest = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const { profile } = await requireProfile(ctx);
-    await ctx.scheduler.runAfter(0, internal.digest.generateMine, { profileId: profile._id });
-  },
-});

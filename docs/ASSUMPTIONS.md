@@ -40,3 +40,17 @@ Decisions made autonomously during the CodeCraft loop. Each entry: what was assu
 | A28 | Traffic and revenue are **private by default** and only public with an explicit per-SaaS switch. | Brief: only expose if the owner enables it. | – |
 | A29 | Stripe MRR ignores discounts, trials and tax; `active` subscriptions only; up to 2,500 subscriptions per sync. | Simple, conservative, documented in the adapter. | Include `trialing`, discounts. |
 | A30 | **Categories are a fixed list** of 15 slugs (`src/lib/categories.ts`) used for pages, filters and benchmarks; free tags remain. | Stable SEO URLs and benchmark groups. | Add on demand. |
+
+## Email (v0.3)
+- **Silence over noise.** Every non-transactional email is behind a preference, a dedupe key and a rule with an absolute floor. When in doubt the system does not send.
+- **Welcome = verification** for email+password signups: Better Auth's `sendOnSignUp` verification mail is rendered as the welcome template with a "Confirm email & set up your profile" CTA (24h token). Google signups are verified already and get the plain welcome from the user-create trigger. Verification is not required to use the app (`requireEmailVerification: false`), so nothing about signup changed.
+- **Source failure / recovery are transactional** (not disableable): a stale public page is a system-critical condition for a product whose whole point is verified numbers.
+- **Weekly digest defaults to off, monthly report to on.** The mandatory report is the monthly one; the digest is an opt-in extra. Existing `profiles.digestOptIn` is ignored (kept in the schema for old rows).
+- **Per-entity scheduled functions** (`scheduler.runAfter(24h, …)`) replace daily table scans for the two 24h reminders; they are durable across deploys and each carries a dedupe key. Sweeps that must scan (`noGrowthSweep`, `generateMonthly`, `digest.generate`) page through indexes in batches of 50–100 and reschedule themselves.
+- **Ranking thresholds are board-size aware**: entering the Top 100 on a board of 8 products is not an achievement, so a threshold `t` only fires when more than `t` products are ranked.
+- **Rank history** is one number per SaaS per closed day (`dailyMetrics.rank`, written by the daily sweep) — enough for "#14 → #8" in the monthly report without a new table.
+- **Timezone** comes from the browser (`Intl.DateTimeFormat().resolvedOptions().timeZone`) when the profile is saved or the notification page is opened; unknown → UTC 09:00.
+- **Recipient health** lives in `emailRecipients` keyed by address. Hard bounces and complaints suppress everything except password reset and verification, which are attempted regardless (a user locked out of their account is worse than one bounce).
+- **Auth tokens are never persisted** by the email system: reset/verify URLs travel only as scheduled-function arguments (visible transiently in the Convex dashboard's scheduler view, expire in 1h/24h) and are not written into `emailEvents`.
+- **30-day inactivity email is intentionally not implemented**: after the 7-day quiet email there is no second nudge until growth resumes and stops again — a second "still nothing" email adds no information.
+

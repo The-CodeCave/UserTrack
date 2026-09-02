@@ -19,7 +19,8 @@ UserTrack is a public growth and discovery platform for SaaS. Founders connect a
 | **Milestones** | 10 → 1M users, activated thresholds, biggest day/week, top 10 / top 100, best rank, streaks, +X% month, trending top 10. Persisted once; each has a share page + OG image. |
 | **Sharing** | Share cards (`/s/[slug]/share/[kind]`) with 1200×630 PNGs, X/copy/download; SVG badges (`/api/badge/[slug].svg`) with copy-paste HTML/Markdown. |
 | **Discovery** | `/discover` search (name, description, tags, category, founders), Trending Now, Fastest This Week, New, Hidden Gems, Top Dev Tools, Top AI, recent milestones. Category pages, `/trending`, `/fastest-growing-saas`, `/fastest-growing-ai-saas`, `/new-saas`, `/most-new-users`, `/compare`. |
-| **Social** | Follow products and founders; `/app/following` feed; weekly digest (in-app, email via Resend when configured). Profile links: website, X, GitHub, LinkedIn. |
+| **Social** | Follow products and founders; `/app/following` feed; optional weekly digest (in-app + email). Profile links: website, X, GitHub, LinkedIn. |
+| **Email** | Resend-backed, three categories: **transactional** (welcome + verification, password reset, source stopped syncing / recovered), **product nudges** (profile unfinished after 24h, product without source after 24h, first sync confirmed) and **growth** (user milestones 10→1M, Top 100/50/25/10/5/#1, spike ≥2.5× baseline, 7 quiet days, monthly report, weekly digest, followed-product updates). Per-user preferences at `/app/settings/notifications`, signed preference/unsubscribe links, one-click unsubscribe, delivery log with dedupe keys, bounce/complaint suppression. |
 | **Benchmarks** | Daily deciles per group (all / category / size bucket), min sample 5. "Your 30-day growth is ahead of 82% of products your size." |
 | **Public API** | `/api/v1/saas/{slug}`, `/history`, `/milestones`, `/api/v1/leaderboard`, `/api/v1/categories`. Stable DTOs, error envelope, 60 req/min/IP, CORS. |
 | **SEO** | Server-rendered pages, canonical URLs, OG/Twitter metadata, JSON-LD on product pages, `sitemap.xml`, `robots.txt`, custom 404. |
@@ -37,13 +38,17 @@ echo 'NEXT_PUBLIC_SITE_URL=http://localhost:3000' >> .env.local
 npx convex run seed:run   # optional labelled demo data (never ranked)
 pnpm dev                  # http://localhost:3000
 ```
-Useful one-offs: `npx convex run leaderboard:rerank`, `npx convex run daily:run` (milestones, benchmarks, trust review), `npx convex run digest:generate`, `npx convex run seed:clear`.
+Useful one-offs: `npx convex run leaderboard:rerank`, `npx convex run daily:run` (milestones, benchmarks, trust review, quiet-product check), `npx convex run digest:generate`, `npx convex run email/reports:generateMonthly`, `npx convex run seed:clear`.
+
+### Email locally
+Without `RESEND_API_KEY` nothing leaves the machine: every send is still evaluated (preferences, suppression, dedupe) and logged in the `emailEvents` table with `status: failed, error: "email not configured"`, so the whole pipeline is testable from the Convex dashboard. To really send, create a Resend key for `mail.usertrack.dev` and `npx convex env set RESEND_API_KEY re_…`. Templates are plain typed functions (`convex/email/templates`) — `pnpm test` renders every one; to eyeball them, `node scripts/email-preview.mjs` writes HTML files to `/tmp/ut-emails/`. `npx convex run email/testSend:run '{"to":"you@example.com","type":"welcome"}'` sends a real sample to one address.
 
 ## Scripts
 | Command | Purpose |
 |---|---|
 | `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
-| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (57 tests: metrics, trending, trust, milestones, providers, API DTOs, badge, rate limit) |
+| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (115 tests: metrics, trending, trust, milestones, providers, API DTOs, badge, rate limit, email rules, templates, tokens, webhook signatures, and `convex-test` function tests for dedupe / preferences / lifecycle / milestones / reports) |
+| `node scripts/email-preview.mjs` | Render every email template with sample data to `/tmp/ut-emails/*.html` |
 | `pnpm convex:dev` · `pnpm convex:deploy` | Convex dev watch · deploy to prod |
 | `node scripts/smoke.mjs [base] [mobile]` | E2E: sign-up → onboarding → publish → public page → dashboard (needs Chrome) |
 | `node scripts/shot.mjs <url> <out.png> [w] [h] [full]` · `node scripts/console.mjs <urls…>` · `node scripts/og.mjs [base]` | Screenshot · console-error sweep · OG image download |
@@ -57,21 +62,27 @@ Useful one-offs: `npx convex run leaderboard:rerank`, `npx convex run daily:run`
 | Convex prod (`npx convex env set --prod`) | `BETTER_AUTH_SECRET` | yes | Auth secret |
 | | `SITE_URL` | yes | Better Auth base URL / trusted origin, digest links |
 | | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | yes | Google sign-in (OAuth client, redirect URI `<SITE_URL>/api/auth/callback/google`) |
-| | `RESEND_API_KEY`, `DIGEST_FROM_EMAIL` | no | Weekly digest email (see `HUMAN_TODO.md`) |
+| | `RESEND_API_KEY` | for email | Resend sending key for `mail.usertrack.dev` (see `HUMAN_TODO.md`). Missing → emails logged, not sent |
+| | `EMAIL_FROM` · `EMAIL_REPLY_TO` | no | Defaults `UserTrack <noreply@mail.usertrack.dev>` · `hello@usertrack.dev` |
+| | `EMAIL_TOKEN_SECRET` | yes | Signs preference / unsubscribe links (falls back to `BETTER_AUTH_SECRET`) |
+| | `RESEND_WEBHOOK_SECRET` | for delivery state | Svix signing secret of the Resend webhook → `<convex site url>/webhooks/resend` |
 
 Provider credentials (Clerk keys, service accounts, Stripe restricted keys…) are entered by founders in the app and stored only in `integrations.config` on Convex; they are never returned by any query and never reach the browser.
 
 ## Layout
 ```
-convex/                schema, auth, profiles, saas, integrations, sync engine, trust, leaderboard/trending,
+convex/                schema, auth (+ email hooks), profiles, saas, integrations, sync engine, trust, leaderboard/trending,
                        daily jobs (milestones, benchmarks), follows, digest, public queries, seed, crons
+convex/email/          mailer: send (dedupe + prefs + Resend), templates, prefs + signed tokens, lifecycle,
+                       growth (milestones/rank/spike/followers), reports (monthly), webhook, testSend
 convex/providers/      provider adapters behind one interface (clerk, supabase, firebase, auth0, posthog,
                        plausible, ga4, stripe, endpoint, manual) + google service-account helper
 convex/lib/            pure, unit-tested math: metrics, trending, trust, milestones, spikes, retention, benchmarks
 src/app/(public)/      /, /leaderboard, /trending, /discover, /compare, /categories/*, SEO boards, /s/[slug] (+ share/[kind]),
                        /u/[username], /developers, opengraph-image routes
-src/app/api/           /api/v1/* public API, /api/badge/[slug], /api/auth
-src/app/app/           dashboard: overview, saas manage, following, digest, profile, settings, onboarding
+src/app/api/           /api/v1/* public API, /api/badge/[slug], /api/auth (+ /forgot-password, /reset-password pages)
+src/app/app/           dashboard: overview, saas manage, following, digest, reports, profile, settings (+ notifications), onboarding
+src/app/email/         /email/preferences — signed-link preference page (no login)
 src/components/        blueprint primitives, charts (growth w/ annotations, compare), public cards, app forms
 src/lib/               format, categories, providers-ui (setup instructions), share copy, API helpers, badge SVG
 docs/                  ARCHITECTURE · API · BACKLOG · ASSUMPTIONS · DEPLOYMENT · ROADMAP · CHANGELOG

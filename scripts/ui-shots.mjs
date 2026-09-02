@@ -1,0 +1,30 @@
+import { chromium } from "playwright-core";
+const base = "http://localhost:3000";
+const tag = Date.now().toString(36);
+const browser = await chromium.launch({ channel: "chrome", headless: true });
+const shot = async (page, name, full = true) => { await page.waitForTimeout(800); await page.screenshot({ path: `/tmp/ut-shots/ui-${name}.png`, fullPage: full }); console.log("✓", name); };
+const desk = await browser.newPage({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2, colorScheme: "dark" });
+await desk.goto(`${base}/forgot-password`, { waitUntil: "networkidle" }); await shot(desk, "forgot-password");
+await desk.goto(`${base}/reset-password`, { waitUntil: "networkidle" }); await shot(desk, "reset-password-invalid");
+await desk.goto(`${base}/email/preferences?token=bad.token`, { waitUntil: "networkidle" }); await shot(desk, "prefs-invalid-token");
+await desk.goto(`${base}/sign-in`, { waitUntil: "networkidle" }); await shot(desk, "sign-in-forgot-link");
+// sign up a throwaway user and visit the authenticated pages
+await desk.goto(`${base}/sign-up`);
+await desk.fill("#name", "Shot Tester"); await desk.fill("#email", `shot-${tag}@example.com`); await desk.fill("#password", "supersecret123");
+await desk.click("button[type=submit]"); await desk.waitForURL("**/app/onboarding", { timeout: 30000 });
+await desk.waitForSelector("#username", { timeout: 30000 }); await desk.fill("#username", `shot-${tag}`); await desk.click("button[type=submit]"); await desk.waitForSelector("#name", { timeout: 30000 });
+await desk.fill("#name", `Shot SaaS ${tag}`); await desk.fill("#websiteUrl", "https://shot.example.com"); await desk.fill("#description", "Screenshot fixture product."); await desk.selectOption("#category", "developer-tools");
+await desk.click("button[type=submit]"); await desk.waitForSelector("text=Connect a data source", { timeout: 30000 }); await desk.click("text=Manual"); await desk.fill("#totalUsers", "1234");
+await desk.click("button[type=submit]"); await desk.waitForSelector("text=Publish your growth page", { timeout: 30000 }); await desk.click("text=Publish page"); await desk.waitForSelector("text=on the board", { timeout: 30000 });
+await desk.goto(`${base}/app/settings`, { waitUntil: "networkidle" }); await desk.waitForSelector("text=Email notifications", { timeout: 30000 }); await shot(desk, "settings");
+await desk.goto(`${base}/app/settings/notifications`, { waitUntil: "networkidle" }); await desk.waitForSelector("text=Ranking milestones", { timeout: 30000 }); await shot(desk, "notifications");
+// toggle two switches to show persisted state
+const sw = desk.locator("[data-slot=switch]"); await sw.nth(1).click(); await sw.nth(5).click(); await desk.waitForTimeout(800); await desk.reload({ waitUntil: "networkidle" }); await desk.waitForSelector("text=Ranking milestones"); await shot(desk, "notifications-toggled");
+await desk.goto(`${base}/app/reports`, { waitUntil: "networkidle" }); await desk.waitForSelector("text=Monthly growth reports", { timeout: 30000 }); await shot(desk, "reports-empty");
+await desk.click("text=Build last month now"); await desk.waitForTimeout(1500); await shot(desk, "reports-no-data-toast", false);
+const cookies = await desk.context().cookies();
+const mob = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, colorScheme: "dark" });
+await mob.context().addCookies(cookies);
+await mob.goto(`${base}/app/settings/notifications`, { waitUntil: "networkidle" }); await mob.waitForSelector("text=Ranking milestones", { timeout: 30000 }); await shot(mob, "notifications-mobile");
+await mob.goto(`${base}/forgot-password`, { waitUntil: "networkidle" }); await shot(mob, "forgot-password-mobile");
+await browser.close(); console.log("DONE", `shot-${tag}@example.com`);

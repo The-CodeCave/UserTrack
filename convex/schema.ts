@@ -17,6 +17,16 @@ export const providerKind = v.union(
 export const integrationRole = v.union(v.literal("users"), v.literal("activation"), v.literal("traffic"), v.literal("revenue"));
 export const syncStatus = v.union(v.literal("ok"), v.literal("error"), v.literal("running"));
 export const trustState = v.union(v.literal("healthy"), v.literal("anomaly"), v.literal("review"), v.literal("low_confidence"));
+export const emailStatus = v.union(
+  v.literal("queued"),
+  v.literal("sent"),
+  v.literal("delivered"),
+  v.literal("bounced"),
+  v.literal("complained"),
+  v.literal("failed"),
+  v.literal("skipped"),
+);
+export const recipientStatus = v.union(v.literal("active"), v.literal("bounced"), v.literal("complained"), v.literal("suppressed"));
 
 export default defineSchema({
   profiles: defineTable({
@@ -123,6 +133,9 @@ export default defineSchema({
     consecutiveFailures: v.optional(v.number()),
     connectedAt: v.optional(v.number()),
     backfilledAt: v.optional(v.number()),
+    // Email health state machine: one failure mail per unhealthy episode, one recovery mail when it ends.
+    healthState: v.optional(v.union(v.literal("healthy"), v.literal("unhealthy"))),
+    unhealthySince: v.optional(v.number()),
   })
     .index("by_saas", ["saasId"])
     .index("by_saas_role", ["saasId", "role"]),
@@ -151,6 +164,8 @@ export default defineSchema({
     payingUsers: v.optional(v.number()),
     mrr: v.optional(v.number()),
     activeUsers30d: v.optional(v.number()),
+    // Leaderboard rank at the end of the day (written by the daily sweep), used for monthly rank deltas.
+    rank: v.optional(v.number()),
   }).index("by_saas_day", ["saasId", "day"]),
 
   syncRuns: defineTable({
@@ -254,4 +269,66 @@ export default defineSchema({
   })
     .index("by_profile_week", ["profileId", "weekKey"])
     .index("by_week", ["weekKey"]),
+
+  // Per-user email preferences (Better Auth userId, so users without a profile are covered). Missing row = defaults.
+  emailPreferences: defineTable({
+    userId: v.string(),
+    productNudges: v.boolean(),
+    growthMilestones: v.boolean(),
+    rankingMilestones: v.boolean(),
+    growthAlerts: v.boolean(),
+    monthlyReport: v.boolean(),
+    weeklyDigest: v.boolean(),
+    followedSaasUpdates: v.boolean(),
+    timezone: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_userId", ["userId"]),
+
+  // Delivery log + dedupe ledger. `dedupeKey` is unique: reserving a row is what makes a send idempotent.
+  emailEvents: defineTable({
+    userId: v.optional(v.string()),
+    emailType: v.string(),
+    category: v.union(v.literal("transactional"), v.literal("product"), v.literal("growth")),
+    saasId: v.optional(v.id("saas")),
+    milestoneId: v.optional(v.id("milestones")),
+    recipient: v.string(),
+    dedupeKey: v.string(),
+    status: emailStatus,
+    attempts: v.number(),
+    scheduledAt: v.optional(v.number()),
+    sentAt: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
+    providerMessageId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    // Template data (never secrets or auth tokens) plus skip reasons.
+    metadata: v.optional(v.any()),
+    createdAt: v.number(),
+  })
+    .index("by_dedupe", ["dedupeKey"])
+    .index("by_user_time", ["userId", "createdAt"])
+    .index("by_saas_type_time", ["saasId", "emailType", "createdAt"])
+    .index("by_provider_message", ["providerMessageId"])
+    .index("by_status_time", ["status", "createdAt"]),
+
+  // Recipient health from Resend webhooks. Hard bounces / complaints suppress non-essential mail.
+  emailRecipients: defineTable({
+    email: v.string(),
+    status: recipientStatus,
+    reason: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_email", ["email"]),
+
+  // One consolidated report per profile per calendar month; the email is sent from this row.
+  monthlyReports: defineTable({
+    profileId: v.id("profiles"),
+    userId: v.string(),
+    period: v.string(),
+    payload: v.any(),
+    deliverAt: v.number(),
+    createdAt: v.number(),
+    sentAt: v.optional(v.number()),
+    emailEventId: v.optional(v.id("emailEvents")),
+  })
+    .index("by_profile_period", ["profileId", "period"])
+    .index("by_period", ["period"]),
 });
