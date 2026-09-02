@@ -1,18 +1,19 @@
 import { v } from "convex/values";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, type MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { DAY, HOUR, dayKey } from "./lib/time";
-import { growthPct, windowDelta } from "./lib/metrics";
+import { recomputeDerived } from "./sync";
 
 const DEMO = [
-  { name: "Northwind Analytics", slug: "demo-northwind", description: "Product analytics for indie SaaS teams.", tags: ["analytics", "devtools"], start: 4200, growth: 0.032, site: "https://northwind.example" },
-  { name: "Ledgerly", slug: "demo-ledgerly", description: "Bookkeeping that closes itself.", tags: ["fintech"], start: 12800, growth: 0.011, site: "https://ledgerly.example" },
-  { name: "Pixelpost", slug: "demo-pixelpost", description: "Schedule and design social posts in one place.", tags: ["marketing", "social"], start: 900, growth: 0.06, site: "https://pixelpost.example" },
-  { name: "Formwave", slug: "demo-formwave", description: "Forms and surveys with instant dashboards.", tags: ["forms", "nocode"], start: 2300, growth: 0.02, site: "https://formwave.example" },
-  { name: "Shipnote", slug: "demo-shipnote", description: "Changelogs your users actually read.", tags: ["devtools"], start: 640, growth: 0.045, site: "https://shipnote.example" },
+  { name: "Northwind Analytics", slug: "demo-northwind", description: "Product analytics for indie SaaS teams.", category: "analytics", tags: ["analytics", "devtools"], start: 4200, growth: 0.032, site: "https://northwind.example", activation: 0.62 },
+  { name: "Ledgerly", slug: "demo-ledgerly", description: "Bookkeeping that closes itself.", category: "fintech", tags: ["fintech"], start: 12800, growth: 0.011, site: "https://ledgerly.example" },
+  { name: "Pixelpost", slug: "demo-pixelpost", description: "Schedule and design social posts in one place.", category: "marketing", tags: ["marketing", "social"], start: 900, growth: 0.06, site: "https://pixelpost.example", activation: 0.48 },
+  { name: "Formwave", slug: "demo-formwave", description: "Forms and surveys with instant dashboards.", category: "no-code", tags: ["forms", "nocode"], start: 2300, growth: 0.02, site: "https://formwave.example" },
+  { name: "Shipnote", slug: "demo-shipnote", description: "Changelogs your users actually read.", category: "developer-tools", tags: ["devtools"], start: 640, growth: 0.045, site: "https://shipnote.example", activation: 0.71 },
 ];
 
-// Labelled demo data so the board is never empty. Idempotent: skips if the demo profile exists.
+// Labelled demo data so the board is never empty. Idempotent: skips if the demo profile exists. Never ranked.
 export const run = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -22,7 +23,7 @@ export const run = internalMutation({
     const now = Date.now();
     for (const [i, d] of DEMO.entries()) {
       const saasId = await ctx.db.insert("saas", {
-        ownerId, name: d.name, slug: d.slug, description: d.description, websiteUrl: d.site, tags: d.tags,
+        ownerId, name: d.name, slug: d.slug, description: d.description, websiteUrl: d.site, tags: d.tags, category: d.category,
         isPublic: true, isDemo: true, trust: "verified", totalUsers: 0, newUsers24h: 0, newUsers7d: 0, newUsers30d: 0, growth30dPct: 0,
       });
       const points: { capturedAt: number; totalUsers: number }[] = [];
@@ -42,39 +43,61 @@ export const run = internalMutation({
         byDay.set(dayKey(p.capturedAt), p.totalUsers);
       }
       let prevTotal = points[0].totalUsers;
+      let prevActivated: number | null = null;
       for (const [day, totalUsers] of byDay) {
-        await ctx.db.insert("dailyMetrics", { saasId, day, totalUsers, newUsers: totalUsers - prevTotal });
+        const activatedUsers = d.activation ? Math.round(totalUsers * d.activation) : undefined;
+        await ctx.db.insert("dailyMetrics", { saasId, day, totalUsers, newUsers: totalUsers - prevTotal, activatedUsers, newActivated: activatedUsers !== undefined && prevActivated !== null ? activatedUsers - prevActivated : undefined });
         prevTotal = totalUsers;
+        prevActivated = activatedUsers ?? null;
       }
-      const first = points[0];
       const last = points[points.length - 1];
-      const at = (cut: number) => [...points].reverse().find((p) => p.capturedAt <= cut) ?? null;
-      await ctx.db.patch(saasId, {
-        totalUsers: last.totalUsers,
-        newUsers24h: windowDelta(last.totalUsers, at(now - DAY), first),
-        newUsers7d: windowDelta(last.totalUsers, at(now - 7 * DAY), first),
-        newUsers30d: windowDelta(last.totalUsers, at(now - 30 * DAY), first),
-        growth30dPct: growthPct(last.totalUsers, at(now - 30 * DAY), first),
-        lastSyncedAt: now - HOUR,
-        firstSnapshotAt: first.capturedAt,
-      });
+      if (d.activation) {
+        const activated = Math.round(last.totalUsers * d.activation);
+        await ctx.db.patch(saasId, { activatedUsers: activated, activated24h: Math.round(activated * 0.01), activated7d: Math.round(activated * 0.06), activated30d: Math.round(activated * 0.2) });
+      }
+      await ctx.db.patch(saasId, { lastSyncedAt: now - HOUR, trustScore: 80, trustState: "healthy" });
+      await recomputeDerived(ctx, saasId);
     }
     await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
     return "seeded";
   },
 });
 
+// Patches metadata (category) on existing demo rows without touching any metrics.
+export const refresh = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let n = 0;
+    for (const d of DEMO) {
+      const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", d.slug)).unique();
+      if (!s?.isDemo) continue;
+      await ctx.db.patch(s._id, { category: d.category });
+      await recomputeDerived(ctx, s._id);
+      n++;
+    }
+    await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
+    return `refreshed ${n}`;
+  },
+});
+
+async function removeSaas(ctx: MutationCtx, id: Id<"saas">) {
+  for (const r of await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
+  for (const r of await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
+  for (const r of await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
+  for (const r of await ctx.db.query("syncRuns").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
+  for (const r of await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
+  for (const r of await ctx.db.query("events").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
+  for (const r of await ctx.db.query("fraudFlags").withIndex("by_saas", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
+  for (const r of await ctx.db.query("follows").withIndex("by_target", (q) => q.eq("targetType", "saas").eq("targetId", id)).collect()) await ctx.db.delete(r._id);
+  await ctx.db.delete(id);
+}
+
 export const clear = internalMutation({
   args: {},
   handler: async (ctx) => {
     const p = await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", "demo")).unique();
     if (!p) return "nothing to clear";
-    const list = await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", p._id)).collect();
-    for (const s of list) {
-      for (const r of await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).collect()) await ctx.db.delete(r._id);
-      for (const r of await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id)).collect()) await ctx.db.delete(r._id);
-      await ctx.db.delete(s._id);
-    }
+    for (const s of await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", p._id)).collect()) await removeSaas(ctx, s._id);
     await ctx.db.delete(p._id);
     await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
     return "cleared";
@@ -88,13 +111,9 @@ export const removeProfile = internalMutation({
     const p = await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", username)).unique();
     if (!p) return "not found";
     const list = await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", p._id)).collect();
-    for (const s of list) {
-      for (const t of ["integrations"] as const) for (const r of await ctx.db.query(t).withIndex("by_saas", (q) => q.eq("saasId", s._id)).collect()) await ctx.db.delete(r._id);
-      for (const r of await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).collect()) await ctx.db.delete(r._id);
-      for (const r of await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id)).collect()) await ctx.db.delete(r._id);
-      for (const r of await ctx.db.query("syncRuns").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).collect()) await ctx.db.delete(r._id);
-      await ctx.db.delete(s._id);
-    }
+    for (const s of list) await removeSaas(ctx, s._id);
+    for (const r of await ctx.db.query("follows").withIndex("by_follower", (q) => q.eq("followerId", p._id)).collect()) await ctx.db.delete(r._id);
+    for (const r of await ctx.db.query("digests").withIndex("by_profile_week", (q) => q.eq("profileId", p._id)).collect()) await ctx.db.delete(r._id);
     await ctx.db.delete(p._id);
     await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
     return `removed ${username} (${list.length} saas)`;
