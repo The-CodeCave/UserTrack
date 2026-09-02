@@ -95,7 +95,7 @@ export default function OnboardingPage() {
               <Panel className="p-6">
                 <SectionLabel>Step 3 of 4</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Connect a data source</h1>
-                <p className="mb-6 mt-1 text-sm text-muted-foreground">Read-only. Synced every 4 hours. Verified sources get ranked.</p>
+                <p className="mb-6 mt-1 text-sm text-muted-foreground">Read-only. Synced every 4 hours. Verified sources get ranked — traffic, activation and revenue can be added later.</p>
                 <ConnectSource saasId={saasId} onConnected={() => setStep(3)} />
               </Panel>
             )}
@@ -112,14 +112,14 @@ export default function OnboardingPage() {
                   <div className="text-label mt-3">Total users</div>
                   <div className="tabular text-4xl font-semibold text-pink">{formatCompact(saas.totalUsers)}</div>
                 </div>
-                {saas.integration && <div className="mb-6"><SourceStatus saasId={saas._id} integration={saas.integration} totalUsers={saas.totalUsers} trust={saas.trust} /></div>}
+                {saas.integrations[0] && <div className="mb-6"><SourceStatus saasId={saas._id} integration={saas.integrations[0]} totalUsers={saas.totalUsers} trust={saas.trust} trustLabel={saas.trustLabel} /></div>}
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Button className="h-11" onClick={publish}>Publish page</Button>
                   <Button variant="ghost" className="h-11" onClick={() => setStep(2)}>Change source</Button>
                 </div>
               </Panel>
             )}
-            {step === 4 && saas && <Celebrate slug={saas.slug} />}
+            {step === 4 && saas && <Celebrate slug={saas.slug} id={saas._id} />}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -127,7 +127,7 @@ export default function OnboardingPage() {
   );
 }
 
-function Celebrate({ slug }: { slug: string }) {
+function Celebrate({ slug, id }: { slug: string; id: Id<"saas"> }) {
   const url = saasUrl(slug);
   const [copied, setCopied] = useState(false);
   return (
@@ -144,6 +144,11 @@ function Celebrate({ slug }: { slug: string }) {
       <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-center">
         <Button className="h-11" render={<a href={url} target="_blank" rel="noreferrer" />}>Open page <ExternalLink className="size-4" /></Button>
         <Button variant="outline" className="h-11" render={<Link href="/app" />}>Go to dashboard</Button>
+      </div>
+      <div className="mt-6 border-t border-line pt-4 text-left">
+        <div className="text-label">Next: activation (optional)</div>
+        <p className="mt-1 text-xs text-muted-foreground">Signups are a weak signal. Add an activation event (PostHog, Supabase table or your endpoint) to show activated users, activation rate and a stronger trending score.</p>
+        <Button variant="ghost" size="sm" className="mt-2 px-0 text-pink" render={<Link href={`/app/saas/${id}`} />}>Set up activation →</Button>
       </div>
     </Panel>
   );

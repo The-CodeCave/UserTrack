@@ -29,6 +29,7 @@ await step("03-onboarding-saas", async () => {
   await page.fill("#name", `Smoke SaaS ${tag}`);
   await page.fill("#websiteUrl", "https://smoke.example.com");
   await page.fill("#description", "Smoke-test product created by the e2e script.");
+  await page.selectOption("#category", "developer-tools");
   await page.fill("#tags", "testing, e2e");
 });
 await step("04-onboarding-source", async () => {
@@ -49,7 +50,7 @@ await step("06-celebrate", async () => {
 const slugLink = await page.locator("a:has-text('Open page')").getAttribute("href");
 await step("07-public-page", async () => { await page.goto(slugLink); await page.waitForSelector("text=Self-reported"); });
 await step("08-dashboard", async () => { await page.goto(`${base}/app`); await page.waitForSelector("text=Your growth at a glance", { timeout: 30000 }); });
-await step("09-manage", async () => { await page.goto(`${base}/app/saas`); await page.click(`text=Smoke SaaS ${tag}`); await page.waitForSelector("text=Data source", { timeout: 30000 }); });
+await step("09-manage", async () => { await page.goto(`${base}/app/saas`); await page.click(`text=Smoke SaaS ${tag}`); await page.waitForSelector("text=User count source", { timeout: 30000 }); });
 await step("10-signed-out-redirect", async () => {
   await page.context().clearCookies();
   await page.goto(`${base}/app`);

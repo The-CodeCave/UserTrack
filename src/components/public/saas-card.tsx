@@ -1,24 +1,43 @@
 import Link from "next/link";
 import { Panel } from "@/components/blueprint/panel";
 import { TrustBadge, type Trust } from "@/components/blueprint/trust-badge";
+import { MovementTag, type Movement } from "@/components/blueprint/movement";
 import { Sparkline } from "@/components/charts/sparkline";
-import { formatCompact, formatDelta, formatPct } from "@/lib/format";
+import { formatCompact, formatDelta, formatPct, formatRate } from "@/lib/format";
+import { categoryLabel } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 
 export interface SaasRow {
+  _id: string;
   slug: string;
   name: string;
   logoUrl?: string;
   description: string;
+  category?: string;
   trust: Trust;
+  trustLabel?: string;
   rank?: number;
+  trendingRank?: number;
   isDemo?: boolean;
   totalUsers: number;
+  newUsers24h: number;
+  newUsers7d: number;
   newUsers30d: number;
+  growth7dPct?: number;
   growth30dPct: number;
+  activatedUsers?: number;
+  activated7d?: number;
+  activated30d?: number;
+  activationRatePct?: number;
+  trendingScore7d?: number;
   spark: number[];
   owner?: { username: string; displayName: string } | null;
+  movement?: Movement;
+  explain?: string;
 }
+
+export type BoardKind = "trending" | "fastest" | "most-users" | "most-new" | "most-activated" | "activation-rate" | "new-rising";
+export type Window = "24h" | "7d" | "30d";
 
 export function SaasLogo({ name, logoUrl, size = 40, className }: { name: string; logoUrl?: string; size?: number; className?: string }) {
   return logoUrl ? (
@@ -29,30 +48,46 @@ export function SaasLogo({ name, logoUrl, size = 40, className }: { name: string
   );
 }
 
-export function LeaderboardRow({ s, position }: { s: SaasRow; position: number }) {
+// The primary number depends on the board; the secondary line explains it.
+export function primaryMetric(s: SaasRow, board: BoardKind, w: Window) {
+  const newIn = w === "24h" ? s.newUsers24h : w === "7d" ? s.newUsers7d : s.newUsers30d;
+  const growth = w === "30d" ? s.growth30dPct : w === "7d" ? (s.growth7dPct ?? 0) : s.totalUsers - s.newUsers24h > 0 ? (s.newUsers24h / (s.totalUsers - s.newUsers24h)) * 100 : 0;
+  switch (board) {
+    case "trending": return { label: `New · ${w}`, value: formatDelta(newIn), sub: s.explain ?? formatPct(growth) };
+    case "fastest": return { label: `Growth · ${w}`, value: formatPct(growth), sub: `${formatDelta(newIn)} users` };
+    case "most-users": return { label: "Total users", value: formatCompact(s.totalUsers), sub: `${formatDelta(newIn)} · ${w}` };
+    case "most-activated": return { label: `Activated · ${w}`, value: formatDelta((w === "24h" ? undefined : w === "7d" ? s.activated7d : s.activated30d) ?? s.activatedUsers ?? 0), sub: `${formatRate(s.activationRatePct)} activation` };
+    case "activation-rate": return { label: "Activation rate", value: formatRate(s.activationRatePct), sub: `${formatCompact(s.activatedUsers ?? 0)} activated` };
+    case "new-rising": return { label: "New · 7d", value: formatDelta(s.newUsers7d), sub: formatPct(s.growth7dPct ?? 0) };
+    default: return { label: `New · ${w}`, value: formatDelta(newIn), sub: formatPct(growth) };
+  }
+}
+
+export function LeaderboardRow({ s, position, board = "most-new", window = "30d" }: { s: SaasRow; position: number; board?: BoardKind; window?: Window }) {
+  const m = primaryMetric(s, board, window);
   return (
     <Link href={`/s/${s.slug}`} className="group block">
-      <Panel className="grid grid-cols-[2rem_1fr_auto] items-center gap-3 p-3 transition-colors group-hover:border-line-strong sm:grid-cols-[2.5rem_1fr_6rem_6rem_5rem_4rem] sm:gap-4 sm:px-4">
+      <Panel className="grid grid-cols-[2rem_1fr_auto] items-center gap-3 p-3 transition-colors group-hover:border-line-strong sm:grid-cols-[2.5rem_1fr_6rem_7rem_5rem_3.5rem] sm:gap-4 sm:px-4">
         <div className={cn("font-mono text-sm", position <= 3 ? "text-pink" : "text-muted-foreground")}>{String(position).padStart(2, "0")}</div>
         <div className="flex min-w-0 items-center gap-3">
           <SaasLogo name={s.name} logoUrl={s.logoUrl} size={36} />
           <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2 font-medium"><span className="truncate">{s.name}</span><TrustBadge trust={s.trust} className="hidden shrink-0 sm:inline-flex" />{s.isDemo && <DemoTag />}</div>
-            <div className="truncate font-mono text-[11px] text-muted-foreground">{s.owner ? `@${s.owner.username}` : ""}{s.owner && s.description ? " · " : ""}{s.description}</div>
+            <div className="flex min-w-0 items-center gap-2 font-medium"><span className="truncate">{s.name}</span><TrustBadge trust={s.trust} label={s.trustLabel} className="hidden shrink-0 sm:inline-flex" />{s.isDemo && <DemoTag />}</div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground">{s.category ? `${categoryLabel(s.category)} · ` : ""}{s.owner ? `@${s.owner.username} · ` : ""}{s.description}</div>
           </div>
         </div>
         <Sparkline values={s.spark} className="hidden text-foreground sm:block" />
         <div className="text-right sm:text-left">
-          <div className="text-label sm:hidden">30d</div>
-          <div className="font-semibold text-pink">{formatDelta(s.newUsers30d)}</div>
-          <div className="hidden font-mono text-[11px] text-muted-foreground sm:block">{formatPct(s.growth30dPct)}</div>
+          <div className="text-label sm:hidden">{m.label}</div>
+          <div className="font-semibold text-pink">{m.value}</div>
+          <div className="hidden truncate font-mono text-[11px] text-muted-foreground sm:block" title={m.sub}>{m.sub}</div>
         </div>
         <div className="col-span-3 flex items-center justify-between border-t border-line pt-2 sm:col-span-1 sm:block sm:border-0 sm:pt-0">
           <span className="text-label sm:hidden">Total users</span>
           <span className="font-semibold">{formatCompact(s.totalUsers)}</span>
-          <TrustBadge trust={s.trust} className="sm:hidden" />
+          <span className="flex items-center gap-2 sm:hidden"><MovementTag m={s.movement ?? null} /><TrustBadge trust={s.trust} label={s.trustLabel} /></span>
         </div>
-        <div className="hidden font-mono text-[11px] text-muted-foreground sm:block">{s.rank ? `#${s.rank}` : "—"}</div>
+        <div className="hidden sm:block"><MovementTag m={s.movement ?? null} /></div>
       </Panel>
     </Link>
   );
@@ -60,4 +95,22 @@ export function LeaderboardRow({ s, position }: { s: SaasRow; position: number }
 
 export function DemoTag() {
   return <span className="shrink-0 border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Demo</span>;
+}
+
+export function MiniSaasCard({ s, metric }: { s: SaasRow; metric?: { label: string; value: string } }) {
+  return (
+    <Link href={`/s/${s.slug}`} className="group block">
+      <Panel className="flex h-full items-center gap-3 p-3 transition-colors group-hover:border-line-strong">
+        <SaasLogo name={s.name} logoUrl={s.logoUrl} size={36} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 font-medium"><span className="truncate">{s.name}</span>{s.isDemo && <DemoTag />}</div>
+          <div className="truncate font-mono text-[11px] text-muted-foreground">{formatCompact(s.totalUsers)} users · {categoryLabel(s.category)}</div>
+        </div>
+        <div className="text-right">
+          <div className="font-semibold text-pink">{metric?.value ?? formatDelta(s.newUsers7d)}</div>
+          <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{metric?.label ?? "7d"}</div>
+        </div>
+      </Panel>
+    </Link>
+  );
 }

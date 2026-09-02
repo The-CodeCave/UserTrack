@@ -8,6 +8,7 @@ import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { SaasLogo } from "@/components/public/saas-card";
+import { FollowButton } from "@/components/public/follow-button";
 import { Sparkline } from "@/components/charts/sparkline";
 import { formatCompact, formatDelta } from "@/lib/format";
 import { profileUrl } from "@/lib/site";
@@ -21,7 +22,7 @@ export async function generateMetadata({ params }: { params: Promise<{ username:
   const total = p.saas.reduce((a, s) => a + s.totalUsers, 0);
   const title = `${p.displayName} (@${p.username})`;
   const description = `${p.saas.length} SaaS · ${formatCompact(total)} users tracked on UserTrack.${p.bio ? ` ${p.bio}` : ""}`;
-  return { title, description, openGraph: { title, description, url: profileUrl(username) } };
+  return { title, description, alternates: { canonical: profileUrl(username) }, openGraph: { title, description, url: profileUrl(username) } };
 }
 
 export default async function ProfilePage({ params }: { params: Promise<{ username: string }> }) {
@@ -33,23 +34,27 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:py-12">
-      <div className="flex items-start gap-4 sm:gap-6">
-        <div className="grid size-16 shrink-0 place-items-center border border-line bg-card font-mono text-xl sm:size-20">
-          {p.avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={p.avatarUrl} alt="" className="size-full object-cover" />
-          ) : p.displayName.slice(0, 1).toUpperCase()}
-        </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-3xl font-semibold tracking-tight">{p.displayName}</h1>
-          <div className="font-mono text-sm text-muted-foreground">@{p.username}</div>
-          {p.bio && <p className="mt-2 text-muted-foreground">{p.bio}</p>}
-          <div className="mt-3 flex flex-wrap gap-4 font-mono text-[11px] text-muted-foreground">
-            {p.website && <a href={p.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-foreground"><Globe className="size-3" />{new URL(p.website).hostname}</a>}
-            {p.x && <a href={`https://x.com/${p.x}`} target="_blank" rel="noreferrer" className="hover:text-foreground">𝕏 @{p.x}</a>}
-            {p.github && <a href={`https://github.com/${p.github}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-foreground">gh/{p.github}</a>}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+        <div className="flex flex-1 items-start gap-4">
+          <div className="grid size-16 shrink-0 place-items-center border border-line bg-card font-mono text-xl sm:size-20">
+            {p.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={p.avatarUrl} alt="" className="size-full object-cover" />
+            ) : p.displayName.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-3xl font-semibold tracking-tight">{p.displayName}</h1>
+            <div className="font-mono text-sm text-muted-foreground">@{p.username}</div>
+            {p.bio && <p className="mt-2 text-muted-foreground">{p.bio}</p>}
+            <div className="mt-3 flex flex-wrap gap-4 font-mono text-[11px] text-muted-foreground">
+              {p.website && <a href={p.website} target="_blank" rel="noreferrer me" className="inline-flex items-center gap-1 hover:text-foreground"><Globe className="size-3" />{new URL(p.website).hostname}</a>}
+              {p.x && <a href={`https://x.com/${p.x}`} target="_blank" rel="noreferrer me" className="hover:text-foreground">𝕏 @{p.x}</a>}
+              {p.github && <a href={`https://github.com/${p.github}`} target="_blank" rel="noreferrer me" className="hover:text-foreground">gh/{p.github}</a>}
+              {p.linkedin && <a href={`https://linkedin.com/in/${p.linkedin}`} target="_blank" rel="noreferrer me" className="hover:text-foreground">in/{p.linkedin}</a>}
+            </div>
           </div>
         </div>
+        <FollowButton targetType="profile" targetId={p._id} count={p.followerCount} />
       </div>
 
       <div className="mt-8 grid grid-cols-3 gap-2">
@@ -67,7 +72,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
               <div className="flex items-center gap-3">
                 <SaasLogo name={s.name} logoUrl={s.logoUrl} size={36} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 truncate font-medium">{s.name}<TrustBadge trust={s.trust} /></div>
+                  <div className="flex items-center gap-2 truncate font-medium">{s.name}<TrustBadge trust={s.trust} label={s.trustLabel} /></div>
                   <div className="truncate text-xs text-muted-foreground">{s.description}</div>
                 </div>
               </div>

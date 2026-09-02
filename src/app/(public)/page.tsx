@@ -7,14 +7,15 @@ import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { DemoChart } from "@/components/public/demo-chart";
-import { LeaderboardRow } from "@/components/public/saas-card";
+import { LeaderboardRow, MiniSaasCard } from "@/components/public/saas-card";
 import { formatCompact } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function LandingPage() {
-  const [top, stats] = await Promise.all([
+  const [top, trending, stats] = await Promise.all([
     fetchQuery(api.public.leaderboard, { verifiedOnly: false, limit: 5 }),
+    fetchQuery(api.public.board, { board: "trending", window: "7d", verifiedOnly: false, limit: 3 }),
     fetchQuery(api.public.stats, {}),
   ]);
 
@@ -61,9 +62,9 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-6xl px-4 py-16">
           <SectionLabel>How it works</SectionLabel>
           <div className="mt-6 grid gap-3 md:grid-cols-3">
-            <Step n="01" Icon={Plug} title="Connect a source" text="Clerk, Supabase or your own JSON endpoint. Read-only keys, stored server-side, never shown again." />
-            <Step n="02" Icon={LineChart} title="We snapshot every 4h" text="Immutable snapshots build your history. Derived metrics: total, new users 24h / 7d / 30d, growth %." />
-            <Step n="03" Icon={Share2} title="Share your page" text="A public page with a live chart and a custom preview image for X, Slack and iMessage." />
+            <Step n="01" Icon={Plug} title="Connect a source" text="Clerk, Supabase, Firebase, Auth0 or your own JSON endpoint. Read-only keys, stored server-side, never shown again. Add PostHog for activation, Plausible / GA4 for traffic, Stripe for revenue." />
+            <Step n="02" Icon={LineChart} title="We snapshot every 4h" text="Immutable snapshots build your history. Total, new users, activation, retention, trending score, milestones and benchmarks — computed, never typed." />
+            <Step n="03" Icon={Share2} title="Share it" text="A public growth page, milestone cards with custom preview images, an embeddable badge and a public API." />
           </div>
         </div>
       </section>
@@ -87,10 +88,27 @@ export default async function LandingPage() {
               tiebreak: growth_30d_pct, total_users<br />
               where trust = <span className="text-pink">verified</span> and public = true
             </div>
-            <div className="mt-4 text-xs text-muted-foreground">Growth beats size. A 2-week-old product with 400 new users outranks a 50k-user product that stalled.</div>
+            <div className="mt-4 text-xs text-muted-foreground">Growth beats size. A 2-week-old product with 400 new users outranks a 50k-user product that stalled. Unusual jumps put a product “under review” until the next steady week — never silently ranked.</div>
           </Panel>
         </div>
       </section>
+
+      {trending.length > 0 && (
+        <section className="border-t border-line">
+          <div className="mx-auto max-w-6xl px-4 py-16">
+            <div className="flex items-end justify-between">
+              <div>
+                <SectionLabel>Trending · 7d</SectionLabel>
+                <h2 className="mt-3 text-3xl font-semibold tracking-tight">Momentum right now</h2>
+              </div>
+              <Button variant="ghost" render={<Link href="/trending" />}>Trending board <ArrowRight className="size-4" /></Button>
+            </div>
+            <div className="mt-6 grid gap-3 md:grid-cols-3">
+              {trending.map((s) => <MiniSaasCard key={s._id} s={s} />)}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="border-t border-line">
         <div className="mx-auto max-w-6xl px-4 py-16">

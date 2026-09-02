@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-type Initial = Partial<Pick<Doc<"profiles">, "username" | "displayName" | "avatarUrl" | "bio" | "website" | "x" | "github">>;
+type Initial = Partial<Pick<Doc<"profiles">, "username" | "displayName" | "avatarUrl" | "bio" | "website" | "x" | "github" | "linkedin">>;
 
 export function ProfileForm({
   initial,
@@ -45,7 +45,7 @@ export function ProfileForm({
     const opt = (k: string) => String(fd.get(k) ?? "").trim() || undefined;
     setSaving(true);
     try {
-      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: opt("x"), github: opt("github"), avatarUrl: opt("avatarUrl") });
+      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: opt("x"), github: opt("github"), linkedin: opt("linkedin"), avatarUrl: opt("avatarUrl") });
       toast.success("Profile saved");
       onSaved?.();
     } catch (err) {
@@ -88,6 +88,7 @@ export function ProfileForm({
           <Field label="Website" name="website" defaultValue={initial?.website} placeholder="https://yourdomain.com" type="url" />
           <Field label="X handle" name="x" defaultValue={initial?.x} placeholder="ada" />
           <Field label="GitHub" name="github" defaultValue={initial?.github} placeholder="ada" />
+          <Field label="LinkedIn" name="linkedin" defaultValue={initial?.linkedin} placeholder="ada-lovelace" />
         </div>
       )}
       <Button type="submit" className="h-11 w-full sm:w-auto" disabled={saving || status === "taken" || status === "invalid"}>

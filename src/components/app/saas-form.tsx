@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { CATEGORIES } from "@/lib/categories";
 
 export function SaasForm({
   initial,
@@ -33,6 +34,7 @@ export function SaasForm({
       websiteUrl: s("websiteUrl"),
       description: s("description"),
       logoUrl: s("logoUrl") || undefined,
+      category: s("category") || undefined,
       tags: s("tags").split(",").map((t) => t.trim()).filter(Boolean),
     };
     setSaving(true);
@@ -58,9 +60,16 @@ export function SaasForm({
         <Textarea id="description" name="description" defaultValue={initial?.description} placeholder="Product analytics for indie SaaS." maxLength={160} rows={2} required className="bg-background" />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Logo URL (optional)" name="logoUrl" defaultValue={initial?.logoUrl} placeholder="https://acme.com/logo.png" type="url" />
+        <div className="space-y-1.5">
+          <Label htmlFor="category" className="text-label">Category</Label>
+          <select id="category" name="category" defaultValue={initial?.category ?? ""} required className="h-11 w-full border border-input bg-background px-3 text-sm">
+            <option value="" disabled>Pick a category</option>
+            {CATEGORIES.map((c) => <option key={c.slug} value={c.slug}>{c.label}</option>)}
+          </select>
+        </div>
         <Field label="Tags (comma separated)" name="tags" defaultValue={initial?.tags.join(", ")} placeholder="analytics, devtools" />
       </div>
+      <Field label="Logo URL (optional)" name="logoUrl" defaultValue={initial?.logoUrl} placeholder="https://acme.com/logo.png" type="url" />
       {initial && <Field label="Slug" name="slug" defaultValue={initial.slug} placeholder="acme" className="font-mono" />}
       <Button type="submit" className="h-11 w-full sm:w-auto" disabled={saving}>
         {saving && <Loader2 className="size-4 animate-spin" />}
