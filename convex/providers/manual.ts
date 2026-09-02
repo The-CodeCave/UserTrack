@@ -6,6 +6,8 @@ export interface ManualConfig { totalUsers: number }
 export const manual: Provider<ManualConfig> = {
   kind: "manual",
   label: "Manual (self-reported)",
+  roles: ["users"],
+  capabilities: ["totalUsers"],
   validate(c) {
     try {
       return { ok: true, config: { totalUsers: asCount(Number((c as Partial<ManualConfig>)?.totalUsers), "Total users") } };
@@ -14,6 +16,6 @@ export const manual: Provider<ManualConfig> = {
     }
   },
   trust: () => "unverified",
-  fetchTotalUsers: async ({ totalUsers }) => totalUsers,
+  fetch: async ({ totalUsers }) => ({ totalUsers }),
   publicConfig: ({ totalUsers }) => ({ reported: String(totalUsers) }),
 };

@@ -16,3 +16,18 @@ export const RANGE_MS: Record<Range, number | null> = {
 export function dayKey(ts: number) {
   return new Date(ts).toISOString().slice(0, 10);
 }
+
+export function dayStart(ts: number) {
+  const d = new Date(ts);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+// ISO week key, e.g. 2026-W36 (Monday-based).
+export function weekKey(ts: number) {
+  const d = new Date(dayStart(ts));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = Date.UTC(d.getUTCFullYear(), 0, 1);
+  const week = Math.ceil(((d.getTime() - yearStart) / DAY + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
