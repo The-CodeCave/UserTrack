@@ -5,6 +5,7 @@ import { BENCHMARK_METRICS, MIN_SAMPLE, deciles } from "./lib/benchmarks";
 import { sizeBucket } from "./lib/metrics";
 import { rankable } from "./leaderboard";
 import { addMilestones } from "./trust";
+import { dayKey } from "./lib/time";
 
 // Daily sweep: best day / week / streak / monthly-growth milestones, then benchmarks and the trust review.
 export const run = internalMutation({
@@ -19,9 +20,13 @@ export const run = internalMutation({
       await addMilestones(ctx, s._id, dailyMilestones(rows, s.name, s.growth30dPct, existing));
       const streak = streakDays(rows);
       if (streak !== (s.streakDays ?? 0)) await ctx.db.patch(s._id, { streakDays: streak });
+      // Rank at the end of the last closed day, for monthly rank deltas.
+      const yesterday = rows.find((r) => r.day === dayKey(Date.now() - 86_400_000));
+      if (yesterday && s.rank !== undefined && yesterday.rank !== s.rank) await ctx.db.patch(yesterday._id, { rank: s.rank });
     }
     await ctx.scheduler.runAfter(0, internal.daily.benchmarks, {});
     await ctx.scheduler.runAfter(5_000, internal.trust.dailyReview, {});
+    await ctx.scheduler.runAfter(10_000, internal.email.lifecycle.noGrowthSweep, {});
   },
 });
 

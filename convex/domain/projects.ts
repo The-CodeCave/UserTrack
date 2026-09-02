@@ -6,6 +6,7 @@ import { slugify, RESERVED } from "../../src/lib/slug";
 import { CATEGORY_SLUGS } from "../../src/lib/categories";
 import { normalizeDomain } from "../lib/domain";
 import { publicTrustLabel } from "../lib/trust";
+import { scheduleMissingSourceReminder } from "../email/lifecycle";
 
 export type DomainErrorCode = "not_found" | "bad_request" | "conflict" | "rate_limited" | "forbidden";
 
@@ -67,7 +68,7 @@ export async function findOwnedByDomain(ctx: QueryCtx | MutationCtx, ownerId: Id
 
 export async function createProject(ctx: MutationCtx, ownerId: Id<"profiles">, input: ProjectInput) {
   const data = normalizeProjectInput(input);
-  return ctx.db.insert("saas", {
+  const id = await ctx.db.insert("saas", {
     ...data,
     ownerId,
     slug: await uniqueSlug(ctx, data.name),
@@ -79,6 +80,8 @@ export async function createProject(ctx: MutationCtx, ownerId: Id<"profiles">, i
     newUsers30d: 0,
     growth30dPct: 0,
   });
+  await scheduleMissingSourceReminder(ctx, id);
+  return id;
 }
 
 export type ProjectPatch = Partial<ProjectInput> & { slug?: string; isPublic?: boolean };

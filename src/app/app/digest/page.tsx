@@ -16,13 +16,13 @@ import { formatCompact, formatDelta, formatDate } from "@/lib/format";
 type Row = { slug: string; name: string; totalUsers: number; newUsers7d: number; rank?: number; prevRank?: number; trendingRank?: number };
 
 export default function DigestPage() {
-  const me = useQuery(api.profiles.me);
+  const prefs = useQuery(api.email.prefs.mine);
   const digests = useQuery(api.digest.latest);
-  const preview = useMutation(api.profiles.previewDigest);
-  const setOptIn = useMutation(api.profiles.setDigestOptIn);
+  const preview = useMutation(api.digest.previewMine);
+  const update = useMutation(api.email.prefs.update);
   const [busy, setBusy] = useState(false);
   const latest = digests?.[0];
-  const optIn = me?.profile?.digestOptIn ?? true;
+  const optIn = prefs?.weeklyDigest ?? false;
 
   async function generate() {
     setBusy(true);
@@ -48,8 +48,8 @@ export default function DigestPage() {
       </div>
 
       <Panel className="flex items-center justify-between gap-4 p-4">
-        <div className="flex items-center gap-3"><Mail className="size-4 text-pink" /><div><div className="text-sm font-medium">Email me the digest</div><div className="text-xs text-muted-foreground">{latest?.sendError === "email not configured" ? "Email delivery is not configured on this deployment yet — digests are available here." : "Sent to your account email every Monday."}</div></div></div>
-        <Switch checked={optIn} onCheckedChange={(v) => setOptIn({ optIn: v })} />
+        <div className="flex items-center gap-3"><Mail className="size-4 text-pink" /><div><div className="text-sm font-medium">Email me the digest</div><div className="text-xs text-muted-foreground">Optional. Sent Monday mornings when there is something to report. Manage all email in <Link href="/app/settings/notifications" className="underline-offset-4 hover:underline">Settings → Notifications</Link>.</div></div></div>
+        <Switch checked={optIn} onCheckedChange={(v) => update({ weeklyDigest: v })} />
       </Panel>
 
       {digests === undefined && <Skeleton className="h-64" />}

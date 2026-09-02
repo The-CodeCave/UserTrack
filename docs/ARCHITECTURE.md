@@ -17,12 +17,17 @@ Convex
   ├─ tables: profiles, saas, integrations, snapshots, dailyMetrics, syncRuns, milestones, events,
   │          follows, fraudFlags, benchmarkAggregates, digests, developerTokens, apiUsage, auditLogs
   ├─ domain/: projects · integrations · metrics (shared rules) ◄── saas.ts / integrations.ts / gateway.ts
+  │          follows, fraudFlags, benchmarkAggregates, digests,
+  │          emailPreferences, emailEvents, emailRecipients, monthlyReports
   ├─ crons: sync every 4h (staggered) · rerank+trending +20min · daily sweep 03:30 UTC · digest Mon 08:00 UTC
+  │         · monthly report 1st 05:00 UTC · per-entity scheduled reminders (24h)
+  ├─ email/: send (Resend) · templates · prefs · lifecycle · growth · reports · webhook  ──► api.resend.com
+  ├─ HTTP: /api/auth/* (Better Auth) · /webhooks/resend (Svix-verified) · /email/unsubscribe (one-click)
   └─ providers/: clerk | supabase | firebase | auth0 | posthog | plausible | ga4 | stripe | endpoint | manual
 ```
 
 ## Auth
-Better Auth (email + password) runs inside Convex via `@convex-dev/better-auth`. Next.js proxies `/api/auth/*`; `src/proxy.ts` guards `/app/*`. App data references users by Better Auth `userId` on `profiles.userId`. The digest sender looks up emails with `authComponent.getAnyUserById`.
+Better Auth (email + password, Google) runs inside Convex via `@convex-dev/better-auth`. Next.js proxies `/api/auth/*`; `src/proxy.ts` guards `/app/*`. App data references users by Better Auth `userId` on `profiles.userId`. Email hooks: `emailAndPassword.sendResetPassword` and `emailVerification.sendVerificationEmail` (`sendOnSignUp: true`, 24h tokens) schedule `internal.email.send.deliverTransactional`; a `user.onCreate` trigger sends the plain welcome to already-verified (Google) users and schedules the 24h profile reminder. The email system reaches auth users only through `convex/email/users.ts` (`findAuthUser`).
 
 ## Data model
 | Table | Purpose | Indexes |
@@ -42,6 +47,12 @@ Better Auth (email + password) runs inside Convex via `@convex-dev/better-auth`.
 | `developerTokens` | API keys (`type: "api"`) and MCP tokens (`type: "mcp"`): `name`, display `prefix` (`ut_mcp_a8f3`), SHA-256 `hash` of the secret, `scopes[]`, `origin` (settings / onboarding), `createdAt`, `lastUsedAt` (touched at most once a minute), `revokedAt`, `expiresAt` | `by_hash`, `by_profile` |
 | `apiUsage` | bucketed counters: one row per token × UTC day × category (endpoint or tool name); summed for the daily quota and the usage dashboard | `by_token_day` |
 | `auditLogs` | token-authenticated writes, token lifecycle events and onboarding funnel events (`event:*`): `action`, `saasId?`, `ok`, short `detail`; never configs or secrets | `by_token_time`, `by_profile_time` |
+| `emailPreferences` | per Better Auth `userId`: `productNudges`, `growthMilestones`, `rankingMilestones`, `growthAlerts`, `monthlyReport`, `weeklyDigest`, `followedSaasUpdates`, `timezone`; missing row = defaults | `by_userId` |
+| `emailEvents` | delivery log **and** dedupe ledger: `emailType`, `category`, `recipient`, unique `dedupeKey`, `status` (queued · sent · delivered · bounced · complained · failed · skipped), `attempts`, `providerMessageId`, `metadata` (template data / skip reason — never auth tokens) | `by_dedupe`, `by_user_time`, `by_saas_type_time`, `by_provider_message`, `by_status_time` |
+| `emailRecipients` | address health from webhooks: active · bounced · complained · suppressed | `by_email` |
+| `monthlyReports` | one consolidated payload per profile per `period` (`2026-08`), `deliverAt`, `sentAt`, `emailEventId` | `by_profile_period`, `by_period` |
+
+`integrations` additionally carries `healthState` / `unhealthySince` (email state machine) and `dailyMetrics.rank` stores the leaderboard rank at the end of each closed day.
 
 All v0.2 fields are optional so the schema migrated in place over v0.1 data. `integrations.role === undefined` is treated as `users`.
 
@@ -104,7 +115,29 @@ Public label: `pending` → Pending · `review` → **Data under review** · `un
 - Benchmarks: daily deciles for `growth30dPct`, `growth7dPct`, `newUsers30d`, `activationRatePct` per group `all`, `cat:<category>`, `size:<bucket>`; groups with < 5 verified non-demo products are dropped. Owner percentile is interpolated and rounded to 5.
 
 ## Follow & digest
-`follows.toggle` is idempotent and maintains `followerCount`. `digest.generate` (Monday 08:00 UTC) builds one payload per opted-in profile (own products, followed movers, milestones, leaderboard movers, trending), stores it, then `digest.sendAll` emails through Resend if `RESEND_API_KEY` + `DIGEST_FROM_EMAIL` are set — otherwise digests are in-app only (`/app/digest`, "Preview this week" builds one on demand).
+`follows.toggle` is idempotent and maintains `followerCount`. `digest.generate` (Monday 08:00 UTC, paged 50 profiles per mutation) builds one payload per profile with `weeklyDigest` enabled (own products, followed movers, milestones, leaderboard movers, trending), stores it in-app (`/app/digest`) and enqueues the `weekly-digest` email only when there is a signal (own movement, followed products or milestones). "Preview this week" rebuilds the caller's digest without emailing.
+
+## Email subsystem (`convex/email/`)
+```
+trigger (auth hook · sync · rerank · daily · cron · scheduler)
+   └─ enqueue(ctx, { userId, type, dedupeKey, data })          mutation-side, atomic
+        ├─ dedupe: emailEvents.by_dedupe  → duplicate? stop
+        ├─ recipient: findAuthUser        → none? skipped
+        ├─ preference (non-transactional) → off? skipped (row kept, so the key stays taken)
+        ├─ emailRecipients health         → bounced/complained? skipped (except reset/verify)
+        └─ insert emailEvents{queued} + scheduler.runAfter(delay, send.deliver)
+   send.deliver (action): load event + signed prefs token → renderEmail → Resend (Idempotency-Key = dedupeKey,
+                          List-Unsubscribe + One-Click headers) → markSent(providerMessageId) | markFailed(retry ×3: 0 / 5 / 30 min)
+   webhook /webhooks/resend (Svix HMAC) → delivered / bounced / complained / failed → event status + emailRecipients
+```
+- **Categories.** `EMAIL_META` maps every `EmailType` to a category and a preference key (`null` = transactional, never gated): welcome, verify-email, reset-password, source-failed, source-recovered → transactional · profile-reminder, missing-source, source-connected → `productNudges` · user-milestone → `growthMilestones` · rank-milestone → `rankingMilestones` · growth-spike, no-growth → `growthAlerts` · monthly-report · weekly-digest · followed-update.
+- **Dedupe keys** are deterministic and documented next to each rule: `welcome:{userId}` · `profile-reminder:{userId}` · `missing-source:{saasId}` · `source-connected:{saasId}` · `source-failed:{integrationId}:{unhealthySince}` · `source-recovered:{integrationId}:{unhealthySince}` · `user-milestone:{saasId}:{threshold}` · `rank-milestone:{saasId}:top{N}` · `growth-spike:{saasId}:{7-day bucket}` · `no-growth:{saasId}:{lastGrowthDay}` · `monthly-report:{userId}:{YYYY-MM}` · `weekly-digest:{userId}:{ISO week}` · `followed-update:{saasId}:{event}:{followerUserId}`. A `skipped` row also takes the key, so a milestone reached while a preference was off is never sent later.
+- **Rules** are pure and unit-tested in `convex/lib/emailRules.ts`: threshold crossings (`EMAIL_USER_THRESHOLDS`, only the highest crossing mails), `enteredRankThresholds` (needs `boardSize > t`), `evaluateSpike` (≥14 closed days, 24h ≥ 2.5× the 30-day daily mean, ≥20 users, 7-day cooldown from the last spike email), `isUnhealthy` (≥6 consecutive failures, or ≥3 with no success for 24h), `evaluateNoGrowth` (public, healthy source, ≥50 users, ≥10 new in 30d, 7 closed zero days; key = last day with growth), `projectReport` / `monthlySummary`, `nextLocalHour` (09:00 in the user's IANA zone, UTC fallback).
+- **Scheduling.** 24h reminders are per-entity `scheduler.runAfter` calls made at signup / SaaS creation (durable, no scans); the daily sweep writes rank history and runs `noGrowthSweep` (paged); `generateMonthly` runs on the 1st at 05:00 UTC, pages profiles 50 at a time, stores `monthlyReports` and schedules `sendMonthly` at each user's local 09:00; the digest pages the same way. All jobs are idempotent (dedupe keys / `by_profile_period` / `by_profile_week`).
+- **Transactional auth mail** bypasses `enqueue`: Better Auth hooks schedule `deliverTransactional` with the one-time URL as an argument; the event row records type/recipient/status only.
+- **Preferences & links.** `prefs.mine/update` (authenticated), `prefs.byToken/updateByToken` (HMAC-SHA256 token, 90 days, `EMAIL_TOKEN_SECRET`), `/email/preferences?token=…` (Next.js page, no login), `GET|POST <convex site>/email/unsubscribe?token=…` (RFC 8058 one-click, turns every optional category off). Transactional templates carry no unsubscribe link.
+- **Followers.** Milestone ≥1,000 users, Top 10 / 5 / #1 and ≥3× spikes fan out (scheduled mutation) to followers of the product and of its founder who opted into `followedSaasUpdates`; the owner is excluded.
+- **Observability.** Every attempt is a row; `console.log("email sent type=… key=… resend=…")` / `console.error` in the deliver action; the settings page can read `send.recentForUser`. Secrets and tokens are never logged.
 
 ## Domain layer, gateway and adapters (v0.3)
 

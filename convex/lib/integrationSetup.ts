@@ -345,7 +345,7 @@ export function integrationSetup(input: { provider: string; role?: Role; framewo
     recommended: rec.recommended.provider === entry.provider && role === "users",
     trust: entry.trust,
     summary: entry.summary,
-    requirements: requirements.map(({ roles: _r, ...c }) => c),
+    requirements: requirements.map((c) => ({ ...c, roles: undefined })),
     permissions: entry.permissions,
     reads: entry.reads,
     neverSent: entry.neverSent,

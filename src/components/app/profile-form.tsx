@@ -45,7 +45,8 @@ export function ProfileForm({
     const opt = (k: string) => String(fd.get(k) ?? "").trim() || undefined;
     setSaving(true);
     try {
-      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: opt("x"), github: opt("github"), linkedin: opt("linkedin"), avatarUrl: opt("avatarUrl") });
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: opt("x"), github: opt("github"), linkedin: opt("linkedin"), avatarUrl: opt("avatarUrl"), timezone });
       toast.success("Profile saved");
       onSaved?.();
     } catch (err) {

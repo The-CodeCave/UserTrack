@@ -19,7 +19,8 @@ UserTrack is a public growth and discovery platform for SaaS. Founders connect a
 | **Milestones** | 10 → 1M users, activated thresholds, biggest day/week, top 10 / top 100, best rank, streaks, +X% month, trending top 10. Persisted once; each has a share page + OG image. |
 | **Sharing** | Share cards (`/s/[slug]/share/[kind]`) with 1200×630 PNGs, X/copy/download; SVG badges (`/api/badge/[slug].svg`) with copy-paste HTML/Markdown. |
 | **Discovery** | `/discover` search (name, description, tags, category, founders), Trending Now, Fastest This Week, New, Hidden Gems, Top Dev Tools, Top AI, recent milestones. Category pages, `/trending`, `/fastest-growing-saas`, `/fastest-growing-ai-saas`, `/new-saas`, `/most-new-users`, `/compare`. |
-| **Social** | Follow products and founders; `/app/following` feed; weekly digest (in-app, email via Resend when configured). Profile links: website, X, GitHub, LinkedIn. |
+| **Social** | Follow products and founders; `/app/following` feed; optional weekly digest (in-app + email). Profile links: website, X, GitHub, LinkedIn. |
+| **Email** | Resend-backed, three categories: **transactional** (welcome + verification, password reset, source stopped syncing / recovered), **product nudges** (profile unfinished after 24h, product without source after 24h, first sync confirmed) and **growth** (user milestones 10→1M, Top 100/50/25/10/5/#1, spike ≥2.5× baseline, 7 quiet days, monthly report, weekly digest, followed-product updates). Per-user preferences at `/app/settings/notifications`, signed preference/unsubscribe links, one-click unsubscribe, delivery log with dedupe keys, bounce/complaint suppression. |
 | **Benchmarks** | Daily deciles per group (all / category / size bucket), min sample 5. "Your 30-day growth is ahead of 82% of products your size." |
 | **Public API** | `/api/v1/saas/{slug}`, `/metrics`, `/history`, `/milestones`, `/leaderboard`, `/trending`, `/categories`, `/users/{username}`. Stable DTOs, error envelope, CORS, OpenAPI. Anonymous 60 req/min; API key 1,000 req/day. |
 | **MCP** | `/mcp` — 15 tools for Claude Code, Cursor, Codex, VS Code or any MCP client: create project, detect stack, configure + verify data source, publish, metrics, history, rank, milestones, share URLs. Scoped, hashed tokens; audit trail. |
@@ -64,7 +65,10 @@ SECRET=$(openssl rand -hex 32); echo "UT_GATEWAY_SECRET=$SECRET" >> .env.local; 
 npx convex run seed:run   # optional labelled demo data (never ranked)
 pnpm dev                  # http://localhost:3000
 ```
-Useful one-offs: `npx convex run leaderboard:rerank`, `npx convex run daily:run` (milestones, benchmarks, trust review), `npx convex run digest:generate`, `npx convex run seed:clear`.
+Useful one-offs: `npx convex run leaderboard:rerank`, `npx convex run daily:run` (milestones, benchmarks, trust review, quiet-product check), `npx convex run digest:generate`, `npx convex run email/reports:generateMonthly`, `npx convex run seed:clear`.
+
+### Email locally
+Without `RESEND_API_KEY` nothing leaves the machine: every send is still evaluated (preferences, suppression, dedupe) and logged in the `emailEvents` table with `status: failed, error: "email not configured"`, so the whole pipeline is testable from the Convex dashboard. To really send, create a Resend key for `mail.usertrack.dev` and `npx convex env set RESEND_API_KEY re_…`. Templates are plain typed functions (`convex/email/templates`) — `pnpm test` renders every one; to eyeball them, `node scripts/email-preview.mjs` writes HTML files to `/tmp/ut-emails/`. `npx convex run email/testSend:run '{"to":"you@example.com","type":"welcome"}'` sends a real sample to one address.
 
 Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl localhost:3000/mcp` (discovery document), then create a token at `localhost:3000/app/developer` and point your agent at `http://localhost:3000/mcp`.
 
@@ -72,7 +76,8 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | Command | Purpose |
 |---|---|
 | `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
-| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (57 tests: metrics, trending, trust, milestones, providers, API DTOs, badge, rate limit) |
+| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (115 tests: metrics, trending, trust, milestones, providers, API DTOs, badge, rate limit, email rules, templates, tokens, webhook signatures, and `convex-test` function tests for dedupe / preferences / lifecycle / milestones / reports) |
+| `node scripts/email-preview.mjs` | Render every email template with sample data to `/tmp/ut-emails/*.html` |
 | `pnpm convex:dev` · `pnpm convex:deploy` | Convex dev watch · deploy to prod |
 | `node scripts/smoke.mjs [base] [mobile]` | E2E: sign-up → onboarding → publish → public page → dashboard (needs Chrome) |
 | `node scripts/shot.mjs <url> <out.png> [w] [h] [full]` · `node scripts/console.mjs <urls…>` · `node scripts/og.mjs [base]` | Screenshot · console-error sweep · OG image download |
@@ -88,7 +93,10 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | | `SITE_URL` | yes | Better Auth base URL / trusted origin, digest links, URLs returned by MCP tools |
 | | `UT_GATEWAY_SECRET` | yes | Proves gateway calls come from the Next.js server; calls without it are rejected. **Same value as on Railway.** |
 | | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | yes | Google sign-in (OAuth client, redirect URI `<SITE_URL>/api/auth/callback/google`) |
-| | `RESEND_API_KEY`, `DIGEST_FROM_EMAIL` | no | Weekly digest email (see `HUMAN_TODO.md`) |
+| | `RESEND_API_KEY` | for email | Resend sending key for `mail.usertrack.dev` (see `HUMAN_TODO.md`). Missing → emails logged, not sent |
+| | `EMAIL_FROM` · `EMAIL_REPLY_TO` | no | Defaults `UserTrack <noreply@mail.usertrack.dev>` · `hello@usertrack.dev` |
+| | `EMAIL_TOKEN_SECRET` | yes | Signs preference / unsubscribe links (falls back to `BETTER_AUTH_SECRET`) |
+| | `RESEND_WEBHOOK_SECRET` | for delivery state | Svix signing secret of the Resend webhook → `<convex site url>/webhooks/resend` |
 
 Provider credentials (Clerk keys, service accounts, Stripe restricted keys…) are entered by founders in the app or passed by an agent through MCP and stored only in `integrations.config` on Convex; they are never returned by any query, tool or audit entry and never reach the browser. Developer tokens are stored as SHA-256 hashes.
 
@@ -99,15 +107,18 @@ convex/                schema, auth, profiles, saas, integrations, sync engine, 
                        tokens (developer credentials), onboarding (AI setup status)
 convex/domain/         projects · integrations · metrics — the rules shared by dashboard, REST API and MCP
 convex/gateway.ts      token-authenticated entry points: scopes, ownership, quotas, audit, idempotent create
+convex/email/          mailer: send (dedupe + prefs + Resend), templates, prefs + signed tokens, lifecycle,
+                       growth (milestones/rank/spike/followers), reports (monthly), webhook, testSend
 convex/providers/      provider adapters behind one interface (clerk, supabase, firebase, auth0, posthog,
                        plausible, ga4, stripe, endpoint, manual) + google service-account helper
 convex/lib/            pure, unit-tested math: metrics, trending, trust, milestones, spikes, retention, benchmarks,
                        tokens (format, SHA-256, scopes, plans), domain normalization, integrationSetup (catalog + plans)
 src/app/(public)/      /, /leaderboard, /trending, /discover, /compare, /categories/*, SEO boards, /s/[slug] (+ share/[kind]),
                        /u/[username], /developers, opengraph-image routes
-src/app/api/           /api/v1/* public API, /api/openapi.json, /api/badge/[slug], /api/auth
+src/app/api/           /api/v1/* public API, /api/openapi.json, /api/badge/[slug], /api/auth (+ /forgot-password, /reset-password pages)
 src/app/mcp/           /mcp — MCP endpoint (Streamable HTTP, stateless)
-src/app/app/           dashboard: overview, saas manage, following, digest, profile, settings, developer (keys + tokens), onboarding
+src/app/app/           dashboard: overview, saas manage, following, digest, reports, profile, settings (+ notifications), developer (keys + tokens), onboarding
+src/app/email/         /email/preferences — signed-link preference page (no login)
 src/components/        blueprint primitives, charts (growth w/ annotations, compare), public cards, app forms
 src/lib/api/           respond (rate limits + envelope), gateway bridge, DTOs, OpenAPI
 src/lib/mcp/           server, tools (15), config snippets + agent prompt

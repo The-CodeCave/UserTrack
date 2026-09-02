@@ -96,7 +96,7 @@ function H2({ id, label, children }: { id: string; label: string; children: Reac
 
 function Row({ cols, head = false, className = "" }: { cols: ReactNode[]; head?: boolean; className?: string }) {
   return (
-    <div className={`grid gap-x-4 gap-y-1 border-b border-line p-3 text-sm last:border-0 ${head ? "text-label" : ""} ${className}`}>
+    <div className={`grid gap-x-4 gap-y-1 border-b border-line p-3 text-sm last:border-0 *:min-w-0 *:break-words ${head ? "text-label" : ""} ${className}`}>
       {cols.map((c, i) => <div key={i} className="min-w-0">{c}</div>)}
     </div>
   );
@@ -123,7 +123,7 @@ export default function DevelopersPage() {
       {/* Overview */}
       <section className="mt-12">
         <H2 id="overview" label="Overview">One domain layer, three surfaces</H2>
-        <div className="mt-6 grid gap-3 md:grid-cols-3">
+        <div className="mt-6 grid gap-3 md:grid-cols-3 *:min-w-0">
           {[
             ["Website", "Public growth pages, leaderboards, trending, milestones and share cards. Numbers are synced every 4 hours from read-only data sources — never typed in."],
             ["Public API", `Read-only JSON for everything that is public. No key needed; an API key raises the limit to ${API_PLAN.perDay.toLocaleString()} requests per day.`],
@@ -176,7 +176,7 @@ export default function DevelopersPage() {
       <section className="mt-16">
         <H2 id="api" label="Public API v1">Read-only JSON for everything public</H2>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-2">
+        <div className="mt-6 grid gap-3 md:grid-cols-2 *:min-w-0">
           <Panel className="p-4">
             <div className="text-label">Base URL</div>
             <div className="mt-2 break-all font-mono text-sm">{API}</div>
@@ -208,7 +208,7 @@ export default function DevelopersPage() {
           Leaderboard values: board = trending · fastest · most-users · most-new · most-activated · activation-rate · new-rising; window = 24h · 7d · 30d; size = 0-100 · 100-1k · 1k-10k · 10k-100k · 100k+; verified = true (default) · false.
         </p>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-2">
+        <div className="mt-6 grid gap-3 md:grid-cols-2 *:min-w-0">
           <Panel className="p-4">
             <div className="text-label">curl</div>
             <div className="mt-2"><Code>{`curl ${API}/saas/acme/metrics
@@ -232,7 +232,7 @@ console.log(data.metrics.totalUsers, meta.generatedAt);`}</Code></div>
           <div className="mt-2"><Code>{METRICS_EXAMPLE}</Code></div>
         </Panel>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-2">
+        <div className="mt-6 grid gap-3 md:grid-cols-2 *:min-w-0">
           <Panel className="p-0">
             <div className="p-4 pb-2 text-label">Errors</div>
             <div className="px-4 pb-3"><Code>{`{ "error": { "code": "not_found", "message": "…" } }`}</Code></div>
@@ -257,7 +257,7 @@ console.log(data.metrics.totalUsers, meta.generatedAt);`}</Code></div>
           </Panel>
         </div>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="mt-3 grid gap-3 md:grid-cols-2 *:min-w-0">
           <Panel className="p-4">
             <div className="text-label">OpenAPI</div>
             <div className="mt-2 text-sm text-muted-foreground">
@@ -278,7 +278,7 @@ console.log(data.metrics.totalUsers, meta.generatedAt);`}</Code></div>
       <section className="mt-16">
         <H2 id="mcp" label="MCP">Let your agent do the setup</H2>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-2">
+        <div className="mt-6 grid gap-3 md:grid-cols-2 *:min-w-0">
           <Panel className="p-4">
             <div className="text-label">Endpoint</div>
             <div className="mt-2 break-all font-mono text-sm">{MCP_URL}</div>
@@ -316,7 +316,7 @@ console.log(data.metrics.totalUsers, meta.generatedAt);`}</Code></div>
           ))}
         </Panel>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="mt-3 grid gap-3 md:grid-cols-2 *:min-w-0">
           <Panel className="p-4">
             <div className="text-label">Setup workflow</div>
             <ol className="mt-2 space-y-1.5 text-xs text-muted-foreground">
@@ -342,7 +342,7 @@ console.log(data.metrics.totalUsers, meta.generatedAt);`}</Code></div>
           </Panel>
         </div>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="mt-3 grid gap-3 md:grid-cols-2 *:min-w-0">
           <Panel className="p-4">
             <div className="text-label">Security model</div>
             <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
@@ -372,7 +372,7 @@ console.log(data.metrics.totalUsers, meta.generatedAt);`}</Code></div>
       {/* Examples */}
       <section className="mt-16">
         <H2 id="examples" label="Examples">What to ask once connected</H2>
-        <div className="mt-6 grid gap-3 md:grid-cols-3">
+        <div className="mt-6 grid gap-3 md:grid-cols-3 *:min-w-0">
           {EXAMPLES.map((e) => (
             <Panel key={e.ask} className="p-4">
               <div className="text-sm font-medium">“{e.ask}”</div>
