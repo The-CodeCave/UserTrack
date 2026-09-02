@@ -1,4 +1,4 @@
-export type ProviderKind = "clerk" | "supabase" | "firebase" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "revenuecat" | "paddle" | "lemonsqueezy" | "chargebee" | "postgres" | "endpoint" | "manual";
+export type ProviderKind = "clerk" | "supabase" | "firebase" | "better_auth" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "revenuecat" | "paddle" | "lemonsqueezy" | "chargebee" | "postgres" | "endpoint" | "manual";
 // Provider roles = lifecycle sources. users → signed_up, activation → activated, traffic → reached, conversion → trial + converted.
 // "revenue" is the legacy name of "conversion" (stored rows are migrated; normalizeRole() maps it for safety).
 export type Role = "users" | "activation" | "traffic" | "conversion";
@@ -47,6 +47,9 @@ export interface ProviderMetrics {
   newConverted30d?: number;
   conversionMode?: ConversionMode;
   identities?: StageIdentities[];
+  // Version of the source-side integration (e.g. the @usertrack/better-auth plugin) for compatibility diagnostics.
+  sourceVersion?: string;
+  protocolVersion?: number;
   /** @deprecated v0.4 endpoint field; mapped to convertedUsers by the endpoint provider. */
   payingUsers?: number;
 }

@@ -25,7 +25,7 @@ export function stackQuestions(platform: Platform): StackQuestion[] {
   return mobile ? [identity, monetization, analytics] : [identity, analytics, monetization];
 }
 
-const IDENTITY_PROVIDER: Record<string, ProviderKind> = { clerk: "clerk", supabase: "supabase", firebase: "firebase", auth0: "auth0", postgres: "postgres", better_auth: "endpoint", custom: "endpoint", other: "endpoint" };
+const IDENTITY_PROVIDER: Record<string, ProviderKind> = { clerk: "clerk", supabase: "supabase", firebase: "firebase", auth0: "auth0", postgres: "postgres", better_auth: "better_auth", custom: "endpoint", other: "endpoint" };
 const CONVERSION_PROVIDER: Record<string, ProviderKind> = { revenuecat: "revenuecat", stripe: "stripe", paddle: "paddle", lemonsqueezy: "lemonsqueezy", chargebee: "chargebee", storekit: "endpoint", play_billing: "endpoint", other: "endpoint" };
 
 export function recommendStack(a: StackAnswers): StackRecommendation {

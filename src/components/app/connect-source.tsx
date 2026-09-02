@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TrustBadge, type Trust } from "@/components/blueprint/trust-badge";
 import { Snippet } from "@/components/public/embed-badge";
 import { PostgresWizard } from "./postgres-wizard";
+import { BetterAuthLive, BetterAuthSetup } from "./better-auth-setup";
 import { CapabilityList, TestResultCard, type TestResult } from "./test-result";
 
 export interface IntegrationView {
@@ -29,6 +30,8 @@ export interface IntegrationView {
   lastFailureAt?: number;
   consecutiveFailures?: number;
   publicConfig?: Record<string, string>;
+  awaitingVerification?: boolean;
+  pluginVersion?: string;
   verification?: "verified" | "partially_verified" | "self_reported";
   capabilities?: { createdUsers: boolean; historicalUsers: boolean; retention: boolean };
 }
@@ -37,7 +40,7 @@ const VERIFICATION_LABEL = { verified: "Verified", partially_verified: "Partiall
 
 const errMsg = (err: unknown) => (err as Error).message.replace(/^.*Uncaught Error: /, "").split("\n")[0];
 
-export function ConnectSource({ saasId, role = "users", current, onConnected, platform, recommended }: { saasId: Id<"saas">; role?: Role; current?: IntegrationView | null; onConnected?: () => void; platform?: "web" | "mobile"; recommended?: ProviderKind }) {
+export function ConnectSource({ saasId, role = "users", current, onConnected, platform, recommended, websiteUrl }: { saasId: Id<"saas">; role?: Role; current?: IntegrationView | null; onConnected?: () => void; platform?: "web" | "mobile"; recommended?: ProviderKind; websiteUrl?: string }) {
   const connect = useMutation(api.integrations.connect);
   const testSource = useAction(api.integrations.test);
   const list = providersForRole(role, platform);
@@ -90,14 +93,14 @@ export function ConnectSource({ saasId, role = "users", current, onConnected, pl
     }
   }
 
-  const wizard = kind === "postgres" || (kind === "supabase" && supabaseMode === "database");
+  const wizard = kind === "postgres" || (kind === "supabase" && supabaseMode === "database") || kind === "better_auth";
 
   return (
     <div className="space-y-5">
       <div className={cn("grid gap-2", list.length > 4 ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" : "grid-cols-2 sm:grid-cols-4")}>
         {list.map((p) => (
           <button key={p.kind} type="button" onClick={() => setKind(p.kind)} className={cn("flex min-h-[64px] flex-col items-start gap-1 border p-3 text-left transition-colors", kind === p.kind ? "border-pink bg-pink/5" : "border-line hover:border-line-strong")}>
-            <span className="flex w-full items-center justify-between gap-1 text-sm font-medium">{p.label}{p.kind === recommended && <span className="border border-pink/60 px-1 font-mono text-[9px] uppercase tracking-wider text-pink">Rec</span>}</span>
+            <span className="flex w-full items-center justify-between gap-1 text-sm font-medium">{p.label}{p.kind === recommended ? <span className="border border-pink/60 px-1 font-mono text-[9px] uppercase tracking-wider text-pink">Rec</span> : p.kind === "better_auth" ? <span className="border border-line px-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">Plugin · 2 min</span> : null}</span>
             <span className={cn("font-mono text-[10px] uppercase tracking-wider", p.trust === "verified" ? "text-pink" : "text-muted-foreground")}>
               {p.trust === "verified" ? "Verified" : p.trust === "conditional" ? "Verified on your domain" : "Self-reported"}
             </span>
@@ -122,7 +125,11 @@ export function ConnectSource({ saasId, role = "users", current, onConnected, pl
             <div className="text-sm font-medium">{meta.tagline}</div>
             <p className="mt-1 text-xs text-muted-foreground"><span className="text-foreground/70">What we read:</span> {meta.reads}</p>
           </div>
-          <PostgresWizard key={`${kind}-${role}`} saasId={saasId} role={role} provider={kind === "supabase" ? "supabase" : "postgres"} onConnected={onConnected} />
+          {kind === "better_auth" ? (
+            <BetterAuthSetup key="better_auth" saasId={saasId} websiteUrl={websiteUrl ?? ""} existing={current?.provider === "better_auth" ? { url: current.publicConfig?.url, secretPrefix: current.publicConfig?.secret?.replace(/…$/, ""), awaiting: Boolean(current.awaitingVerification) } : null} onConnected={onConnected} />
+          ) : (
+            <PostgresWizard key={`${kind}-${role}`} saasId={saasId} role={role} provider={kind === "supabase" ? "supabase" : "postgres"} onConnected={onConnected} />
+          )}
         </div>
       ) : (
       <form key={`${kind}-${role}`} onSubmit={onSubmit} className="space-y-4 border border-line p-4">
@@ -194,7 +201,18 @@ export function SourceStatus({ saasId, integration, totalUsers, trust, trustLabe
   }
 
   const running = integration.status === "running";
-  const cfg = Object.entries(integration.publicConfig ?? {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
+  const cfg = Object.entries(integration.publicConfig ?? {}).filter(([k]) => k !== "events").map(([k, v]) => `${k}: ${v}`).join(" · ");
+  if (integration.provider === "better_auth" && integration.awaitingVerification) {
+    return (
+      <div className="space-y-3 border border-line p-4">
+        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+          <AlertTriangle className="size-5 text-amber-400" /><span className="text-label">{ROLE_META[role].label}</span> Better Auth <span className="border border-amber-400/60 px-1.5 font-mono text-[10px] uppercase tracking-wider text-amber-400">Waiting for deployment</span>
+        </div>
+        <BetterAuthSetup saasId={saasId} websiteUrl="" existing={{ url: integration.publicConfig?.url, secretPrefix: integration.publicConfig?.secret?.replace(/…$/, ""), awaiting: true }} onConnected={onReplace ? undefined : undefined} />
+        {onReplace && <button type="button" onClick={onReplace} className="text-xs text-muted-foreground underline-offset-2 hover:underline">Use a different source</button>}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-3 border border-line p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">
@@ -206,7 +224,8 @@ export function SourceStatus({ saasId, integration, totalUsers, trust, trustLabe
           <div className="font-mono text-[11px] text-muted-foreground">
             {running ? "Fetching snapshot…" : integration.status === "error" ? `${integration.lastError}${integration.consecutiveFailures ? ` · ${integration.consecutiveFailures} in a row` : ""}` : `${role === "users" && totalUsers !== undefined ? `${formatCompact(totalUsers)} users · ` : ""}synced ${integration.lastSuccessAt ? timeAgo(integration.lastSuccessAt) : "never"} · next in ≤ 4h`}
           </div>
-          {cfg && <div className="truncate font-mono text-[11px] text-muted-foreground/70">{cfg}</div>}
+          {cfg && <div className="truncate font-mono text-[11px] text-muted-foreground/70">{cfg}{integration.provider === "better_auth" && integration.pluginVersion ? ` · plugin v${integration.pluginVersion}` : ""}</div>}
+          {integration.provider === "better_auth" && <BetterAuthLive saasId={saasId} />}
           {integration.capabilities && (
             <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               {integration.verification && <span className={cn("border px-1.5", integration.verification === "verified" ? "border-pink/60 text-pink" : "border-line")}>{VERIFICATION_LABEL[integration.verification]}</span>}

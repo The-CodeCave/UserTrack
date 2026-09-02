@@ -1,0 +1,50 @@
+{
+  "name": "@usertrack/better-auth",
+  "version": "0.1.0",
+  "description": "Official UserTrack plugin for Better Auth: verified registered-user growth metrics without exposing user PII.",
+  "keywords": ["better-auth", "better-auth-plugin", "usertrack", "analytics", "growth", "saas", "metrics"],
+  "license": "MIT",
+  "homepage": "https://usertrack.dev/developers/integrations/better-auth",
+  "bugs": "https://github.com/The-CodeCave/UserTrack/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/The-CodeCave/UserTrack.git",
+    "directory": "packages/better-auth"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "default": "./dist/protocol.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
+  "engines": { "node": ">=18.17" },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepack": "pnpm run build",
+    "pack:check": "pnpm pack --pack-destination /tmp && tar -tzf /tmp/usertrack-better-auth-*.tgz"
+  },
+  "peerDependencies": {
+    "better-auth": ">=1.3.0 <2"
+  },
+  "devDependencies": {
+    "better-auth": "1.6.22",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

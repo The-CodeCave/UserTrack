@@ -11,7 +11,7 @@ UserTrack is a public growth and discovery platform for SaaS and mobile apps. Fo
 | Area | Features |
 |---|---|
 | **Lifecycle model** | One normalized funnel for web SaaS and mobile apps: Reached → Signed up → Activated → Trial → Converted. Every project combines several provider roles (identity · activation · reach · conversion); only stages with real connected data are shown (Signups → Converted, Signups → Activated, full funnel…). Two confidence levels: **Aggregate** (period ratios) and **Cohort Verified** (anonymized users traced across stages). `docs/FUNNEL.md`, `docs/IDENTITY.md`. |
-| **Verified data** | Clerk · Supabase (read-only database mode via the session pooler, or service-role API mode) · **PostgreSQL** (read-only role, aggregate SQL only, 4-step wizard) · Firebase Auth (signup scan ≤100k accounts) · Auth0 · JSON endpoint (verified on own domain) · Manual (self-reported, never ranked). Per-source capability model + verification level (verified / partially verified / self-reported), live "Test connection" before saving, 30-day history backfill where the source supports it. `docs/PROVIDERS.md`. |
+| **Verified data** | **Better Auth** (official plugin `@usertrack/better-auth`: signed aggregate metrics from the app's own Better Auth database, native verified, ~2 min, `docs/PROVIDERS.md` + `/developers/integrations/better-auth`) · Clerk · Supabase (read-only database mode via the session pooler, or service-role API mode) · **PostgreSQL** (read-only role, aggregate SQL only, 4-step wizard) · Firebase Auth (signup scan ≤100k accounts) · Auth0 · JSON endpoint (verified on own domain) · Manual (self-reported, never ranked). Per-source capability model + verification level (verified / partially verified / self-reported), live "Test connection" before saving, 30-day history backfill where the source supports it. `docs/PROVIDERS.md`. |
 | **Activation** | Optional activation source (PostHog event, Supabase / PostgreSQL table or custom `$1` SELECT, endpoint) → activated users 24h/7d/30d, activation rate, second chart series; optional onboarding step. |
 | **Retention** | Estimated retained / churned / retention rate from providers that expose "active in 30 days" (Clerk, Auth0, endpoint). Labelled *estimated*; never fabricated. |
 | **Conversion (no revenue)** | Stripe · **RevenueCat** (iOS/Android subscriptions) · Paddle · Lemon Squeezy · Chargebee · endpoint, read-only and amount-free → Trial Users, Converted Users, Signup → Converted, Activated → Converted, Trial → Converted, converted-user growth. Provider-independent definition of "converted" (active paid · ever paid · first payment). A Stripe customer or a RevenueCat install is never a converted user. |
@@ -53,7 +53,7 @@ Set up with AI in 60 seconds:
    ```
    (Cursor, Codex CLI, VS Code and generic snippets are on `/developers#mcp`.)
 3. Tell the agent: *"Add this project to UserTrack. Detect the current authentication/user stack, choose the safest supported UserTrack integration, configure it, verify it, and return the public UserTrack URL."*
-4. The agent asks for a provider recommendation (Supabase → Clerk → Firebase → PostgreSQL → endpoint), creates the project, connects the source (read-only key, read-only database role, or a tiny count endpoint), verifies, publishes, optionally adds an activation source, and hands back the public URL.
+4. The agent asks for a provider recommendation (Better Auth plugin → Supabase → Clerk → Firebase → PostgreSQL → endpoint), creates the project, connects the source (for Better Auth: `usertrack_create_integration` issues the credential once, `usertrack_get_better_auth_setup` returns the package-manager-aware install plan and the agent adds `userTrack()` to the existing plugins array; otherwise a read-only key, a read-only database role, or a tiny count endpoint), verifies, publishes, optionally adds an activation source, and hands back the public URL.
 
 Tools, scopes, limits, security model and troubleshooting: [docs/MCP.md](docs/MCP.md).
 
@@ -109,6 +109,13 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 Provider credentials (Clerk keys, service accounts, Stripe restricted keys, read-only database connection strings…) are entered by founders in the app or passed by an agent through MCP and stored only in `integrations.config` on Convex; they are never returned by any query, tool or audit entry and never reach the browser. Database sources are read in a Node-runtime action with a read-only session and aggregate SQL only (`pg` is declared in `convex.json` → `node.externalPackages`; no extra env vars). Developer tokens are stored as SHA-256 hashes.
 
 ## Layout
+
+```
+packages/better-auth/  @usertrack/better-auth — the official Better Auth plugin (own tests, README, HUMAN_TODO, release workflow); independent of the app
+packages/better-auth/e2e/  local HTTP end-to-end sample (pnpm --filter usertrack-better-auth-e2e e2e)
+convex/betterAuth.ts   integration credentials (ut_int_ secret, shown once, rotate), event ingestion, event summary
+convex/lib/betterAuthProtocol.ts / betterAuthSetup.ts  protocol v1 twin (frozen fixtures) · install plan shared by dashboard, docs and MCP
+```
 ```
 convex/                schema, auth, profiles, saas, integrations (+ live test, Postgres introspection), sync engine,
                        providerRun (V8 / Node dispatch), trust, leaderboard/trending, daily jobs (milestones, benchmarks),
@@ -119,7 +126,7 @@ convex/cohorts.ts      identity-link paging → signup cohorts, identity quality
 convex/gateway.ts      token-authenticated entry points: scopes, ownership, quotas, audit, idempotent create, all MCP tool backends
 convex/email/          mailer: send (dedupe + prefs + Resend), templates, prefs + signed tokens, lifecycle,
                        growth (milestones/rank/spike/followers), reports (monthly), webhook, testSend
-convex/providers/      provider adapters behind one interface (clerk, supabase, firebase, auth0, posthog, plausible, ga4,
+convex/providers/      provider adapters behind one interface (better_auth, clerk, supabase, firebase, auth0, posthog, plausible, ga4,
                        stripe, revenuecat, paddle, lemonsqueezy, chargebee, postgres, endpoint, manual) + google service-account
                        helper + conversion.ts (shared trial/converted aggregation); capability model + verification levels in types.ts
 convex/node/           postgres.ts — the only Node-runtime action ("use node", pg): read-only TCP, aggregate SQL, introspection

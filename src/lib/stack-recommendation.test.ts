@@ -36,7 +36,7 @@ describe("recommendStack", () => {
     expect(users("supabase")).toBe("supabase");
     expect(users("auth0")).toBe("auth0");
     expect(users("postgres")).toBe("postgres");
-    expect(users("better_auth")).toBe("endpoint");
+    expect(users("better_auth")).toBe("better_auth");
     expect(users("custom")).toBe("endpoint");
     expect(users("other")).toBe("endpoint");
     expect(recommendStack({ platform: "web" }).users).toBeNull();

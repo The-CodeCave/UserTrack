@@ -1,4 +1,4 @@
-export type ProviderKind = "clerk" | "supabase" | "firebase" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "revenuecat" | "paddle" | "lemonsqueezy" | "chargebee" | "postgres" | "endpoint" | "manual";
+export type ProviderKind = "clerk" | "supabase" | "firebase" | "better_auth" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "revenuecat" | "paddle" | "lemonsqueezy" | "chargebee" | "postgres" | "endpoint" | "manual";
 // Lifecycle roles: users → Signed up, activation → Activated, traffic → Reached, conversion → Trial + Converted.
 export type Role = "users" | "activation" | "traffic" | "conversion";
 export const ROLES: Role[] = ["users", "activation", "traffic", "conversion"];
@@ -47,6 +47,18 @@ const modeField: ProviderField = { name: "mode", label: "Converted means", place
 export const NO_REVENUE_NOTE = "UserTrack never needs your revenue numbers. Payment providers are used only to calculate user conversion metrics.";
 
 export const PROVIDERS: ProviderMeta[] = [
+  {
+    kind: "better_auth",
+    label: "Better Auth",
+    tagline: "Native plugin · ~2 min setup — signed aggregate metrics straight from your Better Auth database",
+    trust: "verified",
+    roles: ["users"],
+    stages: ["signed_up"],
+    platforms: ["web"],
+    fields: [{ name: "url", label: "Better Auth base URL", placeholder: "https://app.example.com/api/auth", type: "url", hint: "baseURL + basePath of your Better Auth instance" }],
+    reads: "POST /usertrack/metrics on your app, signed with the integration secret: total users, signups 24h / 7d / 30d and a daily series. No emails, names or user records — ever.",
+    steps: ["Create the integration — UserTrack generates a project id and a secret (shown once)", "npm install @usertrack/better-auth and add userTrack({ projectId, secret }) to your Better Auth plugins", "Set USERTRACK_PROJECT_ID / USERTRACK_SECRET, deploy, click Verify"],
+  },
   {
     kind: "clerk",
     label: "Clerk",

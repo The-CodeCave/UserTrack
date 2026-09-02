@@ -9,6 +9,7 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as betterAuth from "../betterAuth.js";
 import type * as cohorts from "../cohorts.js";
 import type * as crons from "../crons.js";
 import type * as daily from "../daily.js";
@@ -40,6 +41,8 @@ import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
 import type * as leaderboard from "../leaderboard.js";
 import type * as lib_benchmarks from "../lib/benchmarks.js";
+import type * as lib_betterAuthProtocol from "../lib/betterAuthProtocol.js";
+import type * as lib_betterAuthSetup from "../lib/betterAuthSetup.js";
 import type * as lib_domain from "../lib/domain.js";
 import type * as lib_emailRules from "../lib/emailRules.js";
 import type * as lib_identity from "../lib/identity.js";
@@ -58,6 +61,7 @@ import type * as onboarding from "../onboarding.js";
 import type * as profiles from "../profiles.js";
 import type * as providerRun from "../providerRun.js";
 import type * as providers_auth0 from "../providers/auth0.js";
+import type * as providers_betterAuth from "../providers/betterAuth.js";
 import type * as providers_chargebee from "../providers/chargebee.js";
 import type * as providers_clerk from "../providers/clerk.js";
 import type * as providers_conversion from "../providers/conversion.js";
@@ -91,6 +95,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  betterAuth: typeof betterAuth;
   cohorts: typeof cohorts;
   crons: typeof crons;
   daily: typeof daily;
@@ -122,6 +127,8 @@ declare const fullApi: ApiFromModules<{
   integrations: typeof integrations;
   leaderboard: typeof leaderboard;
   "lib/benchmarks": typeof lib_benchmarks;
+  "lib/betterAuthProtocol": typeof lib_betterAuthProtocol;
+  "lib/betterAuthSetup": typeof lib_betterAuthSetup;
   "lib/domain": typeof lib_domain;
   "lib/emailRules": typeof lib_emailRules;
   "lib/identity": typeof lib_identity;
@@ -140,6 +147,7 @@ declare const fullApi: ApiFromModules<{
   profiles: typeof profiles;
   providerRun: typeof providerRun;
   "providers/auth0": typeof providers_auth0;
+  "providers/betterAuth": typeof providers_betterAuth;
   "providers/chargebee": typeof providers_chargebee;
   "providers/clerk": typeof providers_clerk;
   "providers/conversion": typeof providers_conversion;

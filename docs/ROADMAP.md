@@ -50,12 +50,18 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 - Dashboard IA Growth / Engagement / Conversion with per-group health; public profile sections; mobile / hybrid project type with App Store / Google Play links; onboarding platform step + stack questions + recommendations; conversion share card.
 - Benchmarks + secondary leaderboards for conversion rates, small trending conversion multiplier, monthly report conversion lines, API (`/conversion`, `/engagement`, `/cohorts`, `/funnel/history`) and MCP (`usertrack_get_conversion_setup`, `usertrack_get_identity_mapping`, `usertrack_get_cohorts`, `usertrack_get_funnel_history`, mobile-aware provider recommendation).
 
+### v0.6 — Better Auth native integration
+- `@usertrack/better-auth` (packages/better-auth): signed metrics endpoint, lifecycle events, 42 tests + HTTP e2e, README, HUMAN_TODO, tag-driven release workflow.
+- Provider `better_auth` (native verified), `ut_int_` credentials shown once, awaiting-verification state, verify → first sync, event ingestion, plugin/protocol version diagnostics.
+- Dashboard wizard, AI-onboarding step, MCP tools `usertrack_get_better_auth_setup` / `usertrack_create_integration`, prompt, Better Auth first in the users priority, public docs `/developers/integrations/better-auth`.
+
 ## Next opportunities
 1. **Verified retention cohorts** — providers with per-user `last_active_at` (Clerk list API, Auth0 logs) could yield true cohort retention instead of the estimate; also weekly cohort curves.
 2. **Domain verification** (DNS TXT / meta tag) so endpoints on other hosts can become verified, and to strengthen the trust score.
 3. **Envelope encryption** of `integrations.config` with a KMS-style key in env (Convex already encrypts at rest).
 4. **Materialized board table** once the public set exceeds a few thousand products (today boards sort the public set in one query).
 5. **Owner-added annotations** (launches, Product Hunt day) on the chart; annotation clustering when > 8.
+6a. **Better Auth follow-ups**: publish `@usertrack/better-auth` to npm (see `packages/better-auth/HUMAN_TODO.md`), community-plugin listing, `waitUntil`-aware event delivery on serverless hosts, optional active-users (session scan) capability, `@usertrack/protocol` extraction when a second native plugin (Auth.js, Lucia, Clerk webhooks) arrives.
 6. **More sources**: Umami, Fathom (traffic); Amplitude, Mixpanel, Firebase Analytics via BigQuery (activation, today through the endpoint); RevenueCat identities (customers API or webhooks) and per-day trial flows; StoreKit / Google Play Billing directly; more databases (MySQL, MongoDB) behind the same Node-runtime pattern.
 6b. **Cohort-verified benchmarks** once enough products are `cohort_verified` (kept separate from aggregate cohorts by construction).
 7. **Notifications**: in-app + email on milestones / rank changes for followed products (the `events`/`milestones` data already exists).

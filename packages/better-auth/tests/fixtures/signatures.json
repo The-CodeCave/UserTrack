@@ -1,0 +1,49 @@
+{
+  "secret": "ut_int_fixture_secret_0123456789abcdef",
+  "cases": [
+    {
+      "name": "metrics request",
+      "method": "REQUEST",
+      "path": "/usertrack/metrics",
+      "timestamp": 1788307200000,
+      "nonce": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "body": "{\"protocolVersion\":1,\"days\":30}",
+      "bodyHash": "01908c4c675079d723d792f26ba4e6ee310ec4132bc1657ec244c63a2f43138c",
+      "canonical": "v1\nREQUEST\n/usertrack/metrics\n1788307200000\n0f1e2d3c4b5a69788796a5b4c3d2e1f0\n01908c4c675079d723d792f26ba4e6ee310ec4132bc1657ec244c63a2f43138c",
+      "signature": "v1=addd466e740c23018aafa78d5b3b6031079507bfff243b38757303849178cb9c"
+    },
+    {
+      "name": "metrics response",
+      "method": "RESPONSE",
+      "path": "/usertrack/metrics",
+      "timestamp": 1788307200500,
+      "nonce": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "body": "{\"protocolVersion\":1,\"pluginVersion\":\"0.1.0\",\"provider\":\"better-auth\",\"projectId\":\"j57abc\",\"generatedAt\":\"2026-09-01T08:00:00.500Z\",\"totalUsers\":12481,\"newUsers\":{\"24h\":84,\"7d\":491,\"30d\":1832},\"capabilities\":{\"exactCounts\":true,\"history\":true,\"anonymousExcluded\":false}}",
+      "bodyHash": "f566d2ec2bd1de6354a1eb92611f7f363dcac1017405c0b3ee6470eeeab71131",
+      "canonical": "v1\nRESPONSE\n/usertrack/metrics\n1788307200500\n0f1e2d3c4b5a69788796a5b4c3d2e1f0\nf566d2ec2bd1de6354a1eb92611f7f363dcac1017405c0b3ee6470eeeab71131",
+      "signature": "v1=0cf1010b274761a832022d9bbb77fc8ff1c56a0d9ca7e02a5f66b04b65c7a3e4"
+    },
+    {
+      "name": "event push",
+      "method": "REQUEST",
+      "path": "/api/integrations/better-auth/events",
+      "timestamp": 1788307260000,
+      "nonce": "ffeeddccbbaa99887766554433221100",
+      "body": "{\"protocolVersion\":1,\"pluginVersion\":\"0.1.0\",\"provider\":\"better-auth\",\"projectId\":\"j57abc\",\"eventId\":\"5f0c3a2e-1b4d-4c6e-9a8f-7d6e5c4b3a21\",\"type\":\"user.created\",\"subject\":\"9b1c0d2e3f4a5b6c7d8e9f0a1b2c3d4e\",\"occurredAt\":\"2026-09-01T08:01:00.000Z\"}",
+      "bodyHash": "dbaf2f4f52fd3b03a8f4e5521182a6fba61244db24e074c9caf32c94be2acf5f",
+      "canonical": "v1\nREQUEST\n/api/integrations/better-auth/events\n1788307260000\nffeeddccbbaa99887766554433221100\ndbaf2f4f52fd3b03a8f4e5521182a6fba61244db24e074c9caf32c94be2acf5f",
+      "signature": "v1=62d40657d8ae8ee2236c2b3163109d5b1318d877e06e7e92987da83377e54107"
+    },
+    {
+      "name": "empty body",
+      "method": "REQUEST",
+      "path": "/usertrack/metrics",
+      "timestamp": 1788307300000,
+      "nonce": "00000000000000000000000000000001",
+      "body": "",
+      "bodyHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonical": "v1\nREQUEST\n/usertrack/metrics\n1788307300000\n00000000000000000000000000000001\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "v1=0189f63fba4d4aa1367f796b42ffe804d4a6382486fe026510605d11f1ab4695"
+    }
+  ]
+}

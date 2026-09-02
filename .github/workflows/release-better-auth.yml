@@ -1,0 +1,49 @@
+name: Release @usertrack/better-auth
+
+on:
+  push:
+    tags: ["better-auth-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    defaults:
+      run:
+        working-directory: packages/better-auth
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Tag must match package.json version
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == better-auth-v* ]]; then
+            V=$(node -p "require('./package.json').version")
+            [[ "${GITHUB_REF_NAME}" == "better-auth-v${V}" ]] || { echo "tag ${GITHUB_REF_NAME} != package version ${V}"; exit 1; }
+          fi
+      - name: Inspect tarball contents
+        run: |
+          pnpm pack --pack-destination /tmp
+          tar -tzf /tmp/usertrack-better-auth-*.tgz
+          ! tar -tzf /tmp/usertrack-better-auth-*.tgz | grep -E '\.env|tests/|e2e/|HUMAN_TODO' || { echo "unexpected files in tarball"; exit 1; }
+      - name: Publish
+        if: startsWith(github.ref_name, 'better-auth-v')
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

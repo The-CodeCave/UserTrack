@@ -3,7 +3,7 @@ import { INTEGRATION_CATALOG, conversionSetup, detectAuthMethods, identityMappin
 
 describe("integration catalog", () => {
   it("covers every provider with credentials and never-sent rules", () => {
-    expect(INTEGRATION_CATALOG.map((c) => c.provider).sort()).toEqual(["auth0", "chargebee", "clerk", "endpoint", "firebase", "ga4", "lemonsqueezy", "manual", "paddle", "plausible", "postgres", "posthog", "revenuecat", "stripe", "supabase"]);
+    expect(INTEGRATION_CATALOG.map((c) => c.provider).sort()).toEqual(["auth0", "better_auth", "chargebee", "clerk", "endpoint", "firebase", "ga4", "lemonsqueezy", "manual", "paddle", "plausible", "postgres", "posthog", "revenuecat", "stripe", "supabase"]);
     for (const c of INTEGRATION_CATALOG) {
       expect(c.credentials.length, c.provider).toBeGreaterThan(0);
       expect(c.neverSent).toContain("emails");
@@ -26,7 +26,8 @@ describe("integration catalog", () => {
 describe("recommendIntegrations", () => {
   it("maps package names to providers", () => {
     expect(normalizeDetected(["@clerk/nextjs", "posthog-js", "stripe"]).map((d) => d.provider)).toEqual(["clerk", "posthog", "stripe"]);
-    expect(normalizeDetected(["better-auth", "drizzle-orm", "convex"]).map((d) => d.provider)).toEqual(["endpoint", "endpoint", "endpoint"]);
+    expect(normalizeDetected(["better-auth", "drizzle-orm", "convex"]).map((d) => d.provider)).toEqual(["better_auth", "endpoint", "endpoint"]);
+    expect(normalizeDetected(["@better-auth/core", "BETTER_AUTH_SECRET", "@convex-dev/better-auth"]).map((d) => d.provider)).toEqual(["better_auth", "better_auth", "better_auth"]);
     expect(normalizeDetected(["left-pad"])).toEqual([]);
     expect(normalizeDetected(["pg", "DATABASE_URL", "@neondatabase/serverless", "prisma:postgresql"]).map((d) => d.provider)).toEqual(["postgres", "postgres", "postgres", "postgres"]);
   });
@@ -46,8 +47,12 @@ describe("recommendIntegrations", () => {
     // Supabase → Clerk → Firebase → Auth0 → Postgres → endpoint: least setup first.
     expect(recommendIntegrations({ detectedProviders: ["@clerk/nextjs", "@supabase/supabase-js"] }).recommended.provider).toBe("supabase");
     expect(recommendIntegrations({ detectedProviders: ["@clerk/nextjs", "pg"] }).recommended.provider).toBe("clerk");
-    expect(recommendIntegrations({ detectedProviders: ["better-auth", "@prisma/client"] }).recommended.provider).toBe("endpoint");
-    const pg = recommendIntegrations({ detectedProviders: ["better-auth", "pg"] });
+    expect(recommendIntegrations({ detectedProviders: ["better-auth", "@prisma/client"] }).recommended.provider).toBe("better_auth");
+    expect(recommendIntegrations({ detectedProviders: ["next-auth", "@prisma/client"] }).recommended.provider).toBe("endpoint");
+    const ba = recommendIntegrations({ detectedProviders: ["better-auth", "pg"] });
+    expect(ba.recommended.provider).toBe("better_auth");
+    expect(ba.reasoning.join(" ")).toMatch(/@usertrack\/better-auth/);
+    const pg = recommendIntegrations({ detectedProviders: ["lucia", "pg"] });
     expect(pg.recommended.provider).toBe("postgres");
     expect(pg.optionalExtras.map((e) => `${e.role}:${e.provider}`)).toEqual(["activation:postgres"]);
     expect(recommendIntegrations({}).recommended.provider).toBe("endpoint");

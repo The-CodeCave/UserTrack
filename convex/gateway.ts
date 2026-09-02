@@ -16,6 +16,9 @@ import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, proje
 import { connectIntegration, integrationView, listIntegrations, requestSync } from "./domain/integrations";
 import { TIMEFRAMES, metricsSummary, milestonesFor, seriesFor, shareData } from "./domain/metrics";
 import { INTEGRATION_CATALOG, conversionSetup as conversionPlan, identityMappingGuidance, integrationSetup, rankActivationEvents, recommendIntegrations } from "./lib/integrationSetup";
+import { betterAuthSetup, ENV_PROJECT_ID, ENV_SECRET, envSnippet } from "./lib/betterAuthSetup";
+import { createBetterAuthIntegration } from "./betterAuth";
+import { metricsUrl } from "./providers/betterAuth";
 import { publicProfile, publicSaas, sortBoard, trendingRankFor, HIDDEN_GEM_RULES } from "./public";
 import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, STAGE_ORDER, funnelFor, funnelHistoryFor, funnelSources } from "./domain/funnel";
 import { cohortView } from "./cohorts";
@@ -257,6 +260,39 @@ export const configureIntegration = mutation({
     }),
 });
 
+// Native-plugin integrations: UserTrack generates the credential. The secret is returned exactly once (creation / rotation).
+export const createIntegrationTool = mutation({
+  args: { auth: authArg, ...refArg, provider: v.literal("better_auth"), url: v.optional(v.string()), rotate: v.optional(v.boolean()) },
+  handler: async (ctx, { auth, projectId, slug, url, rotate }) =>
+    run(async () => {
+      const { token, profile } = await authenticate(ctx, auth, "mcp", "integrations:write");
+      const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const c = await createBetterAuthIntegration(ctx, saas, { url, rotate });
+      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "create_integration", saasId: saas._id, ok: true, detail: `better_auth/users ${c.created ? "created" : c.rotated ? "rotated" : "existing"} ${c.secretPrefix}…` });
+      const integration = integrationView((await ctx.db.get(c.integrationId))!);
+      const base = { provider: "better_auth" as const, created: c.created, rotated: c.rotated, projectId: c.projectId, url: c.url, metricsUrl: metricsUrl(c.url), integration, secretPrefix: c.secretPrefix, environmentVariables: [ENV_PROJECT_ID, ENV_SECRET] };
+      if (!c.secret) return { ...base, secret: null, message: `A Better Auth integration already exists (secret ${c.secretPrefix}…). The secret is never returned again; if the app does not have it, call usertrack_create_integration with rotate: true and update ${ENV_SECRET} everywhere.`, nextTool: integration.awaitingVerification ? "usertrack_verify_integration" : "usertrack_sync_project" };
+      return { ...base, secret: c.secret, env: envSnippet(c.projectId, c.secret), message: `${c.rotated ? "Secret rotated" : "Integration created"}. Set ${ENV_PROJECT_ID}=${c.projectId} and ${ENV_SECRET}=<secret> in the app's environment (never commit the secret; it is shown only now), install @usertrack/better-auth, deploy, then call usertrack_verify_integration.`, nextTool: "usertrack_get_better_auth_setup" };
+    }),
+});
+
+// Structured install plan for the official Better Auth plugin. Never contains the secret.
+export const betterAuthSetupPlan = query({
+  args: { auth: authArg, ...refArg, packageManager: v.optional(v.string()), betterAuthVersion: v.optional(v.string()), framework: v.optional(v.string()), authConfigPath: v.optional(v.string()) },
+  handler: async (ctx, { auth, projectId, slug, ...input }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "integrations:read");
+      const saas = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
+      const users = saas ? (await listIntegrations(ctx, saas._id)).find((i) => normalizeRole(i.role) === "users") : null;
+      const cfg = users?.provider === "better_auth" ? (users.config as { url: string }) : null;
+      return {
+        project: saas ? { id: saas._id, slug: saas.slug, websiteUrl: saas.websiteUrl } : null,
+        integration: users ? integrationView(users) : null,
+        ...betterAuthSetup({ ...input, projectId: saas?._id, projectSlug: saas?.slug, metricsUrl: cfg ? metricsUrl(cfg.url) : undefined, integrationExists: users?.provider === "better_auth", awaitingVerification: users?.awaitingVerification ?? false }),
+      };
+    }),
+});
+
 // Server-only read of the stored config for the verify action. Never exposed to clients.
 export const integrationForVerify = internalQuery({
   args: { auth: authArg, ...refArg, role: integrationRole },
@@ -326,6 +362,7 @@ export const verifyIntegration = action({
       const capabilities = describeProvider(p, cfg, role as Role);
       const detected = detectedCount(metrics, role);
       delete metrics.identities;
+      if (mode === "stored" && target.integration) await ctx.runMutation(internal.integrations.markVerified, { integrationId: target.integration._id });
       await ctx.runMutation(internal.gateway.auditWrite, { profileId: target.profileId, tokenId: target.tokenId, action: "verify_integration", saasId: target.saasId, ok: true, detail: `${kind}/${role} ${mode}: ${detected ?? "?"}` });
       return {
         connected: true,
@@ -348,7 +385,8 @@ export const verifyIntegration = action({
       const err = e as Error;
       const retryable = err instanceof ProviderError ? err.retryable : true;
       await ctx.runMutation(internal.gateway.auditWrite, { profileId: target.profileId, tokenId: target.tokenId, action: "verify_integration", saasId: target.saasId, ok: false, detail: `${kind}/${role}: ${err.message.slice(0, 160)}` });
-      return { connected: false, status: "failed" as const, provider: kind, role, mode, error: err.message, retryable, missingRequirements: retryable ? [] : ["Check the credential value and permissions listed by usertrack_get_integration_setup"], nextTool: retryable ? "usertrack_verify_integration" : "usertrack_configure_integration" };
+      const native = kind === "better_auth";
+      return { connected: false, status: "failed" as const, provider: kind, role, mode, error: err.message, retryable, missingRequirements: retryable ? [] : [native ? "Confirm @usertrack/better-auth is installed, userTrack() is in the plugins array, USERTRACK_PROJECT_ID / USERTRACK_SECRET are set in the deployed environment and the deploy is live (usertrack_get_better_auth_setup)" : "Check the credential value and permissions listed by usertrack_get_integration_setup"], nextTool: retryable ? "usertrack_verify_integration" : native ? "usertrack_get_better_auth_setup" : "usertrack_configure_integration" };
     }
   },
 });
@@ -443,9 +481,10 @@ export const providerRecommendation = query({
     const rec = recommendIntegrations(detected);
     return {
       ...rec,
-      priority: ["supabase", "clerk", "firebase", "postgres", "endpoint"],
+      priority: ["better_auth", "supabase", "clerk", "firebase", "auth0", "postgres", "endpoint"],
+      nativePlugins: { better_auth: { package: "@usertrack/better-auth", setupTool: "usertrack_get_better_auth_setup", createTool: "usertrack_create_integration" } },
       conversionPriority: ["revenuecat", "stripe", "paddle", "lemonsqueezy", "chargebee", "endpoint"],
-      signals: { supabase: ["@supabase/supabase-js", "SUPABASE_URL", "SUPABASE_DB_URL"], clerk: ["@clerk/nextjs", "CLERK_SECRET_KEY"], firebase: ["firebase-admin", "@react-native-firebase/auth", "firebase_auth", "GOOGLE_APPLICATION_CREDENTIALS"], postgres: ["DATABASE_URL", "pg", "prisma:postgresql", "drizzle-pg"], posthog: ["posthog-js", "posthog-react-native", "posthog-ios", "posthog-flutter"], revenuecat: ["react-native-purchases", "purchases_flutter", "RevenueCat"], stripe: ["stripe", "STRIPE_SECRET_KEY"] },
+      signals: { better_auth: ["better-auth", "@better-auth/core", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL"], supabase: ["@supabase/supabase-js", "SUPABASE_URL", "SUPABASE_DB_URL"], clerk: ["@clerk/nextjs", "CLERK_SECRET_KEY"], firebase: ["firebase-admin", "@react-native-firebase/auth", "firebase_auth", "GOOGLE_APPLICATION_CREDENTIALS"], postgres: ["DATABASE_URL", "pg", "prisma:postgresql", "drizzle-pg"], posthog: ["posthog-js", "posthog-react-native", "posthog-ios", "posthog-flutter"], revenuecat: ["react-native-purchases", "purchases_flutter", "RevenueCat"], stripe: ["stripe", "STRIPE_SECRET_KEY"] },
       nextTool: rec.composition.conversion ? "usertrack_get_integration_setup (then usertrack_get_conversion_setup)" : "usertrack_get_integration_setup",
     };
   },

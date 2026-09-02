@@ -33,6 +33,11 @@ export function integrationView(i: Doc<"integrations">) {
     consecutiveFailures: i.consecutiveFailures ?? 0,
     connectedAt: i.connectedAt ?? i._creationTime,
     publicConfig: getProvider(i.provider).publicConfig(i.config),
+    awaitingVerification: i.awaitingVerification ?? false,
+    verifiedAt: i.verifiedAt,
+    pluginVersion: i.pluginVersion,
+    protocolVersion: i.protocolVersion,
+    lastEventAt: i.lastEventAt,
   };
 }
 
@@ -79,8 +84,8 @@ export async function connectIntegration(ctx: MutationCtx, saas: Doc<"saas">, ro
 // Immediate sync with a per-integration cooldown so agents and buttons cannot hammer provider APIs.
 export async function requestSync(ctx: MutationCtx, saasId: Id<"saas">, role?: Role) {
   const all = await listIntegrations(ctx, saasId);
-  const targets = role ? all.filter((i) => normalizeRole(i.role) === role) : all;
-  if (!targets.length) throw new DomainError("bad_request", "No data source connected");
+  const targets = (role ? all.filter((i) => normalizeRole(i.role) === role) : all).filter((i) => !i.awaitingVerification);
+  if (!targets.length) throw new DomainError("bad_request", all.some((i) => i.awaitingVerification) ? "Verify the integration first — deploy the plugin, then click Verify" : "No data source connected");
   for (const integration of targets) {
     if (integration.lastSyncAt && Date.now() - integration.lastSyncAt < SYNC_COOLDOWN_MS) {
       const wait = Math.ceil((SYNC_COOLDOWN_MS - (Date.now() - integration.lastSyncAt)) / 1000);

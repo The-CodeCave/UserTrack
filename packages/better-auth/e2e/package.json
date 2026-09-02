@@ -1,0 +1,7 @@
+{
+  "name": "usertrack-better-auth-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": { "e2e": "node run.mjs" },
+  "dependencies": { "@usertrack/better-auth": "workspace:*", "better-auth": "1.6.22" }
+}

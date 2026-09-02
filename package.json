@@ -11,7 +11,10 @@
     "test": "vitest run",
     "convex:dev": "convex dev",
     "convex:deploy": "convex deploy",
-    "railway:build": "convex deploy --cmd 'pnpm build'"
+    "railway:build": "convex deploy --cmd 'pnpm build'",
+    "packages:build": "pnpm -r --filter \"./packages/**\" build",
+    "packages:test": "pnpm -r --filter \"./packages/**\" test",
+    "packages:typecheck": "pnpm -r --filter \"./packages/**\" typecheck"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

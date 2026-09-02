@@ -218,7 +218,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
                 <SourceStatus saasId={saasId} integration={integ} totalUsers={role === "users" ? saas.totalUsers : undefined} trust={saas.trust} trustLabel={saas.trustLabel} onReplace={() => setReplacing(role)} onDisconnect={() => setAdding(null)} />
               ) : open ? (
                 <Panel className="p-4">
-                  <ConnectSource saasId={saasId} role={role} current={integ ?? undefined} onConnected={() => { setReplacing(null); setAdding(null); }} />
+                  <ConnectSource saasId={saasId} role={role} current={integ ?? undefined} websiteUrl={saas.websiteUrl} onConnected={() => { setReplacing(null); setAdding(null); }} />
                   {(integ || role !== "users") && <Button variant="ghost" size="sm" className="mt-3" onClick={() => { setReplacing(null); setAdding(null); }}>Cancel</Button>}
                 </Panel>
               ) : (

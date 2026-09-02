@@ -8,7 +8,7 @@ import type { Scope } from "@convex/lib/tokens";
 
 type Auth = { hash: string; gateway?: string };
 const ROLES = ["users", "activation", "traffic", "conversion"] as const;
-const PROVIDERS = ["clerk", "supabase", "firebase", "auth0", "posthog", "plausible", "ga4", "stripe", "revenuecat", "paddle", "lemonsqueezy", "chargebee", "postgres", "endpoint", "manual"] as const;
+const PROVIDERS = ["clerk", "supabase", "firebase", "better_auth", "auth0", "posthog", "plausible", "ga4", "stripe", "revenuecat", "paddle", "lemonsqueezy", "chargebee", "postgres", "endpoint", "manual"] as const;
 const PROJECT_TYPES = ["web", "mobile", "hybrid"] as const;
 
 const detectInput = {
@@ -104,7 +104,7 @@ export const TOOLS: Tool[] = [
   tool({
     name: "usertrack_get_supported_integrations",
     title: "Supported integrations",
-    description: "Catalog of supported data sources (Supabase, Clerk, Firebase, Auth0, PostgreSQL read-only, PostHog, Plausible, GA4, Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee, JSON endpoint, manual) with roles (users | activation | traffic | conversion), trust level, required credentials and what is read. Pass what you detected to get a lifecycle recommendation.",
+    description: "Catalog of supported data sources (Better Auth native plugin, Supabase, Clerk, Firebase, Auth0, PostgreSQL read-only, PostHog, Plausible, GA4, Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee, JSON endpoint, manual) with roles (users | activation | traffic | conversion), trust level, required credentials and what is read. Pass what you detected to get a lifecycle recommendation.",
     scope: "integrations:read",
     readOnly: true,
     input: detectInput,
@@ -213,7 +213,7 @@ const TOOLS_V04: Tool[] = [
   tool({
     name: "usertrack_get_provider_recommendation",
     title: "Provider recommendation",
-    description: "Given what you detected in the repo (packages, env vars, framework, project type), returns the lifecycle composition: the users source in priority order (Supabase, Clerk, Firebase, Auth0, PostgreSQL, then the universal JSON endpoint) plus optional activation, traffic and conversion sources, with reasoning, detected auth methods and the stages that will be available. Mobile example: Firebase Auth + Sign in with Apple + PostHog + RevenueCat → Signed up: Firebase, Activated: PostHog, Trial/Converted: RevenueCat (Sign in with Apple is an auth method, never the users source). Call before creating or configuring.",
+    description: "Given what you detected in the repo (packages, env vars, framework, project type), returns the lifecycle composition: the users source in priority order (Better Auth via the official @usertrack/better-auth plugin, then Supabase, Clerk, Firebase, Auth0, PostgreSQL, then the universal JSON endpoint) plus optional activation, traffic and conversion sources, with reasoning, detected auth methods and the stages that will be available. Mobile example: Firebase Auth + Sign in with Apple + PostHog + RevenueCat → Signed up: Firebase, Activated: PostHog, Trial/Converted: RevenueCat (Sign in with Apple is an auth method, never the users source). Call before creating or configuring.",
     scope: "integrations:read",
     readOnly: true,
     input: detectInput,
@@ -325,13 +325,46 @@ const TOOLS_LIFECYCLE: Tool[] = [
 ];
 TOOLS.push(...TOOLS_LIFECYCLE);
 
+const TOOLS_NATIVE: Tool[] = [
+  tool({
+    name: "usertrack_get_better_auth_setup",
+    title: "Better Auth plugin setup",
+    description: "Structured install plan for the official UserTrack plugin for Better Auth (@usertrack/better-auth): install command for your package manager (npm / pnpm / yarn / bun), the exact code change (import userTrack, append it to the existing plugins array — never replace plugins or other options), the env vars USERTRACK_PROJECT_ID / USERTRACK_SECRET, .env.example lines, code-modification safety rules, what is sent (aggregate counts, no PII), a Better Auth version check and the verify call. Pass the project to get its state; the secret itself only comes from usertrack_create_integration.",
+    scope: "integrations:read",
+    readOnly: true,
+    input: {
+      ...ref,
+      packageManager: z.enum(["npm", "pnpm", "yarn", "bun"]).optional().describe("Detected from the lockfile: package-lock.json → npm, pnpm-lock.yaml → pnpm, yarn.lock → yarn, bun.lock(b) → bun"),
+      betterAuthVersion: z.string().optional().describe("Installed better-auth version from package.json / lockfile, e.g. '1.6.22'"),
+      framework: z.string().optional(),
+      authConfigPath: z.string().optional().describe("Path of the file that calls betterAuth({...}), if already located"),
+    },
+    run: (auth, a) => fetchQuery(api.gateway.betterAuthSetupPlan, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_create_integration",
+    title: "Create native integration",
+    description: "Create the Better Auth integration for a project and receive its credential: USERTRACK_PROJECT_ID and the USERTRACK_SECRET (ut_int_…). The secret is returned ONLY in this response — put it into the app's environment immediately, never print, log or commit it. Idempotent: an existing integration is returned without a secret (secret: null); pass rotate: true to issue a new secret (the old one stops working). Then install the plugin (usertrack_get_better_auth_setup), deploy and call usertrack_verify_integration.",
+    scope: "integrations:write",
+    readOnly: false,
+    input: {
+      ...ref,
+      provider: z.literal("better_auth").describe("Only better_auth has UserTrack-generated credentials; other providers use usertrack_configure_integration"),
+      url: z.string().optional().describe("Public Better Auth base URL of the app (baseURL + basePath), e.g. https://app.example.com/api/auth. Defaults to <websiteUrl>/api/auth"),
+      rotate: z.boolean().optional().describe("Issue a new secret, invalidating the previous one"),
+    },
+    run: (auth, a) => fetchMutation(api.gateway.createIntegrationTool, { auth, ...a }),
+  }),
+];
+TOOLS.push(...TOOLS_NATIVE);
+
 export const SETUP_WORKFLOW = [
   "usertrack_get_account",
-  "usertrack_get_provider_recommendation (pass detectedProviders / detectedAuth / detectedAnalytics / detectedPayments + framework + projectType from the repo: Supabase → Clerk → Firebase → PostgreSQL → endpoint for users; Sign in with Apple / Google are auth methods, never the users source)",
+  "usertrack_get_provider_recommendation (pass detectedProviders / detectedAuth / detectedAnalytics / detectedPayments + framework + projectType from the repo: Better Auth (official plugin) → Supabase → Clerk → Firebase → PostgreSQL → endpoint for users; Sign in with Apple / Google are auth methods, never the users source)",
   "usertrack_create_project (idempotent by domain)",
   "usertrack_get_integration_setup (recommended provider)",
-  "edit the repo only if the instructions say so (endpoint provider)",
-  "usertrack_configure_integration",
+  "Better Auth: usertrack_create_integration { provider: \"better_auth\" } → usertrack_get_better_auth_setup → install @usertrack/better-auth, add userTrack() to the existing plugins array, set USERTRACK_PROJECT_ID / USERTRACK_SECRET (never commit the secret), typecheck, deploy",
+  "other providers: edit the repo only if the instructions say so (endpoint provider), then usertrack_configure_integration",
   "usertrack_verify_integration (wait ~5s, retry ≤3×)",
   "usertrack_update_project { isPublic: true }",
   "optional: usertrack_get_activation_setup → configure an activation source (PostHog event, Supabase/Postgres table) so the funnel shows activated users",
@@ -346,5 +379,7 @@ To add a SaaS repository to UserTrack, run this workflow in order:
 ${SETUP_WORKFLOW.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 
 Mobile flow ("Add this iOS app to UserTrack"): projectType "mobile"; users from where accounts are stored (Firebase Auth, Supabase, Auth0, a database or a backend JSON endpoint) — Sign in with Apple / Google are auth methods, never the users source; activation from PostHog (identify(uid) + an outcome event); Trial / Converted from RevenueCat (or Stripe / endpoint); then usertrack_update_project with projectType, appStoreUrl / playStoreUrl and authMethods.
+
+Better Auth flow ("Add this Better Auth project to UserTrack"): detect better-auth in package.json → usertrack_create_project → usertrack_create_integration { provider: "better_auth" } (the secret is returned once) → usertrack_get_better_auth_setup → install @usertrack/better-auth with the repo's package manager, append userTrack({ projectId: process.env.USERTRACK_PROJECT_ID!, secret: process.env.USERTRACK_SECRET! }) to the existing plugins array without touching other options, add both variables to .env.example and the local env, typecheck, deploy → usertrack_verify_integration → usertrack_sync_project → usertrack_get_share_url.
 
 Rules: never print or log credentials; prefer verified providers over manual numbers; only aggregate counts are ever sent to UserTrack; payment providers are read for conversion state only, never revenue (no amounts, prices, invoices or MRR); never send emails, names or phone numbers — identities are stable ids only; ask the founder for any credential you cannot find in the repo's env files.`;

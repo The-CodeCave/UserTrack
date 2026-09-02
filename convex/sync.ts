@@ -44,6 +44,8 @@ const metricsValidator = v.object({
   newConverted30d: v.optional(v.number()),
   conversionMode: v.optional(conversionMode),
   payingUsers: v.optional(v.number()),
+  sourceVersion: v.optional(v.string()),
+  protocolVersion: v.optional(v.number()),
 });
 const IDENTITY_BATCH = 500;
 
@@ -204,7 +206,7 @@ export const recordSuccess = internalMutation({
     const syncRunId = await ctx.db.insert("syncRuns", {
       saasId, integrationId, role, provider: integration.provider, startedAt, finishedAt: now, durationMs: now - startedAt, attempt, status: "ok", totalUsers: metrics.totalUsers,
     });
-    await ctx.db.patch(integrationId, { status: "ok", trust, lastError: undefined, lastSyncAt: now, lastSuccessAt: now, consecutiveFailures: 0 });
+    await ctx.db.patch(integrationId, { status: "ok", trust, lastError: undefined, lastSyncAt: now, lastSuccessAt: now, consecutiveFailures: 0, ...(metrics.sourceVersion ? { pluginVersion: metrics.sourceVersion, protocolVersion: metrics.protocolVersion } : {}) });
 
     if (role === "users" && metrics.totalUsers !== undefined) {
       const totalUsers = metrics.totalUsers;

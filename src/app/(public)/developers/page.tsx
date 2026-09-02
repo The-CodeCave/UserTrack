@@ -134,7 +134,7 @@ export default function DevelopersPage() {
           {[
             ["Website", "Public growth pages, leaderboards, trending, milestones and share cards. Numbers are synced every 4 hours from read-only data sources — never typed in."],
             ["Public API", `Read-only JSON for everything that is public. No key needed; an API key raises the limit to ${API_PLAN.perDay.toLocaleString()} requests per day.`],
-            ["MCP", "15 tools for Claude Code, Cursor, Codex, VS Code or any MCP client. Your agent creates the project, connects the data source, verifies it and publishes."],
+            ["MCP", `${TOOLS.length} tools for Claude Code, Cursor, Codex, VS Code or any MCP client. Your agent creates the project, connects the data source (native Better Auth plugin included), verifies it and publishes.`],
           ].map(([title, body]) => (
             <Panel key={title} className="p-4">
               <div className="text-label">{title}</div>

@@ -7,6 +7,9 @@ Read-only JSON API over everything that is public on UserTrack: SaaS profiles, m
 - **Format:** JSON, UTF-8. Timestamps are ISO 8601 (UTC). The API carries user counts and rates only — never amounts, MRR or ARR (`docs/METRICS.md`, no-revenue policy).
 - **OpenAPI:** `https://usertrack.dev/api/openapi.json` (OpenAPI 3.1, generated from the route code in `src/lib/api/openapi.ts`).
 
+
+> Provider identifiers that can appear in `source.provider` (funnel stages): `better_auth`, `clerk`, `supabase`, `firebase`, `auth0`, `postgres`, `posthog`, `plausible`, `ga4`, `stripe`, `revenuecat`, `paddle`, `lemonsqueezy`, `chargebee`, `endpoint`, `manual`. `better_auth` is a native verified source (`verification: "verified"`); no integration URLs or secrets are ever exposed.
+
 ## Versioning
 
 `v1` is stable. Changes are **additive only**: new fields, new optional query params, new endpoints. Fields are never renamed, removed, or change type within v1. Optional fields may be absent (omitted, not `null`) when the underlying data does not exist or the owner has not opted in to sharing it. Breaking changes will ship under `/api/v2`.

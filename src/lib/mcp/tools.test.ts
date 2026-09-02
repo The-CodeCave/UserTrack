@@ -33,13 +33,15 @@ const EXPECTED = [
   "usertrack_get_identity_mapping",
   "usertrack_get_funnel_history",
   "usertrack_get_cohorts",
+  "usertrack_get_better_auth_setup",
+  "usertrack_create_integration",
 ];
 
 describe("MCP tool set", () => {
-  it("exposes exactly the 27 expected tools with unique names", () => {
+  it("exposes exactly the 29 expected tools with unique names", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toEqual(EXPECTED);
-    expect(new Set(names).size).toBe(27);
+    expect(new Set(names).size).toBe(29);
   });
 
   it("gives every tool a title, description and a known scope", () => {
@@ -57,7 +59,7 @@ describe("MCP tool set", () => {
       if (t.readOnly) expect(t.scope, t.name).toMatch(/:read$/);
       else expect(t.scope, t.name).toMatch(/:write$/);
     }
-    expect(TOOLS.filter((t) => !t.readOnly).map((t) => t.name)).toEqual(["usertrack_create_project", "usertrack_update_project", "usertrack_configure_integration", "usertrack_verify_integration", "usertrack_sync_project"]);
+    expect(TOOLS.filter((t) => !t.readOnly).map((t) => t.name)).toEqual(["usertrack_create_project", "usertrack_update_project", "usertrack_configure_integration", "usertrack_verify_integration", "usertrack_sync_project", "usertrack_create_integration"]);
   });
 
   it("describes the setup workflow in order", () => {
