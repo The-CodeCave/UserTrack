@@ -1,6 +1,6 @@
 [build]
 builder = "RAILPACK"
-buildCommand = "pnpm build"
+buildCommand = "pnpm railway:build"
 
 [deploy]
 startCommand = "pnpm start"
