@@ -1,7 +1,7 @@
 // Agent-executable integration knowledge: catalog, recommendation and structured setup instructions.
 // Pure data + functions, shared by the MCP server and the developer docs. No I/O.
 
-export type ProviderKind = "clerk" | "supabase" | "firebase" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "endpoint" | "manual";
+export type ProviderKind = "clerk" | "supabase" | "firebase" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "postgres" | "endpoint" | "manual";
 export type Role = "users" | "activation" | "traffic" | "revenue";
 
 export interface Credential {
@@ -48,17 +48,18 @@ export const INTEGRATION_CATALOG: CatalogEntry[] = [
     label: "Supabase",
     roles: ["users", "activation"],
     trust: "verified",
-    summary: "Counts auth.users (or any table) with exact-count HEAD requests through the service role key.",
-    detects: ["@supabase/supabase-js", "@supabase/ssr", "@supabase/auth-helpers-nextjs", "SUPABASE_SERVICE_ROLE_KEY", "NEXT_PUBLIC_SUPABASE_URL"],
+    summary: "Preferred: a read-only Postgres connection string → auth.users signups per day (24h/7d/30d + 30-day history). Fallback: project URL + service role key → total users only.",
+    detects: ["@supabase/supabase-js", "@supabase/ssr", "@supabase/auth-helpers-nextjs", "SUPABASE_SERVICE_ROLE_KEY", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_DB_URL"],
     credentials: [
-      { key: "url", label: "Project URL", secret: false, whereToFind: "Supabase → Project Settings → API → Project URL", envVarHints: ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL"], format: "https://xxxx.supabase.co" },
-      { key: "serviceKey", label: "Service role key", secret: true, whereToFind: "Supabase → Project Settings → API → service_role (server-only)", envVarHints: ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_KEY"] },
+      { key: "connectionString", label: "Read-only database connection string (preferred)", secret: true, optional: true, whereToFind: "Supabase → Connect → Session pooler (IPv4) → copy the URI; ideally for a dedicated read-only role (see steps). Unlocks verified signups per window and history. If given, url/serviceKey are not needed.", envVarHints: ["SUPABASE_DB_URL", "DATABASE_URL", "POSTGRES_URL"], format: "postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres" },
+      { key: "url", label: "Project URL (fallback mode)", secret: false, optional: true, whereToFind: "Supabase → Project Settings → API → Project URL", envVarHints: ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL"], format: "https://xxxx.supabase.co" },
+      { key: "serviceKey", label: "Service role key (fallback mode)", secret: true, optional: true, whereToFind: "Supabase → Project Settings → API → service_role (server-only). Only counts auth.users; no per-window signups.", envVarHints: ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_KEY"] },
       { key: "table", label: "Table to count", secret: false, optional: true, roles: ["users"], whereToFind: "Leave empty to count auth.users; otherwise a public table with one row per user (e.g. profiles).", envVarHints: [] },
       { key: "table", label: "Table with one row per activated user", secret: false, roles: ["activation"], whereToFind: "A table that only gets a row once a user really used the product (e.g. projects_owners).", envVarHints: [] },
       { key: "createdAtColumn", label: "created_at column", secret: false, optional: true, whereToFind: "Timestamp column on that table; unlocks 24h/7d/30d counts and 30-day history.", envVarHints: [] },
     ],
-    permissions: ["The service role key is required for auth.users counts. It must stay server-side; UserTrack stores it encrypted and never returns it."],
-    reads: "HEAD requests with Prefer: count=exact and /auth/v1/admin/users?per_page=1 — row counts only, never row data.",
+    permissions: ["Database mode: create a read-only role and grant SELECT on auth.users (or the activation table): CREATE ROLE usertrack_ro LOGIN PASSWORD '…'; GRANT USAGE ON SCHEMA auth TO usertrack_ro; GRANT SELECT ON auth.users TO usertrack_ro; — then use it in the pooler connection string.", "API mode: the service role key must stay server-side; UserTrack stores it encrypted and never returns it."],
+    reads: "Database mode: SELECT count(*) … WHERE created_at >= $1 on auth.users (deleted_at IS NULL) plus one GROUP BY day query for history. API mode: HEAD count=exact / admin/users?per_page=1 — counts only, never row data.",
     neverSent: NEVER,
   },
   {
@@ -66,14 +67,14 @@ export const INTEGRATION_CATALOG: CatalogEntry[] = [
     label: "Firebase Auth",
     roles: ["users"],
     trust: "verified",
-    summary: "Total users via the Identity Toolkit admin API using a viewer-only service account.",
+    summary: "Total users via the Identity Toolkit admin API (viewer-only service account). Signups per window + 30-day history via a createdAt scan for projects up to 100k accounts; larger projects use snapshot deltas.",
     detects: ["firebase", "firebase-admin", "@firebase/auth", "FIREBASE_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS"],
     credentials: [
       { key: "serviceAccount", label: "Service account JSON", secret: true, whereToFind: "Google Cloud Console → IAM & Admin → Service Accounts → create one with role 'Firebase Authentication Viewer' → Keys → Add key (JSON)", envVarHints: ["FIREBASE_SERVICE_ACCOUNT", "GOOGLE_APPLICATION_CREDENTIALS"], format: "Full JSON file contents" },
       { key: "projectId", label: "Project ID", secret: false, optional: true, whereToFind: "Firebase console → Project settings; taken from the JSON if empty", envVarHints: ["FIREBASE_PROJECT_ID", "NEXT_PUBLIC_FIREBASE_PROJECT_ID"] },
     ],
     permissions: ["Create a dedicated service account with only 'Firebase Authentication Viewer'. Do not reuse the admin SDK account."],
-    reads: "accounts:query with returnUserInfo=false — a count, no user records.",
+    reads: "accounts:query with returnUserInfo=false for the total; accounts:batchGet pages (≤100k) read only createdAt and are discarded immediately — nothing per-user is stored.",
     neverSent: NEVER,
   },
   {
@@ -153,6 +154,25 @@ export const INTEGRATION_CATALOG: CatalogEntry[] = [
     neverSent: NEVER,
   },
   {
+    provider: "postgres",
+    label: "PostgreSQL (read-only)",
+    roles: ["users", "activation"],
+    trust: "verified",
+    summary: "Any SaaS with a Postgres database: a read-only connection string + the users table. Aggregate SQL only (count(*), count per day); rows are never read.",
+    detects: ["pg", "postgres", "postgresql", "DATABASE_URL", "@neondatabase/serverless", "@vercel/postgres", "pg-promise", "prisma:postgresql", "drizzle-pg"],
+    credentials: [
+      { key: "connectionString", label: "Read-only connection string", secret: true, whereToFind: "Your database provider's connection panel (Neon, Railway, RDS, Render, Fly, Supabase…). Create a dedicated read-only role first (see permissions); enable SSL. UserTrack's IPs are not fixed, so the host must accept internet connections (or use the provider's pooler).", envVarHints: ["DATABASE_URL", "POSTGRES_URL", "PG_CONNECTION_STRING"], format: "postgresql://usertrack_ro:<password>@host:5432/dbname?sslmode=require" },
+      { key: "tableRef", label: "Users table", secret: false, roles: ["users"], whereToFind: "The table (or view) with exactly one row per user, e.g. public.users. Look at the ORM schema / migrations.", envVarHints: [], format: "schema.table" },
+      { key: "tableRef", label: "Activation table", secret: false, roles: ["activation"], optional: true, whereToFind: "A table with one row per activated user (e.g. workspaces with an owner_id). Alternatively pass `sql`.", envVarHints: [], format: "schema.table" },
+      { key: "createdAtColumn", label: "Signup timestamp column", secret: false, optional: true, whereToFind: "created_at / createdAt / inserted_at on that table (timestamp or epoch). Unlocks 24h/7d/30d signups and 30-day history.", envVarHints: [] },
+      { key: "deletedAtColumn", label: "Soft-delete column", secret: false, optional: true, whereToFind: "deleted_at if the table soft-deletes users; rows with a value are excluded.", envVarHints: [] },
+      { key: "sql", label: "Custom activation SQL", secret: false, optional: true, roles: ["activation"], whereToFind: "One SELECT returning a single count; $1 is the 'since' timestamp, e.g. SELECT count(distinct user_id) FROM projects WHERE created_at >= $1", envVarHints: [] },
+    ],
+    permissions: ["Create a read-only role: CREATE ROLE usertrack_ro LOGIN PASSWORD '…'; GRANT CONNECT ON DATABASE <db> TO usertrack_ro; GRANT USAGE ON SCHEMA public TO usertrack_ro; GRANT SELECT ON public.users TO usertrack_ro;", "Never hand over the application's main DATABASE_URL if it has write access."],
+    reads: "SELECT count(*) with optional created_at >= $1 / deleted_at IS NULL filters, and one GROUP BY day query for history. The session is forced read-only; statements time out after 20s.",
+    neverSent: NEVER,
+  },
+  {
     provider: "endpoint",
     label: "JSON endpoint on your own domain",
     roles: ["users", "activation", "traffic", "revenue"],
@@ -210,8 +230,18 @@ const DETECTION_ALIASES: Record<string, ProviderKind> = {
   drizzle: "endpoint",
   mongoose: "endpoint",
   mongodb: "endpoint",
-  postgres: "endpoint",
-  postgresql: "endpoint",
+  postgres: "postgres",
+  postgresql: "postgres",
+  pg: "postgres",
+  "pg-promise": "postgres",
+  "postgres.js": "postgres",
+  neon: "postgres",
+  neondatabase: "postgres",
+  "vercel-postgres": "postgres",
+  "database-url": "postgres",
+  "prisma:postgresql": "postgres",
+  "drizzle-pg": "postgres",
+  "supabase-db": "supabase",
   mysql: "endpoint",
   sqlite: "endpoint",
   kysely: "endpoint",
@@ -230,7 +260,8 @@ export function normalizeDetected(detected: readonly string[] = []) {
   return out;
 }
 
-const USERS_PRIORITY: ProviderKind[] = ["clerk", "supabase", "auth0", "firebase", "endpoint", "manual"];
+// Direct auth providers first (least setup), then a read-only database, then the universal endpoint.
+const USERS_PRIORITY: ProviderKind[] = ["supabase", "clerk", "firebase", "auth0", "postgres", "endpoint", "manual"];
 
 // Best users-role source first, then optional extras (activation, traffic, revenue) the agent can offer afterwards.
 export function recommendIntegrations(input: { detectedProviders?: readonly string[]; framework?: string }) {
@@ -245,10 +276,12 @@ export function recommendIntegrations(input: { detectedProviders?: readonly stri
       break;
     }
   }
-  if (users === "endpoint") reasoning.push(kinds.size ? "No supported auth provider was detected, so the safest verified path is a small JSON endpoint on the product's own domain that returns aggregate counts from your existing database." : "Nothing was detected; a JSON endpoint on the product's own domain is the universal verified option. Use manual only if no data source can be exposed.");
+  if (users === "postgres") reasoning.push("A read-only PostgreSQL connection counts users straight from the users table with aggregate SQL — no code change in the product, verified.");
+  if (users === "endpoint") reasoning.push(kinds.size ? "No supported auth provider or Postgres database was detected, so the safest verified path is a small JSON endpoint on the product's own domain that returns aggregate counts from your existing database." : "Nothing was detected; a JSON endpoint on the product's own domain is the universal verified option. Use manual only if no data source can be exposed.");
   const extras: { role: Role; provider: ProviderKind; reason: string }[] = [];
   if (kinds.has("posthog")) extras.push({ role: "activation", provider: "posthog", reason: "PostHog detected — pick the event that means a user really started and UserTrack will show activated users + activation rate." });
-  else if (users === "supabase") extras.push({ role: "activation", provider: "supabase", reason: "A Supabase table with one row per activated user unlocks activation metrics." });
+  else if (users === "supabase") extras.push({ role: "activation", provider: "supabase", reason: "A Supabase table with one row per activated user (or a custom SQL count with the database connection string) unlocks activation metrics." });
+  else if (users === "postgres" || kinds.has("postgres")) extras.push({ role: "activation", provider: "postgres", reason: "The same read-only connection can count activated users: a table with one row per activated user, or one SELECT count(distinct user_id) … WHERE created_at >= $1." });
   if (kinds.has("plausible")) extras.push({ role: "traffic", provider: "plausible", reason: "Plausible detected — visitors and sessions for the funnel (private by default)." });
   else if (kinds.has("ga4")) extras.push({ role: "traffic", provider: "ga4", reason: "Google Analytics detected — active users and sessions for the funnel (private by default)." });
   if (kinds.has("stripe")) extras.push({ role: "revenue", provider: "stripe", reason: "Stripe detected — paying customers and MRR from a restricted read-only key (private by default)." });
@@ -329,6 +362,10 @@ export function integrationSetup(input: { provider: string; role?: Role; framewo
       { id: "endpoint:route", title: "Add the count route", detail: `Add ${tpl.path} using the code template. Return { "totalUsers": <integer> } from your users table; add newUsers24h/7d/30d and activeUsers30d if cheap. Never return user records.`, action: "modify_repo" },
       { id: "endpoint:deploy", title: "Deploy", detail: `The route must be reachable over HTTPS on the product domain${input.websiteUrl ? ` (${input.websiteUrl})` : ""} — endpoints on other hosts are accepted but labelled self-reported.`, action: "deploy" },
     );
+  }
+  if (entry.provider === "postgres" || (entry.provider === "supabase" && normalizeDetected(input.detectedProviders).some((d) => d.provider === "postgres"))) {
+    codeTemplates.push({ framework: "sql", path: "usertrack-readonly-role.sql", language: "sql", code: `-- Run once as a superuser / owner. Replace <db>, <schema>, <table> and the password.\nCREATE ROLE usertrack_ro LOGIN PASSWORD '<generate with: openssl rand -hex 24>';\nGRANT CONNECT ON DATABASE <db> TO usertrack_ro;\nGRANT USAGE ON SCHEMA <schema> TO usertrack_ro;\nGRANT SELECT ON <schema>.<table> TO usertrack_ro;\n` });
+    steps.unshift({ id: "postgres:role", title: "Create a read-only database role", detail: "Run the SQL template (or your provider's read-only role feature) so UserTrack never receives write access. Then build the connection string with that role; keep sslmode=require.", action: "modify_repo" });
   }
   if (entry.provider === "manual") {
     steps.push({ id: "manual:ask", title: "Confirm the number with the founder", detail: "Manual numbers are labelled self-reported and never ranked. Prefer any verified provider if one exists.", action: "ask_user" });

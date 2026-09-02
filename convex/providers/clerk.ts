@@ -1,4 +1,4 @@
-import { asCount, fetchJson, DAY_MS, dayKey, type Provider, type ProviderMetrics } from "./types";
+import { asCount, fetchJson, mapLimit, DAY_MS, dayKey, type Provider, type ProviderMetrics } from "./types";
 
 export interface ClerkConfig { secretKey: string }
 
@@ -10,7 +10,7 @@ async function count(secretKey: string, params: Record<string, string | number> 
   return asCount(json.total_count, "Clerk total_count");
 }
 
-// Clerk Backend API. Only GET /v1/users/count is used (with created_at / last_active_at filters).
+// Clerk Backend API. Only GET /v1/users/count is used (with created_at / last_active_at filters). 429s back off via fetchJson.
 export const clerk: Provider<ClerkConfig> = {
   kind: "clerk",
   label: "Clerk",
@@ -33,13 +33,12 @@ export const clerk: Provider<ClerkConfig> = {
     ]);
     return { totalUsers, newUsers24h: new24h, newUsers7d: new7d, newUsers30d: new30d, activeUsers30d: active30d };
   },
+  // One count call per day, at most 4 in flight so Clerk's rate limit (and its Retry-After backoff in fetchJson) is respected.
   async fetchHistory({ secretKey }, _role, days) {
     const now = Date.now();
-    const points = [];
-    for (let d = days; d >= 1; d--) {
-      const end = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate()) - (d - 1) * DAY_MS;
-      points.push({ day: dayKey(end - 1), value: await count(secretKey, { created_at_before: end }) });
-    }
+    const today = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate());
+    const ends = Array.from({ length: days }, (_, i) => today - (days - 1 - i) * DAY_MS);
+    const points = await mapLimit(ends, 4, async (end) => ({ day: dayKey(end - 1), value: await count(secretKey, { created_at_before: end }) }));
     return { metric: "totalUsers", points };
   },
   publicConfig: ({ secretKey }) => ({ key: `${secretKey.slice(0, 8)}…${secretKey.slice(-4)}` }),

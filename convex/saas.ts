@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { getProfileForUser, requireProfile } from "./profiles";
@@ -15,6 +15,15 @@ export async function requireOwnedSaas(ctx: QueryCtx | MutationCtx, id: Id<"saas
   if (!saas || saas.ownerId !== profile._id) throw new Error("SaaS not found");
   return { profile, saas };
 }
+
+// Ownership check callable from actions (auth identity propagates through ctx.runQuery).
+export const ownedForAction = internalQuery({
+  args: { id: v.id("saas") },
+  handler: async (ctx, { id }) => {
+    const { saas } = await requireOwnedSaas(ctx, id);
+    return { _id: saas._id, websiteUrl: saas.websiteUrl, totalUsers: saas.totalUsers };
+  },
+});
 
 const editable = {
   name: v.string(),

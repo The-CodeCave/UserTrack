@@ -11,6 +11,7 @@ export const providerKind = v.union(
   v.literal("plausible"),
   v.literal("ga4"),
   v.literal("stripe"),
+  v.literal("postgres"),
   v.literal("endpoint"),
   v.literal("manual"),
 );

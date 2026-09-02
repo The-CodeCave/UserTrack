@@ -2,7 +2,7 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { getProvider, type Role } from "../providers";
+import { describeProvider, getProvider, verificationLevel, type Role } from "../providers";
 import { dayKey } from "../lib/time";
 import { DomainError } from "./projects";
 
@@ -13,12 +13,18 @@ export async function listIntegrations(ctx: QueryCtx | MutationCtx, saasId: Id<"
 }
 
 export function integrationView(i: Doc<"integrations">) {
+  const role = i.role ?? ("users" as const);
+  const p = getProvider(i.provider);
+  const capabilities = describeProvider(p, i.config, role);
   return {
     id: i._id,
-    role: i.role ?? ("users" as const),
+    role,
     provider: i.provider,
+    label: p.label,
     status: i.status,
     trust: i.trust,
+    verification: verificationLevel(i.provider, i.trust, capabilities, role),
+    capabilities,
     lastError: i.lastError,
     lastSyncAt: i.lastSyncAt,
     lastSuccessAt: i.lastSuccessAt,

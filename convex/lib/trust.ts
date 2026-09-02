@@ -1,7 +1,7 @@
 /**
  * Trust score (0–100) and anomaly heuristics. Statistical, explainable, no ML.
  *
- *   provider    ≤ 40   auth providers 40 · analytics/endpoint-on-own-domain 30 · foreign endpoint 10 · manual 5
+ *   provider    ≤ 40   auth providers + read-only databases 40 · analytics/endpoint-on-own-domain 30 · foreign endpoint 10 · manual 5
  *   age         ≤ 25   linear over 30 days of continuous connection
  *   continuity  ≤ 20   share of successful sync runs in the recent window
  *   activation  ≤ 5    activation data present and ≤ 100% of users
@@ -13,7 +13,7 @@ export type Severity = "low" | "medium" | "high";
 export interface Flag { kind: FlagKind; severity: Severity; detail: string }
 
 const PROVIDER_BASE: Record<string, number> = {
-  clerk: 40, supabase: 40, firebase: 40, auth0: 40,
+  clerk: 40, supabase: 40, firebase: 40, auth0: 40, postgres: 40,
   posthog: 30, plausible: 30, ga4: 30, stripe: 30,
   endpoint: 30, manual: 5,
 };

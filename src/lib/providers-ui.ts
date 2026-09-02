@@ -1,4 +1,4 @@
-export type ProviderKind = "clerk" | "supabase" | "firebase" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "endpoint" | "manual";
+export type ProviderKind = "clerk" | "supabase" | "firebase" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "postgres" | "endpoint" | "manual";
 export type Role = "users" | "activation" | "traffic" | "revenue";
 
 export interface ProviderField {
@@ -44,18 +44,37 @@ export const PROVIDERS: ProviderMeta[] = [
   {
     kind: "supabase",
     label: "Supabase",
-    tagline: "Counts auth.users, or any table, via the service role key",
+    tagline: "auth.users signups via a read-only connection string, or totals via the service role key",
     trust: "verified",
     roles: ["users", "activation"],
     fields: [
-      { name: "url", label: "Project URL", placeholder: "https://xxxx.supabase.co", type: "url" },
-      { name: "serviceKey", label: "Service role key", placeholder: "eyJhbGciOi…", type: "password" },
+      { name: "connectionString", label: "Database connection string", placeholder: "postgresql://postgres.<ref>:…@aws-0-eu-central-1.pooler.supabase.com:5432/postgres", type: "password", optional: true, hint: "Recommended · Supabase → Connect → Session pooler. Unlocks 24h/7d/30d signups + 30-day history from auth.users" },
+      { name: "url", label: "Project URL", placeholder: "https://xxxx.supabase.co", type: "url", optional: true, hint: "Fallback without a connection string" },
+      { name: "serviceKey", label: "Service role key", placeholder: "eyJhbGciOi…", type: "password", optional: true, hint: "Fallback · counts auth.users only" },
       { name: "table", label: "Table", placeholder: "profiles", optional: true, roles: ["users"], hint: "Leave empty to count auth.users" },
-      { name: "table", label: "Table with one row per activated user", placeholder: "projects_owners", roles: ["activation"] },
+      { name: "table", label: "Table with one row per activated user", placeholder: "public.workspaces", roles: ["activation"], optional: true },
       { name: "createdAtColumn", label: "created_at column", placeholder: "created_at", optional: true, hint: "Enables 24h/7d/30d counts and 30-day history backfill" },
+      { name: "sql", label: "Custom SQL (activation, connection string only)", placeholder: "SELECT count(distinct user_id) FROM projects WHERE created_at >= $1", type: "textarea", optional: true, roles: ["activation"], hint: "One read-only SELECT returning a count · $1 = since timestamp" },
     ],
-    reads: "HEAD requests with Prefer: count=exact — row counts only, never row data.",
-    steps: ["Supabase → Project Settings → API", "Copy Project URL and the service_role key", "Optionally name a table + created_at column for range metrics"],
+    reads: "count(*) on auth.users with created_at / deleted_at filters (database mode) or exact-count HEAD requests (API mode). Never row data.",
+    steps: ["Supabase → Connect → Session pooler → copy the URI (a dedicated read-only role is best: GRANT SELECT ON auth.users)", "Or: Project Settings → API → Project URL + service_role key (totals only)", "Optionally name a table + created_at column"],
+  },
+  {
+    kind: "postgres",
+    label: "PostgreSQL",
+    tagline: "Any Postgres database: read-only connection + your users table",
+    trust: "verified",
+    roles: ["users", "activation"],
+    fields: [
+      { name: "connectionString", label: "Read-only connection string", placeholder: "postgresql://usertrack_ro:…@host:5432/db?sslmode=require", type: "password" },
+      { name: "tableRef", label: "Users table", placeholder: "public.users", roles: ["users"] },
+      { name: "tableRef", label: "Activation table", placeholder: "public.workspaces", roles: ["activation"], optional: true, hint: "One row per activated user — or use custom SQL below" },
+      { name: "createdAtColumn", label: "Signup timestamp column", placeholder: "created_at", optional: true, hint: "Unlocks 24h/7d/30d signups and 30-day history" },
+      { name: "deletedAtColumn", label: "Soft-delete column", placeholder: "deleted_at", optional: true },
+      { name: "sql", label: "Custom SQL", placeholder: "SELECT count(distinct user_id) FROM projects WHERE created_at >= $1", type: "textarea", optional: true, roles: ["activation"], hint: "One read-only SELECT returning a count · $1 = since timestamp" },
+    ],
+    reads: "SELECT count(*) with created_at / deleted_at filters and one GROUP BY day query for history. Session forced read-only, 20s statement timeout.",
+    steps: ["Create a read-only role: CREATE ROLE usertrack_ro LOGIN PASSWORD '…'; GRANT SELECT ON public.users TO usertrack_ro;", "Allow connections from the internet (or use your provider's pooler) with SSL", "Paste the connection string, pick the table and the signup column"],
   },
   {
     kind: "firebase",

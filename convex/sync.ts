@@ -3,6 +3,7 @@ import { internalAction, internalMutation, type MutationCtx } from "./_generated
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getProvider, ProviderError, type History, type ProviderMetrics, type Role } from "./providers";
+import { fetchHistory, fetchMetrics, hasHistory } from "./providerRun";
 import { DAY, HOUR, dayKey, dayStart } from "./lib/time";
 import { growthPct, pct, previousWindowDelta, windowDelta } from "./lib/metrics";
 import { estimateRetention } from "./lib/retention";
@@ -62,7 +63,7 @@ export const runOne = internalAction({
     const provider = getProvider(integration.provider);
     const startedAt = Date.now();
     try {
-      const metrics = await provider.fetch(integration.config, role);
+      const metrics = await fetchMetrics(ctx, integration.provider, integration.config, role);
       await ctx.runMutation(internal.sync.recordSuccess, {
         integrationId,
         startedAt,
@@ -71,10 +72,10 @@ export const runOne = internalAction({
         metrics,
         trust: provider.trust(integration.config, websiteUrl),
       });
-      if (provider.fetchHistory && (!integration.backfilledAt || role === "traffic")) {
+      if (hasHistory(integration.provider, integration.config) && (!integration.backfilledAt || role === "traffic")) {
         const days = integration.backfilledAt ? 7 : BACKFILL_DAYS;
         try {
-          const history = await provider.fetchHistory(integration.config, role, days);
+          const history = await fetchHistory(ctx, integration.provider, integration.config, role, days);
           if (history && history.points.length) await ctx.runMutation(internal.sync.recordHistory, { integrationId, role, history });
         } catch (e) {
           console.warn(`history backfill failed for ${integrationId}: ${(e as Error).message}`);

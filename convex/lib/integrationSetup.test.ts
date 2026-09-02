@@ -3,7 +3,7 @@ import { INTEGRATION_CATALOG, integrationSetup, normalizeDetected, recommendInte
 
 describe("integration catalog", () => {
   it("covers every provider with credentials and never-sent rules", () => {
-    expect(INTEGRATION_CATALOG.map((c) => c.provider).sort()).toEqual(["auth0", "clerk", "endpoint", "firebase", "ga4", "manual", "plausible", "posthog", "stripe", "supabase"]);
+    expect(INTEGRATION_CATALOG.map((c) => c.provider).sort()).toEqual(["auth0", "clerk", "endpoint", "firebase", "ga4", "manual", "plausible", "postgres", "posthog", "stripe", "supabase"]);
     for (const c of INTEGRATION_CATALOG) {
       expect(c.credentials.length, c.provider).toBeGreaterThan(0);
       expect(c.neverSent).toContain("emails");
@@ -17,12 +17,18 @@ describe("recommendIntegrations", () => {
     expect(normalizeDetected(["@clerk/nextjs", "posthog-js", "stripe"]).map((d) => d.provider)).toEqual(["clerk", "posthog", "stripe"]);
     expect(normalizeDetected(["better-auth", "drizzle-orm", "convex"]).map((d) => d.provider)).toEqual(["endpoint", "endpoint", "endpoint"]);
     expect(normalizeDetected(["left-pad"])).toEqual([]);
+    expect(normalizeDetected(["pg", "DATABASE_URL", "@neondatabase/serverless", "prisma:postgresql"]).map((d) => d.provider)).toEqual(["postgres", "postgres", "postgres", "postgres"]);
   });
 
   it("prefers auth providers over the endpoint, and never recommends manual", () => {
     expect(recommendIntegrations({ detectedProviders: ["@supabase/supabase-js", "posthog-js"] }).recommended.provider).toBe("supabase");
-    expect(recommendIntegrations({ detectedProviders: ["@clerk/nextjs", "@supabase/supabase-js"] }).recommended.provider).toBe("clerk");
+    // Supabase → Clerk → Firebase → Auth0 → Postgres → endpoint: least setup first.
+    expect(recommendIntegrations({ detectedProviders: ["@clerk/nextjs", "@supabase/supabase-js"] }).recommended.provider).toBe("supabase");
+    expect(recommendIntegrations({ detectedProviders: ["@clerk/nextjs", "pg"] }).recommended.provider).toBe("clerk");
     expect(recommendIntegrations({ detectedProviders: ["better-auth", "@prisma/client"] }).recommended.provider).toBe("endpoint");
+    const pg = recommendIntegrations({ detectedProviders: ["better-auth", "pg"] });
+    expect(pg.recommended.provider).toBe("postgres");
+    expect(pg.optionalExtras.map((e) => `${e.role}:${e.provider}`)).toEqual(["activation:postgres"]);
     expect(recommendIntegrations({}).recommended.provider).toBe("endpoint");
     expect(recommendIntegrations({ detectedProviders: ["manual"] }).recommended.provider).toBe("endpoint");
   });
@@ -37,7 +43,8 @@ describe("integrationSetup", () => {
   it("returns deterministic steps ending in configure → verify → publish", () => {
     const s = integrationSetup({ provider: "supabase", projectId: "abc" })!;
     expect(s.role).toBe("users");
-    expect(s.requirements.map((r) => r.key)).toEqual(["url", "serviceKey", "table", "createdAtColumn"]);
+    expect(s.requirements.map((r) => r.key)).toEqual(["connectionString", "url", "serviceKey", "table", "createdAtColumn"]);
+    expect(s.requirements.find((r) => r.key === "connectionString")?.secret).toBe(true);
     expect(s.requirements.find((r) => r.key === "serviceKey")?.secret).toBe(true);
     expect(s.steps.slice(-3).map((x) => x.id)).toEqual(["configure", "verify", "publish"]);
     expect(s.steps.at(-2)?.tool).toBe("usertrack_verify_integration");
@@ -54,6 +61,15 @@ describe("integrationSetup", () => {
     expect(s.codeTemplates[0].code).toContain("prisma.user.count()");
     expect(s.codeTemplates[0].code).toContain("USERTRACK_ENDPOINT_TOKEN");
     expect(integrationSetup({ provider: "endpoint", framework: "express" })!.codeTemplates[0].framework).toBe("express");
+  });
+
+  it("postgres setup starts with a read-only role and a SQL template", () => {
+    const s = integrationSetup({ provider: "postgres", projectId: "abc" })!;
+    expect(s.steps[0].id).toBe("postgres:role");
+    expect(s.codeTemplates[0].language).toBe("sql");
+    expect(s.codeTemplates[0].code).toContain("GRANT SELECT");
+    expect(s.requirements.map((r) => r.key)).toEqual(["connectionString", "tableRef", "createdAtColumn", "deletedAtColumn"]);
+    expect(integrationSetup({ provider: "postgres", role: "activation" })!.requirements.map((r) => r.key)).toContain("sql");
   });
 
   it("rejects unknown providers and role mismatches", () => {

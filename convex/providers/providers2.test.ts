@@ -28,7 +28,7 @@ describe("validation", () => {
     expect(v.ok && v.config.projectId).toBe("my-proj");
     const v2 = firebase.validate({ serviceAccount }, "users");
     expect(v2.ok && v2.config.projectId).toBe("proj-1");
-    expect(firebase.publicConfig({ serviceAccount, projectId: "proj-1" })).toEqual({ project: "proj-1", account: "sa@proj.iam.gserviceaccount.com" });
+    expect(firebase.publicConfig({ serviceAccount, projectId: "proj-1" })).toEqual({ project: "proj-1", account: "sa@proj.iam.gserviceaccount.com", signups: "createdAt scan (≤100k accounts)" });
   });
   it("auth0", () => {
     expect(auth0.validate({ domain: "acme.auth0.com", clientId: "abc", clientSecret: "" }, "users").ok).toBe(false);
@@ -164,11 +164,18 @@ describe("fetch parsing", () => {
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ Authorization: "Bearer t" });
     expect(await ga4.fetchHistory!(cfg, "traffic", 30)).toEqual({ metric: "visitors", points: [{ day: "2024-01-01", value: 5 }, { day: "2024-01-02", value: 7 }] });
   });
-  it("firebase accounts:query", async () => {
-    const fetchMock = vi.fn(async (url: string) => (url.includes("oauth2") ? json({ access_token: "t" }) : json({ recordsCount: "123" })));
+  it("firebase accounts:query + createdAt scan", async () => {
+    const now = Date.now();
+    const users = [{ localId: "a", email: "a@x.com", createdAt: String(now - 3_600_000) }, { localId: "b", createdAt: String(now - 3 * 86_400_000) }, { localId: "c", createdAt: String(now - 40 * 86_400_000) }];
+    const fetchMock = vi.fn(async (url: string) => (url.includes("oauth2") ? json({ access_token: "t" }) : url.includes("batchGet") ? json(url.includes("nextPageToken=p2") ? { users: [users[2]] } : { users: users.slice(0, 2), nextPageToken: "p2" }) : json({ recordsCount: "123" })));
     vi.stubGlobal("fetch", fetchMock);
-    expect(await firebase.fetch({ serviceAccount, projectId: "proj-1" }, "users")).toEqual({ totalUsers: 123 });
+    expect(await firebase.fetch({ serviceAccount, projectId: "proj-1" }, "users")).toEqual({ totalUsers: 123, newUsers24h: 1, newUsers7d: 2, newUsers30d: 2 });
     expect(calls(fetchMock)[1]).toBe("https://identitytoolkit.googleapis.com/v1/projects/proj-1/accounts:query");
+    expect(calls(fetchMock)[2]).toContain("accounts:batchGet?maxResults=1000");
+    expect(await firebase.fetch({ serviceAccount, projectId: "proj-1", scanSignups: false }, "users")).toEqual({ totalUsers: 123 });
+    const h = await firebase.fetchHistory!({ serviceAccount, projectId: "proj-1" }, "users", 7);
+    expect(h?.metric).toBe("newUsers");
+    expect(h?.points.reduce((a, p) => a + p.value, 0)).toBe(2);
   });
   it("signServiceAccountJwt produces an RS256 JWT", async () => {
     const jwt = await signServiceAccountJwt(JSON.parse(serviceAccount), "scope");

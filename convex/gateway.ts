@@ -8,7 +8,8 @@ import { authComponent } from "./auth";
 import { hasScope, isActive, PLANS, planFor, type TokenType } from "./lib/tokens";
 import { RANGES, dayKey, dayStart, DAY } from "./lib/time";
 import { integrationRole, providerKind, tokenType } from "./schema";
-import { getProvider, ProviderError, type Role } from "./providers";
+import { describeProvider, getProvider, ProviderError, verificationLevel, type Role } from "./providers";
+import { fetchMetrics } from "./providerRun";
 import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, projectSummary, projectUrls, requireOwnedProject, updateProject } from "./domain/projects";
 import { connectIntegration, integrationView, listIntegrations, requestSync } from "./domain/integrations";
 import { TIMEFRAMES, metricsSummary, milestonesFor, seriesFor, shareData } from "./domain/metrics";
@@ -293,8 +294,9 @@ export const verifyIntegration = action({
     if (cfg === undefined) return { connected: false, status: "missing" as const, error: `No ${p.label} configuration stored; pass config to test one or configure the integration first.`, nextTool: "usertrack_configure_integration" };
     const started = Date.now();
     try {
-      const metrics = await p.fetch(cfg, role as Role);
+      const metrics = await fetchMetrics(ctx, kind, cfg, role as Role);
       const trust = p.trust(cfg, target.websiteUrl);
+      const capabilities = describeProvider(p, cfg, role as Role);
       const detected = role === "users" ? metrics.totalUsers : role === "activation" ? metrics.activatedUsers : role === "traffic" ? metrics.visitors30d : metrics.payingUsers;
       await ctx.runMutation(internal.gateway.auditWrite, { profileId: target.profileId, tokenId: target.tokenId, action: "verify_integration", saasId: target.saasId, ok: true, detail: `${kind}/${role} ${mode}: ${detected ?? "?"}` });
       return {
@@ -306,6 +308,8 @@ export const verifyIntegration = action({
         detected: { count: detected, metrics },
         verificationLevel: trust,
         verificationLabel: trust === "verified" ? "Verified" : trust === "unverified" ? "Self-reported (not ranked)" : "Pending",
+        sourceVerification: verificationLevel(kind, trust, capabilities, role as Role),
+        capabilities,
         durationMs: Date.now() - started,
         stored: target.integration ? { status: target.integration.status, lastSuccessAt: target.integration.lastSuccessAt, lastError: target.integration.lastError } : null,
         project: { firstSyncDone: target.lastSyncedAt !== undefined, totalUsers: target.totalUsers, published: target.isPublic },

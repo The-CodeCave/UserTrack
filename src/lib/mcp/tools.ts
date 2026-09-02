@@ -8,7 +8,7 @@ import type { Scope } from "@convex/lib/tokens";
 
 type Auth = { hash: string; gateway?: string };
 const ROLES = ["users", "activation", "traffic", "revenue"] as const;
-const PROVIDERS = ["clerk", "supabase", "firebase", "auth0", "posthog", "plausible", "ga4", "stripe", "endpoint", "manual"] as const;
+const PROVIDERS = ["clerk", "supabase", "firebase", "auth0", "posthog", "plausible", "ga4", "stripe", "postgres", "endpoint", "manual"] as const;
 
 const ref = {
   projectId: z.string().optional().describe("UserTrack project id (from usertrack_get_projects)"),
@@ -94,7 +94,7 @@ export const TOOLS: Tool[] = [
   tool({
     name: "usertrack_get_supported_integrations",
     title: "Supported integrations",
-    description: "Catalog of supported data sources (Clerk, Supabase, Firebase, Auth0, PostHog, Plausible, GA4, Stripe, JSON endpoint, manual) with roles, trust level, required credentials and what is read. Pass what you detected to get a recommendation.",
+    description: "Catalog of supported data sources (Supabase, Clerk, Firebase, Auth0, PostgreSQL read-only, PostHog, Plausible, GA4, Stripe, JSON endpoint, manual) with roles, trust level, required credentials and what is read. Pass what you detected to get a recommendation.",
     scope: "integrations:read",
     readOnly: true,
     input: {
