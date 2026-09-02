@@ -51,6 +51,7 @@ export function explainStatus(status: number, code: string | undefined, url: str
   if (status === 401 && code === "USERTRACK_REPLAY") return { message: `${host} reported a replayed request. Retry in a moment.`, retryable: true };
   if (status === 401 || status === 403) return { message: `${host} rejected the signature. USERTRACK_PROJECT_ID or USERTRACK_SECRET in the app does not match this integration — check the env vars, redeploy, or rotate the secret.`, retryable: false };
   if (status === 429) return { message: `${host} is rate limiting UserTrack (429).`, retryable: true };
+  if (status === 502 || status === 503 || status === 504) return { message: `${host} is not reachable right now (${status}) — is the app deployed and running?`, retryable: true };
   if (status >= 500) return { message: `${host} answered ${status} — the plugin could not count users (database adapter error?).`, retryable: true };
   return { message: `${host} answered ${status}`, retryable: status >= 500 };
 }

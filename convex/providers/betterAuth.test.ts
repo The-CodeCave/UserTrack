@@ -71,6 +71,7 @@ describe("fetch", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("boom", { status: 500 })));
     await expect(betterAuth.fetch(cfg, "users")).rejects.toMatchObject({ retryable: true });
     expect(explainStatus(429, undefined, cfg.url).retryable).toBe(true);
+    expect(explainStatus(502, undefined, cfg.url)).toMatchObject({ retryable: true, message: expect.stringMatching(/not reachable/) });
   });
   it("treats network failures as retryable and secret-free", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));

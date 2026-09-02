@@ -86,8 +86,8 @@ export function BetterAuthSetup({ saasId, websiteUrl, existing, onConnected }: {
         <div className="space-y-4">
           {cred ? (
             <div className="space-y-2">
-              <div className="text-sm font-medium">Environment variables</div>
-              <SecretReveal secret={envSnippet(cred.projectId, cred.secret)} />
+              <div className="text-sm font-medium">Your integration secret</div>
+              <SecretReveal secret={cred.secret} />
               <p className="font-mono text-[11px] text-muted-foreground">Add both to your local env file and to your hosting provider for every environment. Never commit the secret.</p>
             </div>
           ) : (
