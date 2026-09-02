@@ -142,7 +142,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
         </div>
       )}
 
-      <Funnel className="mt-3" f={{ visitors30d: s.visitors30d, newUsers30d: s.newUsers30d, activated30d: s.activated30d, activatedUsers: s.activatedUsers, payingUsers: s.payingUsers }} />
+      <Funnel className="mt-3" slug={slug} />
 
       {s.milestones.length > 0 && (
         <section className="mt-8">

@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { RANGE_MS, RANGES, DAY, dayKey } from "./lib/time";
 import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { seriesFor } from "./domain/metrics";
+import { FUNNEL_TIMEFRAMES, funnelFor } from "./domain/funnel";
 import { publicTrustLabel } from "./lib/trust";
 import { explainTrending } from "./lib/trending";
 import { getProvider } from "./providers";
@@ -139,6 +140,18 @@ export const saasBySlug = query({
       spark: await sparkline(ctx, s._id),
       milestones: milestones.map((m) => ({ _id: m._id, kind: m.kind, title: m.title, copy: m.copy, value: m.value, achievedAt: m.achievedAt })),
     };
+  },
+});
+
+const funnelTimeframeArg = v.union(...FUNNEL_TIMEFRAMES.map((t) => v.literal(t)));
+
+// Public funnel: traffic/revenue stages only when the owner opted in; every stage carries its own provenance.
+export const funnel = query({
+  args: { slug: v.string(), timeframe: v.optional(funnelTimeframeArg) },
+  handler: async (ctx, { slug, timeframe }) => {
+    const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    if (!s || !s.isPublic) return null;
+    return funnelFor(ctx, s, timeframe ?? "30d", { includeTraffic: Boolean(s.showTraffic), includeRevenue: Boolean(s.showRevenue) });
   },
 });
 

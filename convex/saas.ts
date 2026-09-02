@@ -8,6 +8,7 @@ import { integrationView } from "./domain/integrations";
 import { percentileOf } from "./lib/benchmarks";
 import { sizeBucket } from "./lib/metrics";
 import { publicTrustLabel } from "./lib/trust";
+import { FUNNEL_TIMEFRAMES, funnelFor } from "./domain/funnel";
 
 export async function requireOwnedSaas(ctx: QueryCtx | MutationCtx, id: Id<"saas">) {
   const { profile } = await requireProfile(ctx);
@@ -148,5 +149,14 @@ export const benchmarks = query({
       }
     }
     return { eligible: saas.isPublic && saas.trust === "verified", cards: out };
+  },
+});
+
+// Owner funnel: all connected stages, including private traffic/revenue.
+export const funnel = query({
+  args: { id: v.id("saas"), timeframe: v.optional(v.union(...FUNNEL_TIMEFRAMES.map((t) => v.literal(t)))) },
+  handler: async (ctx, { id, timeframe }) => {
+    const { saas } = await requireOwnedSaas(ctx, id);
+    return funnelFor(ctx, saas, timeframe ?? "30d", { includeTraffic: true, includeRevenue: true });
   },
 });

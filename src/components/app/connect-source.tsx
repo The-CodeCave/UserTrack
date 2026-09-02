@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useMutation } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { toast } from "sonner";
-import { Loader2, RefreshCw, AlertTriangle, CheckCircle2, Unplug, ChevronDown } from "lucide-react";
+import { Loader2, RefreshCw, AlertTriangle, CheckCircle2, Unplug, ChevronDown, FlaskConical } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { PROVIDERS, providersForRole, ROLE_META, type ProviderKind, type Role } from "@/lib/providers-ui";
@@ -15,6 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TrustBadge, type Trust } from "@/components/blueprint/trust-badge";
 import { Snippet } from "@/components/public/embed-badge";
+import { PostgresWizard } from "./postgres-wizard";
+import { CapabilityList, TestResultCard, type TestResult } from "./test-result";
 
 export interface IntegrationView {
   role: Role;
@@ -27,31 +29,58 @@ export interface IntegrationView {
   lastFailureAt?: number;
   consecutiveFailures?: number;
   publicConfig?: Record<string, string>;
+  verification?: "verified" | "partially_verified" | "self_reported";
+  capabilities?: { totalUsers: boolean; createdUsers: boolean; historicalUsers: boolean; activationEvents: boolean; retention: boolean; traffic: boolean; revenue: boolean };
 }
+
+const VERIFICATION_LABEL = { verified: "Verified", partially_verified: "Partially verified", self_reported: "Self-reported" } as const;
 
 const errMsg = (err: unknown) => (err as Error).message.replace(/^.*Uncaught Error: /, "").split("\n")[0];
 
 export function ConnectSource({ saasId, role = "users", current, onConnected }: { saasId: Id<"saas">; role?: Role; current?: IntegrationView | null; onConnected?: () => void }) {
   const connect = useMutation(api.integrations.connect);
+  const testSource = useAction(api.integrations.test);
   const list = providersForRole(role);
   const [kind, setKind] = useState<ProviderKind>(current?.provider && list.some((p) => p.kind === current.provider) ? current.provider : list[0].kind);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<TestResult | null>(null);
   const [showSteps, setShowSteps] = useState(true);
+  const [supabaseMode, setSupabaseMode] = useState<"database" | "api">("database");
   const meta = PROVIDERS.find((p) => p.kind === kind)!;
-  const fields = meta.fields.filter((f) => !f.roles || f.roles.includes(role));
+  const fields = meta.fields.filter((f) => (!f.roles || f.roles.includes(role)) && !(kind === "supabase" && (f.name === "connectionString" || f.name === "sql")));
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
+  function readConfig(form: HTMLFormElement) {
+    const fd = new FormData(form);
     const config: Record<string, unknown> = {};
     for (const f of fields) {
       const v = String(fd.get(f.name) ?? "").trim();
       if (!v && f.optional) continue;
       config[f.name] = f.type === "number" ? Number(v) : v;
     }
+    return config;
+  }
+
+  async function onTest(form: HTMLFormElement) {
+    if (!form.reportValidity()) return;
+    setTesting(true);
+    setResult(null);
+    try {
+      const r = await testSource({ saasId, role, provider: kind, config: readConfig(form) });
+      setResult(r);
+      if (!r.ok) toast.error(r.error);
+    } catch (err) {
+      toast.error(errMsg(err));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
     setSaving(true);
     try {
-      await connect({ saasId, role, provider: kind, config });
+      await connect({ saasId, role, provider: kind, config: readConfig(e.currentTarget) });
       toast.success("Connected — fetching the first snapshot");
       onConnected?.();
     } catch (err) {
@@ -60,6 +89,8 @@ export function ConnectSource({ saasId, role = "users", current, onConnected }: 
       setSaving(false);
     }
   }
+
+  const wizard = kind === "postgres" || (kind === "supabase" && supabaseMode === "database");
 
   return (
     <div className="space-y-5">
@@ -74,6 +105,26 @@ export function ConnectSource({ saasId, role = "users", current, onConnected }: 
         ))}
       </div>
 
+      {kind === "supabase" && (
+        <div className="flex border border-line">
+          {(["database", "api"] as const).map((m) => (
+            <button key={m} type="button" onClick={() => setSupabaseMode(m)} className={cn("flex-1 px-3 py-2 text-left", supabaseMode === m ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
+              <div className="font-mono text-[11px] uppercase tracking-wider">{m === "database" ? "Connection string · recommended" : "Service role key"}</div>
+              <div className={cn("text-[11px]", supabaseMode === m ? "opacity-80" : "")}>{m === "database" ? "auth.users signups per day + 30-day history" : "total users only"}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {wizard ? (
+        <div className="border border-line p-4">
+          <div className="mb-4">
+            <div className="text-sm font-medium">{meta.tagline}</div>
+            <p className="mt-1 text-xs text-muted-foreground"><span className="text-foreground/70">What we read:</span> {meta.reads}</p>
+          </div>
+          <PostgresWizard key={`${kind}-${role}`} saasId={saasId} role={role} provider={kind === "supabase" ? "supabase" : "postgres"} onConnected={onConnected} />
+        </div>
+      ) : (
       <form key={`${kind}-${role}`} onSubmit={onSubmit} className="space-y-4 border border-line p-4">
         <div>
           <div className="text-sm font-medium">{meta.tagline}</div>
@@ -101,11 +152,21 @@ export function ConnectSource({ saasId, role = "users", current, onConnected }: 
             {f.hint && <p className="font-mono text-[11px] text-muted-foreground">{f.hint}</p>}
           </div>
         ))}
-        <Button type="submit" className="h-11 w-full sm:w-auto" disabled={saving}>
-          {saving && <Loader2 className="size-4 animate-spin" />}
-          {current ? "Replace source & sync" : "Connect & fetch first snapshot"}
-        </Button>
+        {result && <TestResultCard r={result} role={role} />}
+        {result?.ok && <CapabilityList caps={result.capabilities} />}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          {kind !== "manual" && (
+            <Button type="button" variant="outline" className="h-11" disabled={testing || saving} onClick={(e) => onTest((e.currentTarget as HTMLButtonElement).form!)}>
+              {testing ? <Loader2 className="size-4 animate-spin" /> : <FlaskConical className="size-4" />} Test connection
+            </Button>
+          )}
+          <Button type="submit" className="h-11" disabled={saving || testing}>
+            {saving && <Loader2 className="size-4 animate-spin" />}
+            {current ? "Replace source & sync" : "Connect & fetch first snapshot"}
+          </Button>
+        </div>
       </form>
+      )}
     </div>
   );
 }
@@ -142,6 +203,14 @@ export function SourceStatus({ saasId, integration, totalUsers, trust, trustLabe
             {running ? "Fetching snapshot…" : integration.status === "error" ? `${integration.lastError}${integration.consecutiveFailures ? ` · ${integration.consecutiveFailures} in a row` : ""}` : `${role === "users" && totalUsers !== undefined ? `${formatCompact(totalUsers)} users · ` : ""}synced ${integration.lastSuccessAt ? timeAgo(integration.lastSuccessAt) : "never"} · next in ≤ 4h`}
           </div>
           {cfg && <div className="truncate font-mono text-[11px] text-muted-foreground/70">{cfg}</div>}
+          {integration.capabilities && (
+            <div className="mt-1 flex flex-wrap gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              {integration.verification && <span className={cn("border px-1.5", integration.verification === "verified" ? "border-pink/60 text-pink" : "border-line")}>{VERIFICATION_LABEL[integration.verification]}</span>}
+              {role === "users" && <span className="border border-line px-1.5">{integration.capabilities.createdUsers ? "signups read from source" : "signups from snapshot deltas"}</span>}
+              {integration.capabilities.historicalUsers && <span className="border border-line px-1.5">history backfill</span>}
+              {integration.capabilities.retention && <span className="border border-line px-1.5">active users</span>}
+            </div>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">

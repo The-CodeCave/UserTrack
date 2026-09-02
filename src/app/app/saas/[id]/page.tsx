@@ -107,7 +107,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
           </Panel>
         </div>
         <BenchmarkCards saasId={saasId} />
-        <Funnel f={{ visitors30d: saas.visitors30d, newUsers30d: saas.newUsers30d, activated30d: saas.activated30d, activatedUsers: saas.activatedUsers, payingUsers: saas.payingUsers }} />
+        <Funnel saasId={saasId} />
       </section>
 
       {(["users", "activation", "traffic", "revenue"] as Role[]).map((role) => {
