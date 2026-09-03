@@ -9,7 +9,7 @@ import { toNodeHandler } from "better-auth/node";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { bearer } from "better-auth/plugins";
 import { userTrack } from "@usertrack/better-auth";
-import { HEADER_NONCE, METRICS_PATH, signedHeaders, verify } from "@usertrack/better-auth/protocol";
+import { EVENTS_PATH, HEADER_NONCE, METRICS_PATH, signedHeaders, verify } from "@usertrack/better-auth/protocol";
 
 const PROJECT = "j57e2e";
 const SECRET = "ut_int_e2e_0123456789abcdefghijklmnopqrstuv";
@@ -20,7 +20,7 @@ const listen = (srv) => new Promise((r) => srv.listen(0, "127.0.0.1", () => r(sr
 const received = [];
 const receiver = createServer(async (req, res) => {
   let body = ""; for await (const c of req) body += c;
-  const ok = await verify(SECRET, req.headers, { method: "REQUEST", path: "/api/integrations/better-auth/events", body });
+  const ok = await verify(SECRET, req.headers, { method: "REQUEST", path: EVENTS_PATH, body });
   received.push({ ok: ok.ok, body: JSON.parse(body) });
   res.writeHead(ok.ok ? 202 : 401).end("{}");
 });
@@ -55,7 +55,7 @@ res = await fetch(`${base}${METRICS_PATH}`, { method: "POST", headers: { "conten
 const text = await res.text();
 assert(res.status === 200, `metrics endpoint answers 200 (${res.status} ${text.slice(0, 80)})`);
 const metrics = JSON.parse(text);
-assert(metrics.totalUsers === 1 && metrics.newUsers["24h"] === 1 && metrics.daily.length === 3, "metrics are correct");
+assert(metrics.source === "better-auth" && metrics.users.totalUsers === 1 && metrics.users.newUsers["24h"] === 1 && metrics.users.daily.length === 3, "metrics are correct");
 assert((await verify(SECRET, res.headers, { method: "RESPONSE", path: METRICS_PATH, body: text }, { expectedNonce: headers[HEADER_NONCE] })).ok, "response signature verifies (bound to request nonce)");
 const bad = await fetch(`${base}${METRICS_PATH}`, { method: "POST", headers: { "content-type": "application/json", ...(await signedHeaders("ut_int_wrong", PROJECT, { method: "REQUEST", path: METRICS_PATH, body })) }, body });
 assert(bad.status === 401, "wrong secret is rejected with 401");

@@ -20,7 +20,9 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
-      "@convex/*": ["./convex/*"]
+      "@convex/*": ["./convex/*"],
+      "@usertrack/protocol": ["./packages/protocol/src/index.ts"],
+      "@usertrack/node": ["./packages/node/src/index.ts"]
     }
   },
   "include": [

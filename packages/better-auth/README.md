@@ -9,7 +9,7 @@ Official [UserTrack](https://usertrack.dev) plugin for [Better Auth](https://www
 - Supports **verified pull**: UserTrack calls a signed endpoint that the plugin adds to your Better Auth instance (`POST <basePath>/usertrack/metrics`) and checks the response signature.
 - Optionally pushes **lifecycle events** (`user.created`, `user.deleted`) so your UserTrack dashboard shows signups between syncs. Delivery is fire-and-forget: it never blocks and never fails a signup.
 
-Better Auth powers the **Signed up** stage of your UserTrack funnel. Activation (PostHog, a table, custom SQL) and conversion (Stripe, RevenueCat, …) are connected separately in UserTrack.
+Better Auth powers the **Signed up** stage of your UserTrack funnel. Activation (PostHog, a table, custom SQL) and conversion (Stripe, RevenueCat, …) are connected separately in UserTrack — or report them from the same app with [`@usertrack/node`](https://www.npmjs.com/package/@usertrack/node): `createUserTrackHandler({ users: betterAuthUsers(adapter, { excludeAnonymous }), activation, conversion })` reuses this plugin's user counter.
 
 ## Installation
 
@@ -18,7 +18,7 @@ npm install @usertrack/better-auth
 # pnpm add @usertrack/better-auth · yarn add @usertrack/better-auth · bun add @usertrack/better-auth
 ```
 
-Peer dependency: `better-auth >= 1.3`. ESM only, Node 18.17+ (also runs on edge runtimes with WebCrypto).
+Peer dependency: `better-auth >= 1.3`. Depends on `@usertrack/protocol` and `@usertrack/node` (zero further dependencies). ESM only, Node 18.17+ (also runs on edge runtimes with WebCrypto).
 
 ## Quickstart
 
@@ -84,20 +84,18 @@ userTrack({
 ```json
 {
   "protocolVersion": 1,
-  "pluginVersion": "0.1.0",
-  "provider": "better-auth",
+  "clientVersion": "0.2.0",
+  "source": "better-auth",
   "projectId": "…",
-  "generatedAt": "2026-09-02T08:00:00.000Z",
-  "totalUsers": 12481,
-  "newUsers": { "24h": 84, "7d": 491, "30d": 1832 },
-  "daily": [{ "day": "2026-08-04", "newUsers": 51 }],
-  "capabilities": { "exactCounts": true, "history": true, "anonymousExcluded": false }
+  "generatedAt": "2026-09-03T08:00:00.000Z",
+  "users": { "totalUsers": 12481, "newUsers": { "24h": 84, "7d": 491, "30d": 1832 }, "daily": [{ "day": "2026-08-04", "newUsers": 51 }] },
+  "capabilities": { "exactCounts": true, "history": true, "anonymousExcluded": false, "roles": ["users"] }
 }
 ```
 
 Users created by the Better Auth `anonymous` plugin are excluded automatically when that plugin is installed.
 
-**Push (freshness).** On `user.created` / `user.deleted` the plugin sends a signed event to `https://usertrack.dev/api/integrations/better-auth/events` with a 3-second timeout, after the database write, without awaiting the result in the auth flow. If UserTrack is unreachable the event is dropped and the next pull corrects the numbers.
+**Push (freshness).** On `user.created` / `user.deleted` the plugin sends a signed event to `https://usertrack.dev/api/integrations/native/events` with a 3-second timeout, after the database write, without awaiting the result in the auth flow. If UserTrack is unreachable the event is dropped and the next pull corrects the numbers.
 
 ## MCP setup
 
@@ -126,12 +124,12 @@ Enable `debug: true` to see event delivery problems in your Better Auth logs. No
 ```bash
 pnpm install                # from the repository root
 cd packages/better-auth
-pnpm test                   # vitest: protocol, metrics, events, endpoint, hooks (memory adapter)
+pnpm test                   # vitest: metrics, events, endpoint, hooks (memory adapter)
 pnpm typecheck
 pnpm build                  # tsc → dist/ (ESM + d.ts)
 pnpm pack --pack-destination /tmp && tar -tzf /tmp/usertrack-better-auth-*.tgz
 ```
 
-Releases are tag-driven (`better-auth-v<version>`, see `.github/workflows/release-better-auth.yml`). Bump `version` in `package.json` and `src/version.ts` together (a test enforces it) and add a `CHANGELOG.md` entry. The wire protocol is frozen by fixtures in `tests/fixtures/signatures.json`, shared with the UserTrack server tests.
+Releases are tag-driven (`better-auth-v<version>`, see `.github/workflows/release-packages.yml`). Bump `version` in `package.json` and `src/version.ts` together (a test enforces it) and add a `CHANGELOG.md` entry. The wire protocol lives in `@usertrack/protocol` and is frozen by fixtures in `packages/protocol/tests/fixtures/signatures.json`, shared with the UserTrack server tests. Build the workspace first (`pnpm -r --filter "./packages/**" build`) so the workspace dependencies resolve.
 
 MIT © CodeCave GmbH

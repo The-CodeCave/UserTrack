@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectMetrics, countUsers, MetricsError, SCAN_LIMIT, type UserStore } from "../src/metrics.js";
+import { betterAuthUsers, countUsers, SCAN_LIMIT, type UserStore } from "../src/metrics.js";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 8, 1, 12, 0, 0);
@@ -29,51 +29,30 @@ function store(users: { createdAt: Date; isAnonymous?: boolean }[], opts: { coun
   return s;
 }
 
-describe("collectMetrics", () => {
+describe("betterAuthUsers", () => {
   const users = [
     { createdAt: new Date(NOW - 2 * 3600_000) },
     { createdAt: new Date(NOW - 3 * DAY) },
     { createdAt: new Date(NOW - 10 * DAY) },
     { createdAt: new Date(NOW - 45 * DAY) },
   ];
-  it("counts total users and 24h/7d/30d windows", async () => {
-    const m = await collectMetrics(store(users), { protocolVersion: 1 }, { projectId: "p", excludeAnonymous: false, now: NOW });
-    expect(m.totalUsers).toBe(4);
-    expect(m.newUsers).toEqual({ "24h": 1, "7d": 2, "30d": 3 });
-    expect(m.protocolVersion).toBe(1);
-    expect(m.provider).toBe("better-auth");
-    expect(m.projectId).toBe("p");
-    expect(m.capabilities).toEqual({ exactCounts: true, history: true, anonymousExcluded: false });
-    expect(m.daily).toBeUndefined();
-  });
-  it("returns a daily series of the requested length, oldest first, UTC day keys", async () => {
-    const m = await collectMetrics(store(users), { protocolVersion: 1, days: 5 }, { projectId: "p", excludeAnonymous: false, now: NOW });
-    expect(m.daily).toHaveLength(5);
-    expect(m.daily![0]!.day).toBe("2026-08-28");
-    expect(m.daily![4]).toEqual({ day: "2026-09-01", newUsers: 1 });
-    expect(m.daily![1]).toEqual({ day: "2026-08-29", newUsers: 1 });
-  });
-  it("counts an arbitrary [from, to) range", async () => {
-    const m = await collectMetrics(store(users), { protocolVersion: 1, from: new Date(NOW - 20 * DAY).toISOString(), to: new Date(NOW - DAY).toISOString() }, { projectId: "p", excludeAnonymous: false, now: NOW });
-    expect(m.range).toMatchObject({ count: 2 });
-  });
-  it("rejects malformed requests", async () => {
-    await expect(collectMetrics(store(users), { protocolVersion: 1, days: 0 }, { projectId: "p", excludeAnonymous: false })).rejects.toBeInstanceOf(MetricsError);
-    await expect(collectMetrics(store(users), { protocolVersion: 1, days: 91 }, { projectId: "p", excludeAnonymous: false })).rejects.toThrow(/days/);
-    await expect(collectMetrics(store(users), { protocolVersion: 1, from: "nope", to: new Date().toISOString() }, { projectId: "p", excludeAnonymous: false })).rejects.toThrow(/from/);
-    await expect(collectMetrics(store(users), { protocolVersion: 1, from: new Date(NOW).toISOString(), to: new Date(NOW - DAY).toISOString() }, { projectId: "p", excludeAnonymous: false })).rejects.toThrow(/after/);
+  it("counts totals and createdAt windows through the adapter", async () => {
+    const src = betterAuthUsers(store(users), { excludeAnonymous: false });
+    expect(src.timeFilter).toBe(true);
+    expect(await src.count({})).toEqual({ count: 4, exact: true });
+    expect(await src.count({ createdAtGte: new Date(NOW - 7 * DAY) })).toEqual({ count: 2, exact: true });
+    expect(await src.count({ createdAtGte: new Date(NOW - 20 * DAY), createdAtLt: new Date(NOW - DAY) })).toEqual({ count: 2, exact: true });
   });
   it("excludes anonymous users when asked", async () => {
     const s = store([...users, { createdAt: new Date(NOW - 3600_000), isAnonymous: true }]);
-    const m = await collectMetrics(s, { protocolVersion: 1 }, { projectId: "p", excludeAnonymous: true, now: NOW });
-    expect(m.totalUsers).toBe(4);
-    expect(m.newUsers["24h"]).toBe(1);
-    expect(m.capabilities.anonymousExcluded).toBe(true);
+    const src = betterAuthUsers(s, { excludeAnonymous: true });
+    expect(await src.count({})).toEqual({ count: 4, exact: true });
+    expect(await src.count({ createdAtGte: new Date(NOW - DAY) })).toEqual({ count: 1, exact: true });
   });
   it("propagates adapter failures", async () => {
     const s = store(users);
     s.count = async () => { throw new Error("connection refused"); };
-    await expect(collectMetrics(s, { protocolVersion: 1 }, { projectId: "p", excludeAnonymous: false })).rejects.toThrow(/connection refused/);
+    await expect(betterAuthUsers(s, { excludeAnonymous: false }).count({})).rejects.toThrow(/connection refused/);
   });
 });
 

@@ -13,9 +13,9 @@ describe("metrics endpoint", () => {
     await signUp(auth, "a@example.com");
     const { res, json, text } = await metricsRequest(auth, { days: 3 });
     expect(res.status).toBe(200);
-    expect(json).toMatchObject({ protocolVersion: 1, provider: "better-auth", projectId: PROJECT, totalUsers: 3, newUsers: { "24h": 1, "7d": 2, "30d": 2 } });
-    expect((json!.daily as unknown[]).length).toBe(3);
-    expect(json!.pluginVersion).toMatch(/^\d+\.\d+\.\d+/);
+    expect(json).toMatchObject({ protocolVersion: 1, source: "better-auth", projectId: PROJECT, users: { totalUsers: 3, newUsers: { "24h": 1, "7d": 2, "30d": 2 } }, capabilities: { anonymousExcluded: false, roles: ["users"] } });
+    expect(((json!.users as { daily: unknown[] }).daily).length).toBe(3);
+    expect(json!.clientVersion).toMatch(/^\d+\.\d+\.\d+/);
     const nonce = res.headers.get(HEADER_NONCE)!;
     expect((await verify(SECRET, res.headers, { method: "RESPONSE", path: METRICS_PATH, body: text }, { expectedNonce: nonce })).ok).toBe(true);
     expect(text).not.toContain("a@example.com");
@@ -65,14 +65,14 @@ describe("metrics endpoint", () => {
     const { auth, db } = makeAuth();
     seedUsers(db, [new Date("2026-03-10T00:00:00Z"), new Date("2026-03-20T00:00:00Z"), new Date("2026-05-01T00:00:00Z")]);
     const { json } = await metricsRequest(auth, { from: "2026-03-01T00:00:00Z", to: "2026-04-01T00:00:00Z" });
-    expect(json!.range).toMatchObject({ count: 2 });
+    expect((json!.users as { range: unknown }).range).toMatchObject({ count: 2 });
   });
   it("excludes anonymous users when the anonymous plugin is installed", async () => {
     const { auth, db } = makeAuth({}, { plugins: [anonymous(), (await import("../src/index.js")).userTrack({ projectId: PROJECT, secret: SECRET, events: false })] });
     seedUsers(db, [new Date()], { isAnonymous: true });
     seedUsers(db, [new Date()]);
     const { json } = await metricsRequest(auth);
-    expect(json!.totalUsers).toBe(1);
+    expect((json!.users as { totalUsers: number }).totalUsers).toBe(1);
     expect((json!.capabilities as { anonymousExcluded: boolean }).anonymousExcluded).toBe(true);
   });
   it("maps adapter failures to a 500 without leaking internals", async () => {
@@ -98,9 +98,9 @@ describe("lifecycle hooks", () => {
     const user = await signUp(auth, "founder@example.com");
     await delivered;
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe("https://usertrack.dev/api/integrations/better-auth/events");
+    expect(calls[0]!.url).toBe("https://usertrack.dev/api/integrations/native/events");
     const body = JSON.parse(calls[0]!.body);
-    expect(body).toMatchObject({ type: "user.created", projectId: PROJECT, protocolVersion: 1 });
+    expect(body).toMatchObject({ type: "user.created", projectId: PROJECT, protocolVersion: 1, source: "better-auth" });
     expect(calls[0]!.body).not.toContain("founder@example.com");
     expect(calls[0]!.body).not.toContain(user.id);
     expect(calls[0]!.headers.get(HEADER_SIGNATURE)).toMatch(/^v1=/);

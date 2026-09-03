@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { canonicalString, NonceCache, pseudonymize, sha256Hex, sign, signedHeaders, timingSafeEqual, verify } from "../src/protocol.js";
+import { canonicalString, EVENTS_PATH, LEGACY_EVENTS_PATH, LIFECYCLE_EVENT_TYPES, NATIVE_SOURCES, NonceCache, pseudonymize, randomId, readHeader, sha256Hex, sign, signedHeaders, timingSafeEqual, verify } from "../src/index.js";
 import fixtures from "./fixtures/signatures.json" with { type: "json" };
 
 describe("signature protocol", () => {
   it("produces the frozen fixtures (cross-checked by the UserTrack server tests)", async () => {
+    expect(fixtures.cases.length).toBeGreaterThanOrEqual(6);
     for (const f of fixtures.cases) {
       expect(await sha256Hex(f.body)).toBe(f.bodyHash);
       expect(canonicalString({ method: f.method as "REQUEST" | "RESPONSE", path: f.path, timestamp: f.timestamp, nonce: f.nonce, body: f.body }, f.bodyHash)).toBe(f.canonical);
@@ -16,6 +17,7 @@ describe("signature protocol", () => {
     expect((await verify("s", h, { method: "REQUEST", path: "/x", body: "{ }" })).ok).toBe(false);
     expect((await verify("other", h, { method: "REQUEST", path: "/x", body: "{}" })).ok).toBe(false);
     expect((await verify("s", h, { method: "RESPONSE", path: "/x", body: "{}" })).ok).toBe(false);
+    expect((await verify("s", new Headers(h), { method: "REQUEST", path: "/x", body: "{}" })).ok).toBe(true);
   });
   it("rejects stale and malformed timestamps", async () => {
     const old = await signedHeaders("s", "p", { method: "REQUEST", path: "/x", body: "", timestamp: Date.now() - 6 * 60_000 });
@@ -28,6 +30,11 @@ describe("signature protocol", () => {
     const h = await signedHeaders("s", "p", { method: "RESPONSE", path: "/x", body: "{}", nonce: "abc" });
     expect((await verify("s", h, { method: "RESPONSE", path: "/x", body: "{}" }, { expectedNonce: "abc" })).ok).toBe(true);
     expect((await verify("s", h, { method: "RESPONSE", path: "/x", body: "{}" }, { expectedNonce: "zzz" })).ok).toBe(false);
+  });
+  it("reads headers from Headers objects, plain records and Node-style arrays", () => {
+    expect(readHeader(new Headers({ "x-usertrack-nonce": "n" }), "x-usertrack-nonce")).toBe("n");
+    expect(readHeader({ "X-UserTrack-Nonce": undefined, "x-usertrack-nonce": ["a", "b"] }, "x-usertrack-nonce")).toBe("a");
+    expect(readHeader({}, "x-usertrack-nonce")).toBeUndefined();
   });
   it("timing-safe compare handles different lengths", () => {
     expect(timingSafeEqual("abc", "abc")).toBe(true);
@@ -49,5 +56,12 @@ describe("signature protocol", () => {
     expect(c.use("c", 1)).toBe(true);
     expect(c.use("d", 5000)).toBe(true);
     expect(c.use("a", 5001)).toBe(true);
+  });
+  it("exposes stable constants", () => {
+    expect(EVENTS_PATH).toBe("/api/integrations/native/events");
+    expect(LEGACY_EVENTS_PATH).toBe("/api/integrations/better-auth/events");
+    expect(NATIVE_SOURCES).toEqual(["better-auth", "prisma", "drizzle", "convex", "authjs", "custom"]);
+    expect(LIFECYCLE_EVENT_TYPES).toContain("user.converted");
+    expect(randomId()).toMatch(/^[0-9a-f-]{32,36}$/);
   });
 });

@@ -1,0 +1,54 @@
+{
+  "name": "@usertrack/node",
+  "version": "0.1.0",
+  "description": "UserTrack SDK for Node and edge runtimes: a signed metrics handler for any app (Prisma, Drizzle, Convex, Auth.js or custom) plus a fire-and-forget lifecycle event client. Aggregate counts only, no PII.",
+  "keywords": ["usertrack", "analytics", "growth", "saas", "metrics", "prisma", "drizzle", "convex", "next-auth", "authjs"],
+  "license": "MIT",
+  "homepage": "https://usertrack.dev/developers/integrations/native",
+  "bugs": "https://github.com/The-CodeCave/UserTrack/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/The-CodeCave/UserTrack.git",
+    "directory": "packages/node"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./prisma": { "types": "./dist/prisma.d.ts", "default": "./dist/prisma.js" },
+    "./drizzle": { "types": "./dist/drizzle.d.ts", "default": "./dist/drizzle.js" },
+    "./convex": { "types": "./dist/convex.d.ts", "default": "./dist/convex.js" },
+    "./authjs": { "types": "./dist/authjs.d.ts", "default": "./dist/authjs.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md", "AGENTS.md", "llms.txt"],
+  "engines": { "node": ">=18.17" },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepack": "pnpm run build",
+    "pack:check": "pnpm pack --pack-destination /tmp && tar -tzf /tmp/usertrack-node-*.tgz"
+  },
+  "dependencies": {
+    "@usertrack/protocol": "workspace:^"
+  },
+  "peerDependencies": {
+    "drizzle-orm": ">=0.30"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "drizzle-orm": "^0.44.0",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

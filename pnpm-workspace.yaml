@@ -1,6 +1,7 @@
 packages:
   - "packages/*"
   - "packages/better-auth/e2e"
+  - "packages/node/e2e"
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver

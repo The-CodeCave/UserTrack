@@ -1,0 +1,59 @@
+name: Release npm packages
+
+# Tag-driven: protocol-v<version> · node-v<version> · better-auth-v<version>. Publish order for a coordinated release:
+# protocol → node → better-auth (each depends on the previous one being on npm).
+on:
+  push:
+    tags: ["protocol-v*", "node-v*", "better-auth-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - name: Resolve package from tag
+        id: pkg
+        run: |
+          case "${GITHUB_REF_NAME}" in
+            protocol-v*)    echo "dir=packages/protocol" >> "$GITHUB_OUTPUT"; echo "prefix=protocol-v" >> "$GITHUB_OUTPUT"; echo "tarball=usertrack-protocol" >> "$GITHUB_OUTPUT" ;;
+            node-v*)        echo "dir=packages/node" >> "$GITHUB_OUTPUT"; echo "prefix=node-v" >> "$GITHUB_OUTPUT"; echo "tarball=usertrack-node" >> "$GITHUB_OUTPUT" ;;
+            better-auth-v*) echo "dir=packages/better-auth" >> "$GITHUB_OUTPUT"; echo "prefix=better-auth-v" >> "$GITHUB_OUTPUT"; echo "tarball=usertrack-better-auth" >> "$GITHUB_OUTPUT" ;;
+            *)              echo "dir=packages/better-auth" >> "$GITHUB_OUTPUT"; echo "prefix=" >> "$GITHUB_OUTPUT"; echo "tarball=usertrack-better-auth" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - run: pnpm install --frozen-lockfile
+      - name: Build every package (workspace dependencies first)
+        run: pnpm -r --filter "./packages/**" build
+      - run: pnpm -r --filter "./packages/**" typecheck
+      - run: pnpm -r --filter "./packages/**" test
+      - name: Tag must match package.json version
+        if: steps.pkg.outputs.prefix != ''
+        working-directory: ${{ steps.pkg.outputs.dir }}
+        run: |
+          V=$(node -p "require('./package.json').version")
+          [[ "${GITHUB_REF_NAME}" == "${{ steps.pkg.outputs.prefix }}${V}" ]] || { echo "tag ${GITHUB_REF_NAME} != package version ${V}"; exit 1; }
+      - name: Inspect tarball contents
+        working-directory: ${{ steps.pkg.outputs.dir }}
+        run: |
+          pnpm pack --pack-destination /tmp
+          tar -tzf /tmp/${{ steps.pkg.outputs.tarball }}-*.tgz
+          ! tar -tzf /tmp/${{ steps.pkg.outputs.tarball }}-*.tgz | grep -E '\.env|tests/|e2e/|HUMAN_TODO' || { echo "unexpected files in tarball"; exit 1; }
+      - name: Publish
+        if: steps.pkg.outputs.prefix != ''
+        working-directory: ${{ steps.pkg.outputs.dir }}
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

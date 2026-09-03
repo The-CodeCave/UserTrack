@@ -44,6 +44,28 @@
       "bodyHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "canonical": "v1\nREQUEST\n/usertrack/metrics\n1788307300000\n00000000000000000000000000000001\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "signature": "v1=0189f63fba4d4aa1367f796b42ffe804d4a6382486fe026510605d11f1ab4695"
+    },
+    {
+      "name": "native event push",
+      "method": "REQUEST",
+      "path": "/api/integrations/native/events",
+      "timestamp": 1788307320000,
+      "nonce": "0123456789abcdef0123456789abcdef",
+      "body": "{\"protocolVersion\":1,\"clientVersion\":\"0.1.0\",\"source\":\"prisma\",\"projectId\":\"j57abc\",\"eventId\":\"7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d\",\"type\":\"user.activated\",\"subject\":\"1a2b3c4d5e6f708192a3b4c5d6e7f809\",\"occurredAt\":\"2026-09-01T08:02:00.000Z\"}",
+      "bodyHash": "839b3bfde7086f749397e841787ab79777a66044e702d4e427b162178f22f689",
+      "canonical": "v1\nREQUEST\n/api/integrations/native/events\n1788307320000\n0123456789abcdef0123456789abcdef\n839b3bfde7086f749397e841787ab79777a66044e702d4e427b162178f22f689",
+      "signature": "v1=0c76013de5eb726b6925ccdb973ea125334834ece0c3588a311d672a192c1c54"
+    },
+    {
+      "name": "multi-role metrics response",
+      "method": "RESPONSE",
+      "path": "/usertrack/metrics",
+      "timestamp": 1788307400000,
+      "nonce": "fedcba9876543210fedcba9876543210",
+      "body": "{\"protocolVersion\":1,\"clientVersion\":\"0.1.0\",\"source\":\"drizzle\",\"projectId\":\"j57abc\",\"generatedAt\":\"2026-09-01T08:03:20.000Z\",\"users\":{\"totalUsers\":10,\"newUsers\":{\"24h\":1,\"7d\":2,\"30d\":3}},\"activation\":{\"activatedUsers\":4},\"conversion\":{\"convertedUsers\":2,\"trialUsers\":1,\"mode\":\"active_paid\"},\"capabilities\":{\"exactCounts\":true,\"history\":true,\"roles\":[\"users\",\"activation\",\"conversion\"]}}",
+      "bodyHash": "d931be31089b7208c07e4ff65daa4c9559838c696da35cb0d034b58006389604",
+      "canonical": "v1\nRESPONSE\n/usertrack/metrics\n1788307400000\nfedcba9876543210fedcba9876543210\nd931be31089b7208c07e4ff65daa4c9559838c696da35cb0d034b58006389604",
+      "signature": "v1=dc72ae6b07d9b69bbd7ec700f716999dbc1d3b5ffa79e12ba8db7dc093eebb0f"
     }
   ]
 }

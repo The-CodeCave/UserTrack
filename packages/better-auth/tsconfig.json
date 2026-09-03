@@ -13,7 +13,8 @@
     "resolveJsonModule": true,
     "declaration": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": { "@usertrack/protocol": ["../protocol/src/index.ts"], "@usertrack/node": ["../node/src/index.ts"] }
   },
   "include": ["src", "tests"]
 }

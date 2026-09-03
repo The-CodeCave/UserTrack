@@ -1,0 +1,7 @@
+{
+  "name": "usertrack-node-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": { "e2e": "node run.mjs" },
+  "dependencies": { "@usertrack/node": "workspace:*", "@usertrack/protocol": "workspace:*" }
+}
