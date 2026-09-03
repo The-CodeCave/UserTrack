@@ -143,7 +143,7 @@ export function PostgresWizard({ saasId, role, provider = "postgres", onConnecte
           <div className="space-y-1.5">
             <Label htmlFor="pg-conn" className="text-label">{isSupabase ? "Supabase connection string" : "Connection string"}</Label>
             <Input id="pg-conn" type="password" value={conn} onChange={(e) => setConn(e.target.value)} placeholder={isSupabase ? "postgresql://postgres.<ref>:…@aws-0-eu-central-1.pooler.supabase.com:5432/postgres" : "postgresql://usertrack_ro:…@host:5432/db?sslmode=require"} className="h-11 bg-background font-mono text-sm" autoComplete="off" spellCheck={false} />
-            <p className="font-mono text-[11px] text-muted-foreground">{isSupabase ? "Supabase → Connect → Session pooler (IPv4). Stored encrypted, never shown again." : "The host must accept connections from the internet (or use your provider's pooler). Stored encrypted, never shown again."}</p>
+            <p className="font-mono text-[11px] text-muted-foreground">{isSupabase ? "Supabase → Connect → Session pooler (IPv4). Stored server-side, never shown again." : "The host must accept connections from the internet (or use your provider's pooler). Stored server-side, never shown again."}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-label">SSL</span>
@@ -231,7 +231,7 @@ export function PostgresWizard({ saasId, role, provider = "postgres", onConnecte
         <div className="space-y-4">
           <TestResultCard r={result} role={role} />
           {result.ok && <CapabilityList caps={result.capabilities} />}
-          <p className="text-xs text-muted-foreground">Nothing is stored yet. Connecting saves the connection string encrypted on the server, takes the first snapshot now and syncs every 4 hours.</p>
+          <p className="text-xs text-muted-foreground">Nothing is stored yet. Connecting stores the connection string server-side (never returned to the dashboard, the API or an agent), takes the first snapshot now and syncs every 4 hours.</p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button variant="ghost" className="h-11" onClick={() => setStep(mode === "sql" ? "table" : "columns")}><ArrowLeft className="size-4" /> Back</Button>
             <Button className="h-11" onClick={finish} disabled={busy || !result.ok}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Connect &amp; take first snapshot <ArrowRight className="size-4" /></Button>

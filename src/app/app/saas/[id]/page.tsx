@@ -66,10 +66,11 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
   const embedHref = `/app/saas/${id}/embed`;
   const mobile = saas.projectType === "mobile";
   const byRole = (r: Role) => saas.integrations.find((i) => i.role === r);
+  const publish = (v: boolean) => setPublic({ id: saasId, isPublic: v }).catch((e: Error) => toast.error(/Uncaught \w*Error: ([^\n]*)/.exec(e.message)?.[1] ?? "Could not update the page"));
   const copy = async (key: string, text: string) => { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(null), 1500); };
   // Derived from state only; disappears as the founder completes each item.
   const nextSteps = [
-    ...(!saas.isPublic ? [{ label: "Publish your page", onClick: () => setPublic({ id: saasId, isPublic: true }) }] : []),
+    ...(!saas.isPublic ? [{ label: "Publish your page", onClick: () => publish(true) }] : []),
     ...(!byRole("activation") ? [{ label: "Connect an activation source", href: "#integrations" }] : []),
     ...(saas.isPublic ? [{ label: "Add the widget to your site", href: embedHref }, { label: "Share your growth card", href: "#sharing" }] : []),
     ...(saas.isPublic && saas.trust === "verified" ? [{ label: "See how you compare", href: "#benchmarks" }] : []),
@@ -97,7 +98,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
         </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
-            <Switch checked={saas.isPublic} onCheckedChange={(v) => setPublic({ id: saasId, isPublic: v })} />
+            <Switch checked={saas.isPublic} onCheckedChange={publish} />
             {saas.isPublic ? "Public" : "Draft"}
           </label>
           <Button variant="outline" size="sm" render={<a href={url} target="_blank" rel="noreferrer" />} disabled={!saas.isPublic}><ExternalLink className="size-4" /> View page</Button>

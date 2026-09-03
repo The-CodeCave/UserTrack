@@ -193,7 +193,7 @@ Messages never include the connection string.
 - Every session starts with `SET default_transaction_read_only = on`; a write attempt fails with `25006`.
 - Only aggregates leave the database: `count(*)`, per-day counts, `version()`, table and column names. No row is ever selected, and introspection never returns data.
 - Timeouts: 10 s connect, 20 s per statement (`statement_timeout` + `query_timeout`), `application_name = usertrack`. Connections are closed in `finally`.
-- The connection string is stored in `integrations.config` (encrypted at rest, never returned); `publicConfig` shows a masked host, the table (or "custom query") and the signup column.
+- The connection string is stored in `integrations.config` (server-side, never returned to the dashboard, the API or an agent); `publicConfig` shows a masked host, the table (or "custom query") and the signup column.
 - Table listing is limited to 200 entries and to objects the role can `SELECT`.
 
 ## Supabase: two modes

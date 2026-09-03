@@ -117,8 +117,15 @@ export async function createProject(ctx: MutationCtx, ownerId: Id<"profiles">, i
 }
 
 export type ProjectPatch = Partial<ProjectInput> & { slug?: string; isPublic?: boolean };
+export type Publisher = { emailVerified?: boolean } | null | undefined;
 
-export async function updateProject(ctx: MutationCtx, saas: Doc<"saas">, patch: ProjectPatch) {
+// Public pages and founder profiles require a verified email; the caller passes the Better Auth user (or null = refuse).
+export function requireVerifiedToPublish(user: Publisher) {
+  if (!user?.emailVerified) throw new DomainError("forbidden", "Verify your email to publish (Settings → Verify email)");
+}
+
+export async function updateProject(ctx: MutationCtx, saas: Doc<"saas">, patch: ProjectPatch, publisher?: Publisher) {
+  if (patch.isPublic && !saas.isPublic) requireVerifiedToPublish(publisher);
   const merged = normalizeProjectInput({
     name: patch.name ?? saas.name,
     description: patch.description ?? saas.description,

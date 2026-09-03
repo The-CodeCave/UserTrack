@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
+import { gatewayMatches } from "./lib/gateway";
 
 // Referrer host → lowercase, no port, no leading www. Anything that does not look like a hostname is dropped.
 export function normalizeHost(raw: string | null | undefined) {
@@ -14,8 +15,7 @@ export function normalizeHost(raw: string | null | undefined) {
 export const record = mutation({
   args: { gateway: v.optional(v.string()), slug: v.string(), host: v.string() },
   handler: async (ctx, { gateway, slug, host }) => {
-    const expected = process.env.UT_GATEWAY_SECRET;
-    if (expected && gateway !== expected) return { ok: false as const };
+    if (!gatewayMatches(gateway)) return { ok: false as const };
     const h = normalizeHost(host);
     if (!h) return { ok: false as const };
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();

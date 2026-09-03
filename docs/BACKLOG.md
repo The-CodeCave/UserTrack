@@ -317,3 +317,10 @@ Goal: every meaningful growth event is one click from a designed, shareable asse
 ### Epic 86 — Platform + docs + QA (P1)
 - ☑ **UT-5007** — REST additions, OpenAPI, DTOs, gateway functions, 14 MCP tools + 4 scopes, `docs/API.md`, `docs/MCP.md`. Done.
 - ☑ **UT-5009** — docs set, README, HUMAN_TODO, lint / typecheck / tests / build, screenshots, push, Railway deploy, production smoke. Done.
+
+## v1.0 launch hardening
+
+### Epic 90 — Security (P0)
+- ☑ **SEC-1** — gateway secret fails closed (`convex/lib/gateway.ts`, constant-time), honest credential wording everywhere, `safeInternalPath` for every `next` / `redirectTo`, security headers + CSP in `next.config.ts` (embeddable routes stay frameable), `requireEmailVerification: true` with inbox / resend states and a verified-email gate on publishing (dashboard, onboarding, MCP, public founder profile). AC: `lib/gateway.test.ts`, `safe-redirect.test.ts`, `publishGate.test.ts`, gateway / embed tests, curl header check, sign-in smoke. Done.
+- ☐ **App-level envelope encryption for `integrations.config`** — encrypt provider credentials and webhook secrets with a KMS-style key from env before they reach Convex; decrypt only inside the sync / delivery actions. Future.
+- ☐ **Dashboard error toasts show "Server Error"** — Convex formats thrown errors as `…Server Error\nUncaught Error: <message>`; the app-wide `.replace(/^.*Uncaught Error: /, "")` never matches across the newline, so every server-side validation message (username taken, invalid URL, …) is hidden. SEC-1 fixed the two publish sites with `/Uncaught \w*Error: ([^\n]*)/`; move the rest to one shared `errMsg` (and consider `ConvexError` for user-facing messages, which survive production redaction). Belongs with the error-tracking / error-boundary ticket.

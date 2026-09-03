@@ -133,7 +133,7 @@ export const TOOLS: Tool[] = [
   tool({
     name: "usertrack_configure_integration",
     title: "Configure integration",
-    description: "Store a data-source configuration for a project and start the first sync. Secrets are validated, encrypted at rest and never returned. Re-running replaces the source for that role (idempotent).",
+    description: "Store a data-source configuration for a project and start the first sync. Secrets are validated, stored server-side and never returned to the dashboard, the API or an agent. Re-running replaces the source for that role (idempotent).",
     scope: "integrations:write",
     readOnly: false,
     input: {

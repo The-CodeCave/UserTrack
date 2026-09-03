@@ -9,17 +9,22 @@ import type { Id } from "./_generated/dataModel";
 import { DEFAULT_MCP_SCOPES, displayPrefix, PLANS, sha256Hex } from "./lib/tokens";
 import { dayKey } from "./lib/time";
 
+// Better Auth users are faked: verified (publishing is gated on it), without an email so `account` reports none.
+vi.mock("./auth", () => ({ authComponent: { getAnyUserById: async (_ctx: unknown, id: string) => ({ _id: id, emailVerified: true }), safeGetAuthUser: async () => null } }));
+
 const modules = import.meta.glob("./**/*.ts");
 // Better Auth is a Convex component; `gateway.account` reads the auth user through it. The schema is not in the
 // package's `exports` map, so it is imported by relative path.
 const betterAuthModules = import.meta.glob("../node_modules/@convex-dev/better-auth/dist/component/**/*.js");
 
+const GATEWAY = "test-gateway-secret";
+process.env.UT_GATEWAY_SECRET = GATEWAY;
 const SECRET = "ut_mcp_" + "a".repeat(40);
 const API_SECRET = "ut_api_" + "b".repeat(40);
 const BOB_SECRET = "ut_mcp_" + "c".repeat(40);
-const auth = { hash: sha256Hex(SECRET) };
-const apiAuth = { hash: sha256Hex(API_SECRET) };
-const bobAuth = { hash: sha256Hex(BOB_SECRET) };
+const auth = { hash: sha256Hex(SECRET), gateway: GATEWAY };
+const apiAuth = { hash: sha256Hex(API_SECRET), gateway: GATEWAY };
+const bobAuth = { hash: sha256Hex(BOB_SECRET), gateway: GATEWAY };
 
 type Failure = { code: string; message: string; retryAfterSec?: number; requiredScope?: string };
 async function failure(p: Promise<unknown>): Promise<Failure> {
@@ -72,7 +77,19 @@ describe("gateway.authorize", () => {
 
   it("rejects an unknown hash", async () => {
     const { t } = await seed();
-    expect((await failure(t.mutation(api.gateway.authorize, { auth: { hash: sha256Hex("ut_mcp_nope") }, type: "mcp", category: "x" }))).code).toBe("unauthorized");
+    expect((await failure(t.mutation(api.gateway.authorize, { auth: { hash: sha256Hex("ut_mcp_nope"), gateway: GATEWAY }, type: "mcp", category: "x" }))).code).toBe("unauthorized");
+  });
+
+  it("rejects a wrong or missing gateway secret, and fails closed when the env var is unset", async () => {
+    const { t } = await seed();
+    expect((await failure(t.mutation(api.gateway.authorize, { auth: { hash: auth.hash, gateway: "nope" }, type: "mcp", category: "x" }))).message).toBe("Gateway secret mismatch");
+    expect((await failure(t.mutation(api.gateway.authorize, { auth: { hash: auth.hash }, type: "mcp", category: "x" }))).code).toBe("unauthorized");
+    delete process.env.UT_GATEWAY_SECRET;
+    try {
+      expect((await failure(t.mutation(api.gateway.authorize, { auth, type: "mcp", category: "x" }))).message).toBe("Gateway secret not configured");
+    } finally {
+      process.env.UT_GATEWAY_SECRET = GATEWAY;
+    }
   });
 
   it("rejects revoked and expired tokens with distinct codes", async () => {
@@ -91,10 +108,10 @@ describe("gateway.authorize", () => {
 
   it("does not accept an API key as an MCP token (or vice versa)", async () => {
     const { t } = await seed();
-    expect((await failure(t.mutation(api.gateway.authorize, { auth: { hash: sha256Hex(API_SECRET) }, type: "mcp", category: "x" }))).code).toBe("unauthorized");
+    expect((await failure(t.mutation(api.gateway.authorize, { auth: { hash: sha256Hex(API_SECRET), gateway: GATEWAY }, type: "mcp", category: "x" }))).code).toBe("unauthorized");
     expect((await failure(t.mutation(api.gateway.authorize, { auth, type: "api", category: "saas" }))).code).toBe("unauthorized");
     // The API key does work for its own type.
-    expect((await t.mutation(api.gateway.authorize, { auth: { hash: sha256Hex(API_SECRET) }, type: "api", category: "saas" })).limit.perDay).toBe(PLANS.free.api.perDay);
+    expect((await t.mutation(api.gateway.authorize, { auth: { hash: sha256Hex(API_SECRET), gateway: GATEWAY }, type: "api", category: "saas" })).limit.perDay).toBe(PLANS.free.api.perDay);
   });
 
   it("enforces the daily quota", async () => {
@@ -125,7 +142,7 @@ describe("gateway.account", () => {
     const r = await t.query(api.gateway.account, { auth });
     expect(r.profile).toMatchObject({ id: jane, username: "jane", displayName: "Jane", onboardingCompleted: true });
     expect(r.profile.url).toMatch(/\/u\/jane$/);
-    // No auth user row exists in the component in this test, so email is simply absent.
+    // The faked auth user carries no email, so it is simply absent.
     expect(r.profile.email).toBeUndefined();
     expect(r.token).toMatchObject({ name: "agent", prefix: displayPrefix(SECRET), scopes: DEFAULT_MCP_SCOPES });
     expect(r.projectCount).toBe(1);

@@ -8,6 +8,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getProfileForUser, requireProfile } from "./profiles";
 import { siteUrl } from "./domain/projects";
 import { xConnectionState } from "../src/lib/social";
+import { safeInternalPath } from "../src/lib/safe-redirect";
 import { xDraft, type DraftKind } from "../src/lib/x-drafts";
 import { botWorthy, normalizePrefs } from "./lib/shareRules";
 import { authorizeUrl, basicAuth, describeXError, needsRefresh, OAUTH_STATE_TTL_MS, oauth1Header, parseTokenResponse, refreshRequestBody, tokenRequestBody, X_ME_URL, X_REVOKE_URL, X_TOKEN_URL, X_TWEETS_URL } from "./lib/xApi";
@@ -55,7 +56,7 @@ export const beginOAuth = mutation({
     const { profile } = await requireProfile(ctx);
     if (!oauthEnabled()) throw new Error("X connection is not enabled on this deployment");
     if (state.length < 16 || codeVerifier.length < 43) throw new Error("Invalid OAuth parameters");
-    await ctx.db.insert("oauthStates", { state, profileId: profile._id, provider: "x", codeVerifier, redirectTo, createdAt: Date.now() });
+    await ctx.db.insert("oauthStates", { state, profileId: profile._id, provider: "x", codeVerifier, redirectTo: safeInternalPath(redirectTo, "/app/settings/social"), createdAt: Date.now() });
     return authorizeUrl({ clientId: process.env.X_CLIENT_ID!, siteUrl: siteUrl(), state, codeChallenge });
   },
 });

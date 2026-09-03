@@ -45,7 +45,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
     database: authComponent.adapter(ctx),
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: false,
+      requireEmailVerification: true,
       minPasswordLength: 8,
       sendResetPassword: async ({ user, url }) => {
         await dispatch(ctx, { userId: user.id, to: user.email, type: "reset-password", data: { name: user.name || "there", resetUrl: url }, dedupeKey: `reset-password:${user.id}:${Date.now()}` });

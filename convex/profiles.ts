@@ -5,6 +5,7 @@ import { isValidHandle } from "../src/lib/slug";
 import { isValidXHandle, normalizeXHandle } from "../src/lib/social";
 import { setPreferences } from "./email/prefs";
 import { socialPrefs } from "./schema";
+import { requireVerifiedToPublish } from "./domain/projects";
 
 export async function getProfileForUser(ctx: QueryCtx | MutationCtx) {
   const user = await authComponent.safeGetAuthUser(ctx);
@@ -75,6 +76,7 @@ export const upsert = mutation({
     const { user, profile } = await getProfileForUser(ctx);
     if (!user) throw new Error("Not signed in");
     if (!isValidHandle(args.username)) throw new Error("Invalid username");
+    if (args.profilePublic !== false) requireVerifiedToPublish(user);
     if (args.displayName.trim().length < 2) throw new Error("Display name too short");
     if (args.website && !/^https?:\/\//.test(args.website.trim())) throw new Error("Website must start with https://");
     if (args.avatarUrl && !/^https:\/\//.test(args.avatarUrl.trim())) throw new Error("Avatar URL must start with https://");
@@ -120,7 +122,8 @@ export const updateSocial = mutation({
 export const completeOnboarding = mutation({
   args: {},
   handler: async (ctx) => {
-    const { profile } = await requireProfile(ctx);
+    const { user, profile } = await requireProfile(ctx);
+    requireVerifiedToPublish(user);
     await ctx.db.patch(profile._id, { onboardingCompleted: true });
   },
 });

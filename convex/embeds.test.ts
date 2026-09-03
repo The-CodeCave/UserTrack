@@ -9,6 +9,8 @@ import { normalizeHost } from "./embeds";
 
 vi.mock("./email/users", () => ({ findAuthUser: async () => null }));
 
+const GATEWAY = "test-gateway-secret";
+process.env.UT_GATEWAY_SECRET = GATEWAY;
 const modules = import.meta.glob("./**/*.*s");
 const t = () => convexTest(schema, modules);
 
@@ -29,12 +31,20 @@ describe("normalizeHost", () => {
 });
 
 describe("embeds.record", () => {
+  it("refuses calls without the gateway secret", async () => {
+    const tx = t();
+    await seed(tx);
+    expect(await tx.mutation(api.embeds.record, { slug: "acme", host: "acme.io" })).toEqual({ ok: false });
+    expect(await tx.mutation(api.embeds.record, { gateway: "wrong", slug: "acme", host: "acme.io" })).toEqual({ ok: false });
+    expect(await tx.run((ctx) => ctx.db.query("embedSites").collect())).toHaveLength(0);
+  });
+
   it("creates one row per host, counts loads and materializes the distinct-host count once", async () => {
     const tx = t();
     const id = await seed(tx);
-    expect(await tx.mutation(api.embeds.record, { slug: "acme", host: "www.acme.io" })).toEqual({ ok: true, host: "acme.io" });
-    expect(await tx.mutation(api.embeds.record, { slug: "acme", host: "acme.io" })).toEqual({ ok: true, host: "acme.io" });
-    expect(await tx.mutation(api.embeds.record, { slug: "acme", host: "blog.acme.io" })).toEqual({ ok: true, host: "blog.acme.io" });
+    expect(await tx.mutation(api.embeds.record, { gateway: GATEWAY, slug: "acme", host: "www.acme.io" })).toEqual({ ok: true, host: "acme.io" });
+    expect(await tx.mutation(api.embeds.record, { gateway: GATEWAY, slug: "acme", host: "acme.io" })).toEqual({ ok: true, host: "acme.io" });
+    expect(await tx.mutation(api.embeds.record, { gateway: GATEWAY, slug: "acme", host: "blog.acme.io" })).toEqual({ ok: true, host: "blog.acme.io" });
     const rows = await tx.run((ctx) => ctx.db.query("embedSites").collect());
     expect(rows.map((r) => [r.host, r.loads]).sort()).toEqual([["acme.io", 2], ["blog.acme.io", 1]]);
     expect((await tx.run((ctx) => ctx.db.get(id as Id<"saas">)))?.embedSiteCount).toBe(2);
@@ -42,9 +52,9 @@ describe("embeds.record", () => {
   it("ignores drafts, unknown slugs and invalid hosts", async () => {
     const tx = t();
     await seed(tx, { isPublic: false });
-    expect(await tx.mutation(api.embeds.record, { slug: "acme", host: "acme.io" })).toEqual({ ok: false });
-    expect(await tx.mutation(api.embeds.record, { slug: "nope", host: "acme.io" })).toEqual({ ok: false });
-    expect(await tx.mutation(api.embeds.record, { slug: "acme", host: "not a host" })).toEqual({ ok: false });
+    expect(await tx.mutation(api.embeds.record, { gateway: GATEWAY, slug: "acme", host: "acme.io" })).toEqual({ ok: false });
+    expect(await tx.mutation(api.embeds.record, { gateway: GATEWAY, slug: "nope", host: "acme.io" })).toEqual({ ok: false });
+    expect(await tx.mutation(api.embeds.record, { gateway: GATEWAY, slug: "acme", host: "not a host" })).toEqual({ ok: false });
     expect(await tx.run((ctx) => ctx.db.query("embedSites").collect())).toEqual([]);
   });
 });

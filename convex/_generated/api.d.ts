@@ -45,6 +45,7 @@ import type * as lib_benchmarks from "../lib/benchmarks.js";
 import type * as lib_domain from "../lib/domain.js";
 import type * as lib_emailRules from "../lib/emailRules.js";
 import type * as lib_founder from "../lib/founder.js";
+import type * as lib_gateway from "../lib/gateway.js";
 import type * as lib_history from "../lib/history.js";
 import type * as lib_identity from "../lib/identity.js";
 import type * as lib_integrationSetup from "../lib/integrationSetup.js";
@@ -141,6 +142,7 @@ declare const fullApi: ApiFromModules<{
   "lib/domain": typeof lib_domain;
   "lib/emailRules": typeof lib_emailRules;
   "lib/founder": typeof lib_founder;
+  "lib/gateway": typeof lib_gateway;
   "lib/history": typeof lib_history;
   "lib/identity": typeof lib_identity;
   "lib/integrationSetup": typeof lib_integrationSetup;

@@ -3,7 +3,7 @@ import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from 
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { getProfileForUser, requireProfile } from "./profiles";
-import { createProject, updateProject } from "./domain/projects";
+import { createProject, requireVerifiedToPublish, updateProject } from "./domain/projects";
 import { integrationView } from "./domain/integrations";
 import { markLaunched } from "./domain/events";
 import { MIN_SAMPLE } from "./lib/benchmarks";
@@ -16,10 +16,10 @@ import { VISIBILITY_KEYS, visibilityOf } from "./domain/visibility";
 import { projectType, visibility } from "./schema";
 
 export async function requireOwnedSaas(ctx: QueryCtx | MutationCtx, id: Id<"saas">) {
-  const { profile } = await requireProfile(ctx);
+  const { user, profile } = await requireProfile(ctx);
   const saas = await ctx.db.get(id);
   if (!saas || saas.ownerId !== profile._id) throw new Error("SaaS not found");
-  return { profile, saas };
+  return { user, profile, saas };
 }
 
 // Ownership check callable from actions (auth identity propagates through ctx.runQuery).
@@ -64,7 +64,8 @@ export const update = mutation({
 export const setPublic = mutation({
   args: { id: v.id("saas"), isPublic: v.boolean() },
   handler: async (ctx, { id, isPublic }) => {
-    const { saas } = await requireOwnedSaas(ctx, id);
+    const { user, saas } = await requireOwnedSaas(ctx, id);
+    if (isPublic && !saas.isPublic) requireVerifiedToPublish(user);
     await ctx.db.patch(id, { isPublic });
     if (isPublic) await markLaunched(ctx, saas);
     await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});

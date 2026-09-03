@@ -4,8 +4,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, MailCheck } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { safeInternalPath } from "@/lib/safe-redirect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,9 +14,13 @@ import { Label } from "@/components/ui/label";
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") ?? "/app";
+  const next = safeInternalPath(params.get("next"));
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  // Email+password accounts must verify before they can sign in; this holds the address to resend to / the inbox notice.
+  const [unverified, setUnverified] = useState<string | null>(null);
+  const [signedUp, setSignedUp] = useState<string | null>(null);
   const oauthError = params.get("error");
 
   useEffect(() => {
@@ -36,6 +41,14 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
     }
   }
 
+  async function resendVerification(email: string) {
+    setSending(true);
+    const res = await authClient.sendVerificationEmail({ email, callbackURL: mode === "sign-up" ? "/app/onboarding" : next });
+    setSending(false);
+    if (res.error) toast.error(res.error.message ?? "Could not send verification email");
+    else toast.success("Verification email sent");
+  }
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -43,17 +56,42 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
     const password = String(fd.get("password"));
     const name = String(fd.get("name") ?? "").trim();
     setLoading(true);
+    setUnverified(null);
     const res =
       mode === "sign-up"
-        ? await authClient.signUp.email({ email, password, name })
+        ? await authClient.signUp.email({ email, password, name, callbackURL: "/app/onboarding" })
         : await authClient.signIn.email({ email, password });
     setLoading(false);
     if (res.error) {
-      toast.error(res.error.message ?? "Something went wrong");
+      if (res.error.code === "EMAIL_NOT_VERIFIED") setUnverified(email);
+      else toast.error(res.error.message ?? "Something went wrong");
       return;
     }
-    router.push(mode === "sign-up" ? "/app/onboarding" : next);
+    if (mode === "sign-up") {
+      setSignedUp(email);
+      return;
+    }
+    router.push(next);
     router.refresh();
+  }
+
+  if (signedUp) {
+    return (
+      <div className="space-y-4" data-testid="check-inbox">
+        <div className="flex items-start gap-3 border border-line p-4">
+          <MailCheck className="mt-0.5 size-5 shrink-0 text-pink" />
+          <div className="text-sm">
+            <div className="font-medium">Check your inbox</div>
+            <p className="mt-1 text-muted-foreground">We sent a verification link to <span className="font-mono text-foreground">{signedUp}</span>. Open it to activate your account — it signs you in and takes you to onboarding. The link is valid for 24 hours.</p>
+          </div>
+        </div>
+        <Button type="button" variant="outline" className="h-11 w-full bg-background" disabled={sending} onClick={() => resendVerification(signedUp)}>
+          {sending && <Loader2 className="size-4 animate-spin" />}
+          Resend verification email
+        </Button>
+        <p className="text-center text-sm text-muted-foreground">Wrong address? <button type="button" className="text-foreground underline-offset-4 hover:underline" onClick={() => setSignedUp(null)}>Start over</button></p>
+      </div>
+    );
   }
 
   return (
@@ -65,6 +103,16 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
       <div className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
         <div className="h-px flex-1 bg-line" />or<div className="h-px flex-1 bg-line" />
       </div>
+      {unverified && (
+        <div className="space-y-3 border border-destructive/60 p-4 text-sm" role="alert" data-testid="unverified">
+          <div className="font-medium">Verify your email to sign in</div>
+          <p className="text-muted-foreground">Your account exists but <span className="font-mono text-foreground">{unverified}</span> has not been verified yet. Open the link we emailed you, or request a new one.</p>
+          <Button type="button" variant="outline" size="sm" className="bg-background" disabled={sending} onClick={() => resendVerification(unverified)}>
+            {sending && <Loader2 className="size-4 animate-spin" />}
+            Resend verification email
+          </Button>
+        </div>
+      )}
       {mode === "sign-up" && (
         <Field label="Name" name="name" placeholder="Ada Lovelace" autoComplete="name" required />
       )}

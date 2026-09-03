@@ -3,6 +3,7 @@ import { api } from "@convex/_generated/api";
 import { fetchAuthAction, isAuthenticated } from "@/lib/auth-server";
 import { SITE_URL } from "@/lib/site";
 import { take } from "@/lib/api/rate-limit";
+import { safeInternalPath } from "@/lib/safe-redirect";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
   if (!(await isAuthenticated())) return NextResponse.redirect(new URL("/sign-in?next=/app/settings/social", SITE_URL));
   try {
     const r = await fetchAuthAction(api.social.completeOAuth, { state, code });
-    const dest = r.redirectTo && r.redirectTo.startsWith("/") ? r.redirectTo : "/app/settings/social";
+    const dest = safeInternalPath(r.redirectTo, "/app/settings/social");
     return NextResponse.redirect(new URL(`${dest}${dest.includes("?") ? "&" : "?"}x=connected`, SITE_URL));
   } catch (e) {
     const reason = (e as Error).message.replace(/^.*Uncaught Error: /, "").split("\n")[0].slice(0, 160);

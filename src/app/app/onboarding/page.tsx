@@ -113,8 +113,13 @@ export default function OnboardingPage() {
 
   async function publish() {
     if (!saasId) return;
-    await setPublic({ id: saasId, isPublic: true });
-    await complete();
+    try {
+      await setPublic({ id: saasId, isPublic: true });
+      await complete();
+    } catch (err) {
+      toast.error(/Uncaught \w*Error: ([^\n]*)/.exec((err as Error).message)?.[1] ?? "Could not publish the page");
+      return;
+    }
     toast.success("You're live!");
     setStep(DONE);
   }

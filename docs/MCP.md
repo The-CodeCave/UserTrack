@@ -315,7 +315,7 @@ Tool failures are returned as tool results with `isError: true`, so the agent ca
 
 | `code` | Meaning | Hint given to the agent |
 | --- | --- | --- |
-| `unauthorized` | Token unknown, wrong type, or gateway secret mismatch | Create a new MCP token and update the config |
+| `unauthorized` | Token unknown, wrong type, or gateway secret missing / mismatched (`UT_GATEWAY_SECRET` must be set identically on Railway and Convex) | Create a new MCP token and update the config; operators: check the env var on both sides |
 | `revoked` | Token was revoked | same |
 | `expired` | Token passed its expiry | same |
 | `forbidden` | Missing scope (`requiredScope` is set) | Ask for a token with that scope |
@@ -331,8 +331,8 @@ Tool failures are returned as tool results with `isError: true`, so the agent ca
 - **Scopes.** Every tool declares one scope; the gateway checks it on every call.
 - **Ownership.** Every project reference (id or slug) is resolved and checked against the token owner. Ids alone are never trusted.
 - **No deletion.** No tool deletes a project, an integration or a token.
-- **Secrets never returned.** Provider credentials are validated, stored encrypted and exposed only as a masked `publicConfig`. Tool results, audit entries and the dashboard never contain them.
-- **Gateway secret.** Next.js signs every backend call with `UT_GATEWAY_SECRET`; the Convex gateway rejects calls without it, so token hashes cannot be replayed against the backend directly.
+- **Secrets never returned.** Provider credentials are validated, stored server-side and exposed only as a masked `publicConfig`. Tool results, audit entries and the dashboard never contain them. (They are stored as plain values in Convex — no application-level encryption yet, see `docs/BACKLOG.md`.)
+- **Gateway secret.** Next.js sends `UT_GATEWAY_SECRET` with every backend call; the Convex gateway (`convex/lib/gateway.ts`, `requireGateway`) compares it in constant time and **fails closed** — a missing or different value on either side rejects the call with `unauthorized` — so token hashes cannot be replayed against the backend directly.
 - **Aggregate data only.** Providers are read with count-only endpoints; no emails, names, sessions or per-user rows.
 
 ## Audit logging
@@ -360,7 +360,7 @@ Every token-authenticated write (`create_project`, `update_project`, `configure_
 
 **Does the agent need write access to my repo?** Only for the JSON-endpoint provider, where it adds one read-only route. For Clerk, Supabase, Firebase, Auth0, PostgreSQL and the analytics providers it only reads env var names to locate credentials (PostgreSQL additionally needs a read-only database role, created by the founder from the SQL template).
 
-**Does UserTrack ever read rows from my database?** No. The PostgreSQL / Supabase database mode runs `count(*)`, per-day counts and catalog listings in a session forced to read-only (`default_transaction_read_only = on`); connection strings are stored encrypted and never returned.
+**Does UserTrack ever read rows from my database?** No. The PostgreSQL / Supabase database mode runs `count(*)`, per-day counts and catalog listings in a session forced to read-only (`default_transaction_read_only = on`); connection strings are stored server-side and never returned to the dashboard, the API or an agent.
 
 **Can an agent delete my project?** No. There is no delete tool. `update_project` can unpublish (`isPublic: false`) but never removes data.
 

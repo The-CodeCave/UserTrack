@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
 import { hasScope, isActive, PLANS, planFor, type TokenType } from "./lib/tokens";
+import { requireGateway } from "./lib/gateway";
 import { RANGES, dayKey, dayStart, DAY } from "./lib/time";
 import { integrationRole, providerKind, tokenType } from "./schema";
 import { describeProvider, getProvider, normalizeRole, ProviderError, verificationLevel, type Role } from "./providers";
@@ -66,8 +67,7 @@ async function run<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function authenticate(ctx: QueryCtx | MutationCtx, auth: Auth, type: TokenType, scope?: string) {
-  const expected = process.env.UT_GATEWAY_SECRET;
-  if (expected && auth.gateway !== expected) fail("unauthorized", "Gateway secret mismatch");
+  requireGateway(auth.gateway);
   const token = await ctx.db.query("developerTokens").withIndex("by_hash", (q) => q.eq("hash", auth.hash)).unique();
   if (!token || token.type !== type) return fail("unauthorized", type === "mcp" ? "Invalid MCP token" : "Invalid API key");
   if (token.revokedAt !== undefined) return fail("revoked", "This token has been revoked");
@@ -228,7 +228,8 @@ export const updateProjectTool = mutation({
       const changed = Object.keys(patch).filter((k) => (patch as Record<string, unknown>)[k] !== undefined);
       if (newSlug) changed.push("slug");
       if (!changed.length) fail("bad_request", "Nothing to update");
-      const next = await updateProject(ctx, saas, { ...patch, slug: newSlug });
+      const publisher = patch.isPublic ? await authComponent.getAnyUserById(ctx, profile.userId) : undefined;
+      const next = await updateProject(ctx, saas, { ...patch, slug: newSlug }, publisher);
       await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "update_project", saasId: saas._id, ok: true, detail: changed.join(",") });
       return { updated: changed, project: await fullProject(ctx, next as Doc<"saas">, profile.username) };
     }),
@@ -271,7 +272,7 @@ export const configureIntegration = mutation({
       const id = await connectIntegration(ctx, saas, role, provider, config);
       await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "configure_integration", saasId: saas._id, ok: true, detail: `${provider}/${role}` });
       const integration = integrationView((await ctx.db.get(id))!);
-      return { integration, message: "Configuration stored (secrets encrypted, never returned). First sync started — call usertrack_verify_integration in ~5 seconds.", nextTool: "usertrack_verify_integration" };
+      return { integration, message: "Configuration stored (secrets kept server-side, never returned). First sync started — call usertrack_verify_integration in ~5 seconds.", nextTool: "usertrack_verify_integration" };
     }),
 });
 

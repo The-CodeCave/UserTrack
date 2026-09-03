@@ -20,10 +20,12 @@ Convex actions ──► Resend API (mail.usertrack.dev) · Resend webhooks ─�
 | Railway service `usertrack` | `NEXT_PUBLIC_CONVEX_URL` | `https://<prod>.convex.cloud` |
 | | `NEXT_PUBLIC_CONVEX_SITE_URL` | `https://<prod>.convex.site` |
 | | `NEXT_PUBLIC_SITE_URL` | `https://usertrack-production.up.railway.app` |
+| | `UT_GATEWAY_SECRET` | `openssl rand -hex 32` — **same value on Convex prod**; every gateway / embed / native-event call carries it and the Convex side rejects calls when it is missing or different (fail closed) |
 | Convex prod (`npx convex env set --prod`) | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
+| | `UT_GATEWAY_SECRET` | same value as on Railway (fail closed: unset = every gateway call rejected) |
 | | `SITE_URL` | same as `NEXT_PUBLIC_SITE_URL` (Better Auth `baseURL` + trusted origin, digest links) |
 | | `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` | Google OAuth client; redirect URI `<SITE_URL>/api/auth/callback/google` (see `HUMAN_TODO.md`) |
-| | `RESEND_API_KEY` | Resend sending key for `mail.usertrack.dev` — without it every email is logged as `failed: email not configured` (see `HUMAN_TODO.md`) |
+| | `RESEND_API_KEY` | **Required**: email+password accounts must verify their address before they can sign in, and the verification mail goes through Resend. Without it every email is logged as `failed: email not configured` and password sign-ups are locked out (see `HUMAN_TODO.md`) |
 | | `EMAIL_FROM` · `EMAIL_REPLY_TO` | set: `UserTrack <noreply@mail.usertrack.dev>` · `hello@usertrack.dev` |
 | | `EMAIL_TOKEN_SECRET` | set (random) — signs preference / unsubscribe links |
 | | `RESEND_WEBHOOK_SECRET` | Svix secret of the Resend webhook → `https://handsome-warthog-21.eu-west-1.convex.site/webhooks/resend` (see `HUMAN_TODO.md`) |

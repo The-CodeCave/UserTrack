@@ -10,6 +10,7 @@ import { normalizeRole } from "./providers";
 import { defaultBasePath, normalizeBaseUrl, sourceLabel } from "./providers/native";
 import { EVENTS_PATH, EVENT_TYPES, generateIntegrationSecret, HEADER_NONCE, HEADER_SIGNATURE, HEADER_TIMESTAMP, LEGACY_EVENTS_PATH, NATIVE_PACKAGE, NATIVE_SOURCES, type NativeSource, normalizeSource, sha256Hex, verify } from "./lib/nativeProtocol";
 import { DAY } from "./lib/time";
+import { gatewayMatches } from "./lib/gateway";
 
 const EVENT_RETENTION_DAYS = 30;
 const PRUNE_BATCH = 500;
@@ -92,8 +93,7 @@ export type IngestResult = { ok: true; duplicate: boolean } | { ok: false; statu
 export const ingestEvent = action({
   args: { gateway: v.optional(v.string()), projectId: v.string(), body: v.string(), path: v.optional(v.string()), headers: v.object({ timestamp: v.optional(v.string()), nonce: v.optional(v.string()), signature: v.optional(v.string()) }) },
   handler: async (ctx, { gateway, projectId, body, path, headers }): Promise<IngestResult> => {
-    const expected = process.env.UT_GATEWAY_SECRET;
-    if (expected && gateway !== expected) return { ok: false, status: 401, error: "gateway secret mismatch" };
+    if (!gatewayMatches(gateway)) return { ok: false, status: 401, error: "gateway secret mismatch" };
     const signedPath = path === LEGACY_EVENTS_PATH ? LEGACY_EVENTS_PATH : EVENTS_PATH;
     const target = await ctx.runQuery(internal.native.integrationForEvents, { projectId });
     if (!target) return { ok: false, status: 404, error: "unknown project or no native integration" };

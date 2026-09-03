@@ -74,7 +74,7 @@ npx convex dev            # creates .env.local, pushes functions, watches
 npx convex env set BETTER_AUTH_SECRET "$(openssl rand -base64 32)"
 npx convex env set SITE_URL http://localhost:3000
 echo 'NEXT_PUBLIC_SITE_URL=http://localhost:3000' >> .env.local
-# gateway secret shared by Next.js and Convex (optional in dev; required in prod)
+# gateway secret shared by Next.js and Convex (required everywhere — the gateway fails closed without it)
 SECRET=$(openssl rand -hex 32); echo "UT_GATEWAY_SECRET=$SECRET" >> .env.local; npx convex env set UT_GATEWAY_SECRET "$SECRET"
 npx convex run seed:run   # optional labelled demo data (never ranked)
 pnpm dev                  # http://localhost:3000
@@ -90,7 +90,7 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | Command | Purpose |
 |---|---|
 | `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
-| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (462 tests in 55 files: metrics, funnel, trending, trust, milestones, benchmarks + cohorts, history downsampling, webhook policy / signing, datasets / CSV, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, embed widgets, share, rate limit, email rules, templates, tokens, webhook signatures, MCP tools, OpenAPI, and `convex-test` function tests for discovery / rank history / follows / webhooks / dedupe / preferences / lifecycle / milestones / reports / gateway / embed sites) |
+| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (474 tests in 58 files: metrics, funnel, trending, trust, milestones, benchmarks + cohorts, history downsampling, webhook policy / signing, datasets / CSV, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, embed widgets, share, rate limit, email rules, templates, tokens, webhook signatures, MCP tools, OpenAPI, gateway secret, safe redirects, and `convex-test` function tests for discovery / rank history / follows / webhooks / dedupe / preferences / lifecycle / milestones / reports / gateway / embed sites / publish gate) |
 | `node scripts/email-preview.mjs` | Render every email template with sample data to `/tmp/ut-emails/*.html` |
 | `pnpm packages:build` · `pnpm packages:test` · `pnpm packages:typecheck` | Build / test / typecheck every workspace package (`@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth`; 61 tests) |
 | `pnpm convex:dev` · `pnpm convex:deploy` | Convex dev watch · deploy to prod |
@@ -107,10 +107,10 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | | `UT_GATEWAY_SECRET` | yes | Sent with every gateway call (API keys, MCP). **Must be identical to the Convex value.** |
 | Convex prod (`npx convex env set --prod`) | `BETTER_AUTH_SECRET` | yes | Auth secret |
 | | `SITE_URL` | yes | Better Auth base URL / trusted origin, digest links, URLs returned by MCP tools |
-| | `UT_GATEWAY_SECRET` | yes | Proves gateway calls come from the Next.js server; calls without it are rejected. **Same value as on Railway.** |
+| | `UT_GATEWAY_SECRET` | yes | Proves gateway calls come from the Next.js server; compared in constant time, and calls are rejected when it is missing on either side (fail closed). **Same value as on Railway.** |
 | | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | yes | Google sign-in (OAuth client, redirect URI `<SITE_URL>/api/auth/callback/google`) |
 | | `IDENTITY_SALT` | yes | Salt for pseudonymous identity subjects (`docs/IDENTITY.md`); set on dev + prod, never rotate without purging `identityLinks` |
-| | `RESEND_API_KEY` | for email | Resend sending key for `mail.usertrack.dev` (see `HUMAN_TODO.md`). Missing → emails logged, not sent |
+| | `RESEND_API_KEY` | yes | Resend sending key for `mail.usertrack.dev` (see `HUMAN_TODO.md`). Email+password sign-in requires a verified address, so without it new password accounts cannot sign in; every send is still logged |
 | | `EMAIL_FROM` · `EMAIL_REPLY_TO` | no | Defaults `UserTrack <noreply@mail.usertrack.dev>` · `hello@usertrack.dev` |
 | | `EMAIL_TOKEN_SECRET` | yes | Signs preference / unsubscribe links (falls back to `BETTER_AUTH_SECRET`) |
 | | `RESEND_WEBHOOK_SECRET` | for delivery state | Svix signing secret of the Resend webhook → `<convex site url>/webhooks/resend` |

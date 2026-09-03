@@ -366,7 +366,7 @@ console.log(data.metrics.totalUsers, meta.generatedAt);`}</Code></div>
               <li>Tokens are stored as SHA-256 hashes and shown once. Revoke any time at <span className="font-mono">/app/developer</span>.</li>
               <li>Every call re-checks the token, its scopes and that the project belongs to the token owner. Ids alone are never trusted.</li>
               <li>No tool can delete a project or an integration.</li>
-              <li>Provider credentials are validated, encrypted at rest and never returned — not to the dashboard, not to the agent.</li>
+              <li>Provider credentials are validated, stored server-side and never returned — not to the dashboard, not to the API, not to the agent.</li>
               <li>Every write is recorded in an audit trail visible on the developer page.</li>
               <li>Only aggregate counts ever leave your stack; no emails, names or per-user rows.</li>
             </ul>

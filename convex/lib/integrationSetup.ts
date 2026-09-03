@@ -81,7 +81,7 @@ export const INTEGRATION_CATALOG: CatalogEntry[] = [
       { key: "table", label: "Table with one row per activated user", secret: false, roles: ["activation"], whereToFind: "A table that only gets a row once a user really used the product (e.g. projects_owners).", envVarHints: [] },
       { key: "createdAtColumn", label: "created_at column", secret: false, optional: true, whereToFind: "Timestamp column on that table; unlocks 24h/7d/30d counts and 30-day history.", envVarHints: [] },
     ],
-    permissions: ["Database mode: create a read-only role and grant SELECT on auth.users (or the activation table): CREATE ROLE usertrack_ro LOGIN PASSWORD '…'; GRANT USAGE ON SCHEMA auth TO usertrack_ro; GRANT SELECT ON auth.users TO usertrack_ro; — then use it in the pooler connection string.", "API mode: the service role key must stay server-side; UserTrack stores it encrypted and never returns it."],
+    permissions: ["Database mode: create a read-only role and grant SELECT on auth.users (or the activation table): CREATE ROLE usertrack_ro LOGIN PASSWORD '…'; GRANT USAGE ON SCHEMA auth TO usertrack_ro; GRANT SELECT ON auth.users TO usertrack_ro; — then use it in the pooler connection string.", "API mode: the service role key must stay server-side; UserTrack stores it server-side and never returns it."],
     reads: "Database mode: SELECT count(*) … WHERE created_at >= $1 on auth.users (deleted_at IS NULL) plus one GROUP BY day query for history. API mode: HEAD count=exact / admin/users?per_page=1 — counts only, never row data.",
     neverSent: NEVER,
   },
@@ -694,7 +694,7 @@ export function integrationSetup(input: { provider: string; role?: Role; framewo
     steps.push({ id: "manual:ask", title: "Confirm the number with the founder", detail: "Manual numbers are labelled self-reported and never ranked. Prefer any verified provider if one exists.", action: "ask_user" });
   }
   if (entry.provider !== "native") steps.push(
-    { id: "configure", title: "Submit the configuration to UserTrack", detail: `Call usertrack_configure_integration with { projectId: "${projectRef}", provider: "${entry.provider}", role: "${role}", config: { ${requirements.map((r) => `${r.key}: …`).join(", ")} } }. UserTrack validates the shape, stores secrets encrypted and starts the first sync immediately.`, action: "call_tool", tool: "usertrack_configure_integration" },
+    { id: "configure", title: "Submit the configuration to UserTrack", detail: `Call usertrack_configure_integration with { projectId: "${projectRef}", provider: "${entry.provider}", role: "${role}", config: { ${requirements.map((r) => `${r.key}: …`).join(", ")} } }. UserTrack validates the shape, stores secrets server-side (never returned) and starts the first sync immediately.`, action: "call_tool", tool: "usertrack_configure_integration" },
     { id: "verify", title: "Verify the connection", detail: `Call usertrack_verify_integration with { projectId: "${projectRef}", role: "${role}" }. It performs a live read and returns the detected count, the verification level and an actionable error if anything is wrong. Wait ~5 seconds after configuring; retry at most 3 times.`, action: "verify", tool: "usertrack_verify_integration" },
     { id: "publish", title: "Publish and share", detail: `Once verified, call usertrack_update_project with { projectId: "${projectRef}", isPublic: true }, then usertrack_get_share_url and hand the public URL to the founder.`, action: "call_tool", tool: "usertrack_update_project" },
   );
