@@ -4,6 +4,7 @@ import { DAY } from "./lib/time";
 import { trustScore, trustState, type Flag } from "./lib/trust";
 import type { Milestone } from "./lib/milestones";
 import { recordMilestoneShare } from "./share";
+import { dispatchEvent } from "./webhooks";
 
 export async function addMilestones(ctx: MutationCtx, saasId: Id<"saas">, list: Milestone[]) {
   const now = Date.now();
@@ -12,6 +13,8 @@ export async function addMilestones(ctx: MutationCtx, saasId: Id<"saas">, list: 
     if (exists) continue;
     const id = await ctx.db.insert("milestones", { saasId, key: m.key, kind: m.kind, metric: m.metric, value: m.value, title: m.title, copy: m.copy, achievedAt: now });
     await recordMilestoneShare(ctx, saasId, id, m);
+    const saas = await ctx.db.get(saasId);
+    if (saas) await dispatchEvent(ctx, { type: "milestone.reached", key: m.key, saas, at: now, data: { milestone: { id, key: m.key, kind: m.kind, metric: m.metric, value: m.value, title: m.title, achievedAt: new Date(now).toISOString() } } });
   }
 }
 

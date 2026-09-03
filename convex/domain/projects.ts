@@ -34,6 +34,8 @@ export interface ProjectInput {
   playStoreUrl?: string;
   // Informational: how users authenticate (Sign in with Apple, Google…). Never a metric source.
   authMethods?: string[];
+  // Optional founding month (ms since epoch); benchmark age cohorts use it instead of the tracking age.
+  foundedAt?: number;
 }
 
 const storeUrl = (v: string | undefined, host: RegExp, what: string) => {
@@ -61,7 +63,17 @@ export function normalizeProjectInput(args: ProjectInput) {
     appStoreUrl: storeUrl(args.appStoreUrl, /apps\.apple\.com/i, "App Store URL"),
     playStoreUrl: storeUrl(args.playStoreUrl, /play\.google\.com/i, "Google Play URL"),
     authMethods: args.authMethods ? [...new Set(args.authMethods.map((m) => m.trim().toLowerCase()).filter((m) => (AUTH_METHODS as readonly string[]).includes(m)))] : undefined,
+    foundedAt: foundedAtOf(args.foundedAt),
   };
+}
+
+// Month precision, between 1990 and now; anything else is dropped rather than stored as a bogus age.
+function foundedAtOf(v: number | undefined) {
+  if (v === undefined || !Number.isFinite(v) || v <= 0) return undefined;
+  const d = new Date(v);
+  const month = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+  if (month < Date.UTC(1990, 0, 1) || month > Date.now()) throw new DomainError("bad_request", "Founded date must be between 1990 and today");
+  return month;
 }
 
 export async function uniqueSlug(ctx: MutationCtx, base: string, ignore?: Id<"saas">) {
@@ -118,6 +130,7 @@ export async function updateProject(ctx: MutationCtx, saas: Doc<"saas">, patch: 
     appStoreUrl: patch.appStoreUrl !== undefined ? patch.appStoreUrl : saas.appStoreUrl,
     playStoreUrl: patch.playStoreUrl !== undefined ? patch.playStoreUrl : saas.playStoreUrl,
     authMethods: patch.authMethods ?? saas.authMethods,
+    foundedAt: patch.foundedAt !== undefined ? (patch.foundedAt || undefined) : saas.foundedAt,
   });
   const next: Partial<Doc<"saas">> = merged;
   if (patch.slug && slugify(patch.slug) !== saas.slug) next.slug = await uniqueSlug(ctx, patch.slug, saas._id);

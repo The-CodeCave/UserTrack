@@ -10,13 +10,14 @@ export interface Visibility {
   trialConversion: boolean;
   convertedCount: boolean;
   traffic: boolean;
+  benchmarks: boolean;
 }
 
-export const VISIBILITY_KEYS = ["totalUsers", "growth", "activationRate", "conversionRate", "trialConversion", "convertedCount", "traffic"] as const;
+export const VISIBILITY_KEYS = ["totalUsers", "growth", "activationRate", "conversionRate", "trialConversion", "convertedCount", "traffic", "benchmarks"] as const;
 export type VisibilityKey = (typeof VISIBILITY_KEYS)[number];
 
 // Growth metrics are the product; conversion is private until the founder switches it on.
-export const DEFAULT_VISIBILITY: Visibility = { totalUsers: true, growth: true, activationRate: true, conversionRate: false, trialConversion: false, convertedCount: false, traffic: false };
+export const DEFAULT_VISIBILITY: Visibility = { totalUsers: true, growth: true, activationRate: true, conversionRate: false, trialConversion: false, convertedCount: false, traffic: false, benchmarks: true };
 
 export const VISIBILITY_META: Record<VisibilityKey, { label: string; blurb: string; group: "growth" | "engagement" | "conversion" }> = {
   totalUsers: { label: "Total users", blurb: "The verified user count. Required for leaderboards.", group: "growth" },
@@ -26,6 +27,7 @@ export const VISIBILITY_META: Record<VisibilityKey, { label: string; blurb: stri
   trialConversion: { label: "Trial conversion", blurb: "Trial stage in the funnel and Trial → Converted rate.", group: "conversion" },
   convertedCount: { label: "Converted user count", blurb: "The absolute number of converted users.", group: "conversion" },
   traffic: { label: "Visitors", blurb: "Reached stage (visitors / sessions) in the funnel.", group: "growth" },
+  benchmarks: { label: "Benchmark statement", blurb: "The public \"Top X% in <cohort>\" line and its history. Only top-quarter positions are ever shown.", group: "growth" },
 };
 
 type Legacy = Pick<Doc<"saas">, "visibility" | "showTraffic" | "showRevenue">;
@@ -41,11 +43,12 @@ export function visibilityOf(s: Legacy): Visibility {
     trialConversion: v.trialConversion ?? DEFAULT_VISIBILITY.trialConversion,
     convertedCount: v.convertedCount ?? s.showRevenue ?? DEFAULT_VISIBILITY.convertedCount,
     traffic: v.traffic ?? s.showTraffic ?? DEFAULT_VISIBILITY.traffic,
+    benchmarks: v.benchmarks ?? DEFAULT_VISIBILITY.benchmarks,
   };
 }
 
 // Fields on `saas` that only exist publicly when the matching visibility key is on.
-const GATED: Record<Exclude<VisibilityKey, "totalUsers" | "growth">, (keyof Doc<"saas">)[]> = {
+const GATED: Record<Exclude<VisibilityKey, "totalUsers" | "growth" | "benchmarks">, (keyof Doc<"saas">)[]> = {
   activationRate: ["activatedUsers", "activated24h", "activated7d", "activated30d", "activationRatePct"],
   conversionRate: ["signupToConvertedPct", "activatedToConvertedPct", "convertedGrowth30dPct"],
   trialConversion: ["trialUsers", "newTrials7d", "newTrials30d", "trialToConvertedPct"],

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
-import { Flame, Rocket, ShieldCheck, Trophy, Zap } from "lucide-react";
+import { Award, Flame, Rocket, ShieldCheck, Sprout, Trophy, TrendingUp, Zap } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { Panel } from "@/components/blueprint/panel";
 import { SaasLogo } from "@/components/public/saas-card";
@@ -9,7 +9,7 @@ import { timeAgo } from "@/lib/format";
 
 export type FeedItem = FunctionReturnType<typeof api.public.feed>[number];
 
-const KIND_ICON: Record<Exclude<FeedItem["kind"], "milestone">, typeof Flame> = { spike: Flame, activation_spike: Zap, launched: Rocket, verified: ShieldCheck };
+const KIND_ICON: Record<Exclude<FeedItem["kind"], "milestone">, typeof Flame> = { spike: Flame, activation_spike: Zap, launched: Rocket, verified: ShieldCheck, rank_jump: TrendingUp, traction: Sprout, benchmark: Award };
 
 // Server-safe activity list: one compact row per milestone/spike/launch/verification.
 export function DiscoveryFeed({ items }: { items: FeedItem[] }) {

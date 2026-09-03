@@ -16,4 +16,7 @@ crons.cron("monthly growth report", "0 5 1 * *", internal.email.reports.generate
 // Opt-in auto-posting of share-ready events (founder-connected X accounts and the UserTrack account). No-op unless enabled.
 crons.interval("social auto-post", { hours: 1 }, internal.social.autoPost, {});
 
+// Webhook deliveries whose scheduled retry was lost (deploy / crash) are re-queued; normally a no-op.
+crons.interval("webhook retry sweep", { hours: 1 }, internal.webhooks.retrySweep, {});
+
 export default crons;

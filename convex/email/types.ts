@@ -25,6 +25,10 @@ export interface EmailPreferences {
   monthlyReport: boolean;
   weeklyDigest: boolean;
   followedSaasUpdates: boolean;
+  // Sub-preferences of followedSaasUpdates (which kinds of followed-product updates are mailed).
+  followedMilestones: boolean;
+  followedRanking: boolean;
+  followedSpikes: boolean;
 }
 
 export type PreferenceKey = keyof EmailPreferences;
@@ -37,6 +41,9 @@ export const DEFAULT_PREFERENCES: EmailPreferences = {
   monthlyReport: true,
   weeklyDigest: false,
   followedSaasUpdates: false,
+  followedMilestones: true,
+  followedRanking: true,
+  followedSpikes: true,
 };
 
 export const PREFERENCE_KEYS = Object.keys(DEFAULT_PREFERENCES) as PreferenceKey[];
@@ -76,3 +83,6 @@ export function allowedByRecipientStatus(type: EmailType, status: "active" | "bo
   if (!status || status === "active") return true;
   return type === "reset-password" || type === "verify-email";
 }
+
+// Which sub-preference gates a followed-product update of a given kind.
+export const FOLLOWED_KIND_PREF: Record<"milestone" | "rank" | "spike", PreferenceKey> = { milestone: "followedMilestones", rank: "followedRanking", spike: "followedSpikes" };

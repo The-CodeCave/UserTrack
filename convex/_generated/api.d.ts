@@ -13,6 +13,7 @@ import type * as cohorts from "../cohorts.js";
 import type * as crons from "../crons.js";
 import type * as daily from "../daily.js";
 import type * as digest from "../digest.js";
+import type * as domain_benchmarks from "../domain/benchmarks.js";
 import type * as domain_events from "../domain/events.js";
 import type * as domain_funnel from "../domain/funnel.js";
 import type * as domain_integrations from "../domain/integrations.js";
@@ -44,6 +45,7 @@ import type * as lib_benchmarks from "../lib/benchmarks.js";
 import type * as lib_domain from "../lib/domain.js";
 import type * as lib_emailRules from "../lib/emailRules.js";
 import type * as lib_founder from "../lib/founder.js";
+import type * as lib_history from "../lib/history.js";
 import type * as lib_identity from "../lib/identity.js";
 import type * as lib_integrationSetup from "../lib/integrationSetup.js";
 import type * as lib_metrics from "../lib/metrics.js";
@@ -57,6 +59,7 @@ import type * as lib_time from "../lib/time.js";
 import type * as lib_tokens from "../lib/tokens.js";
 import type * as lib_trending from "../lib/trending.js";
 import type * as lib_trust from "../lib/trust.js";
+import type * as lib_webhooks from "../lib/webhooks.js";
 import type * as lib_xApi from "../lib/xApi.js";
 import type * as migrations from "../migrations.js";
 import type * as native from "../native.js";
@@ -92,6 +95,7 @@ import type * as social from "../social.js";
 import type * as sync from "../sync.js";
 import type * as tokens from "../tokens.js";
 import type * as trust from "../trust.js";
+import type * as webhooks from "../webhooks.js";
 
 import type {
   ApiFromModules,
@@ -105,6 +109,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   daily: typeof daily;
   digest: typeof digest;
+  "domain/benchmarks": typeof domain_benchmarks;
   "domain/events": typeof domain_events;
   "domain/funnel": typeof domain_funnel;
   "domain/integrations": typeof domain_integrations;
@@ -136,6 +141,7 @@ declare const fullApi: ApiFromModules<{
   "lib/domain": typeof lib_domain;
   "lib/emailRules": typeof lib_emailRules;
   "lib/founder": typeof lib_founder;
+  "lib/history": typeof lib_history;
   "lib/identity": typeof lib_identity;
   "lib/integrationSetup": typeof lib_integrationSetup;
   "lib/metrics": typeof lib_metrics;
@@ -149,6 +155,7 @@ declare const fullApi: ApiFromModules<{
   "lib/tokens": typeof lib_tokens;
   "lib/trending": typeof lib_trending;
   "lib/trust": typeof lib_trust;
+  "lib/webhooks": typeof lib_webhooks;
   "lib/xApi": typeof lib_xApi;
   migrations: typeof migrations;
   native: typeof native;
@@ -184,6 +191,7 @@ declare const fullApi: ApiFromModules<{
   sync: typeof sync;
   tokens: typeof tokens;
   trust: typeof trust;
+  webhooks: typeof webhooks;
 }>;
 
 /**

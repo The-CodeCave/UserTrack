@@ -16,7 +16,8 @@ import { addMilestones, openFlags, refreshTrust } from "./trust";
 import { onSourceFailure, onSourceSuccess } from "./email/lifecycle";
 import { onSpikeCheck, onUsersSnapshot } from "./email/growth";
 import { recordSpikeShare } from "./share";
-import { addOnceEvent } from "./domain/events";
+import { addEvent, addOnceEvent } from "./domain/events";
+import { dispatchEvent } from "./webhooks";
 import { conversionMode, integrationRole, lifecycleStage, providerKind, trustLevel } from "./schema";
 
 const STAGGER_WINDOW_MS = 10 * 60_000;
@@ -88,14 +89,7 @@ export const runOne = internalAction({
       });
       if (identities?.length) await recordIdentityBatches(ctx, integrationId, String(integration.saasId), identities);
       if (hasHistory(integration.provider, integration.config) && (!integration.backfilledAt || role === "traffic")) {
-        const days = integration.backfilledAt ? 7 : BACKFILL_DAYS;
-        try {
-          const history = await fetchHistory(ctx, integration.provider, integration.config, role, days);
-          if (history && history.points.length) await ctx.runMutation(internal.sync.recordHistory, { integrationId, role, history });
-        } catch (e) {
-          console.warn(`history backfill failed for ${integrationId}: ${(e as Error).message}`);
-        }
-        if (!integration.backfilledAt) await ctx.runMutation(internal.sync.markBackfilled, { integrationId });
+        await runBackfill(ctx, integration, role, integration.backfilledAt ? 7 : BACKFILL_DAYS, integration.backfilledAt ? "rolling" : "first_sync");
       }
     } catch (e) {
       const err = e as Error;
@@ -103,6 +97,57 @@ export const runOne = internalAction({
       await ctx.runMutation(internal.sync.recordFailure, { integrationId, startedAt, attempt, error: err.message.slice(0, 300) });
       if (retryable && attempt < MAX_ATTEMPTS) await ctx.scheduler.runAfter(attempt * 10 * 60_000, internal.sync.runOne, { integrationId, attempt: attempt + 1 });
     }
+  },
+});
+
+// One history import with provenance (backfills row). Idempotent: recordHistory never duplicates a day, and `backfilledAt`
+// is only stamped after a successful import so a transient provider error keeps the backfill pending for the next sync.
+export type BackfillResult = { ok: true; points: number; ms: number } | { ok: false; error: string };
+
+export async function runBackfill(ctx: ActionCtx, integration: Doc<"integrations">, role: Role, days: number, trigger: "first_sync" | "rolling" | "manual"): Promise<BackfillResult> {
+  const now = Date.now();
+  const backfillId = await ctx.runMutation(internal.sync.startBackfill, { integrationId: integration._id, role, days, trigger });
+  try {
+    const history = await fetchHistory(ctx, integration.provider, integration.config, role, days);
+    const points = history?.points.length ?? 0;
+    if (history && points) await ctx.runMutation(internal.sync.recordHistory, { integrationId: integration._id, role, history, backfillId });
+    else await ctx.runMutation(internal.sync.finishBackfill, { backfillId, status: "empty", pointsWritten: 0 });
+    if (trigger !== "rolling") await ctx.runMutation(internal.sync.markBackfilled, { integrationId: integration._id });
+    return { ok: true, points, ms: Date.now() - now };
+  } catch (e) {
+    const message = (e as Error).message.slice(0, 300);
+    console.warn(`history backfill failed for ${integration._id}: ${message}`);
+    await ctx.runMutation(internal.sync.finishBackfill, { backfillId, status: "error", error: message });
+    return { ok: false, error: message };
+  }
+}
+
+// Owner-triggered re-import (dashboard "Backfill history" + MCP). Bounded to 90 days; providers without history return empty.
+export const backfill = internalAction({
+  args: { integrationId: v.id("integrations"), days: v.optional(v.number()) },
+  handler: async (ctx, { integrationId, days }): Promise<BackfillResult> => {
+    const data: { integration: Doc<"integrations">; websiteUrl: string } | null = await ctx.runQuery(internal.integrations.getForSync, { integrationId });
+    if (!data) return { ok: false, error: "integration not found" };
+    const { integration } = data;
+    if (!hasHistory(integration.provider, integration.config)) return { ok: false, error: "this source cannot read history" };
+    return runBackfill(ctx, integration, normalizeRole(integration.role), Math.min(90, Math.max(1, days ?? BACKFILL_DAYS)), "manual");
+  },
+});
+
+export const startBackfill = internalMutation({
+  args: { integrationId: v.id("integrations"), role: integrationRole, days: v.number(), trigger: v.union(v.literal("first_sync"), v.literal("rolling"), v.literal("manual")) },
+  handler: async (ctx, { integrationId, role, days, trigger }) => {
+    const integration = await ctx.db.get(integrationId);
+    if (!integration) throw new Error("integration not found");
+    const now = Date.now();
+    return ctx.db.insert("backfills", { saasId: integration.saasId, integrationId, provider: integration.provider, role: normalizeRole(role), fromDay: dayKey(now - days * DAY), toDay: dayKey(now - DAY), status: "running", trigger, startedAt: now });
+  },
+});
+
+export const finishBackfill = internalMutation({
+  args: { backfillId: v.id("backfills"), status: v.union(v.literal("ok"), v.literal("error"), v.literal("empty")), pointsWritten: v.optional(v.number()), error: v.optional(v.string()) },
+  handler: async (ctx, { backfillId, status, pointsWritten, error }) => {
+    await ctx.db.patch(backfillId, { status, pointsWritten, error, finishedAt: Date.now() });
   },
 });
 
@@ -228,6 +273,7 @@ export const recordSuccess = internalMutation({
       if (trust === "verified" && saas.verifiedAt === undefined && !saas.isDemo) {
         await ctx.db.patch(saasId, { verifiedAt: now });
         await addOnceEvent(ctx, saasId, "verified", now, "Verified on UserTrack", `${saas.name} now syncs verified user counts read-only from ${providerLabel(integration.provider, integration.config)}.`);
+        await dispatchEvent(ctx, { type: "project.verified", key: "verified", saas: { ...saas, totalUsers, verifiedAt: now }, at: now, data: { verification: { level: "verified", provider: integration.provider, verifiedAt: new Date(now).toISOString() } } });
       }
 
       // Milestones, spikes and anomaly checks only for real (non-demo) products.
@@ -238,7 +284,10 @@ export const recordSuccess = internalMutation({
         const spike = detectSpike(history.reverse().map((r) => r.newUsers), newToday);
         if (spike) {
           const eventId = await addEvent(ctx, saasId, "spike", day, now, `${spike.multiple}× a normal day`, `Gained ${newToday} users today vs a ${spike.average}/day average.`, newToday, spike.multiple);
-          if (eventId) await recordSpikeShare(ctx, saas, eventId, day, spike.multiple, newToday);
+          if (eventId) {
+            await recordSpikeShare(ctx, saas, eventId, day, spike.multiple, newToday);
+            await dispatchEvent(ctx, { type: "growth.spike", key: day, saas: { ...saas, totalUsers }, at: now, data: { spike: { day, newUsers: newToday, average: spike.average, multiple: spike.multiple, metric: "newUsers" } } });
+          }
         }
         const reconnects = await ctx.db.query("events").withIndex("by_saas_time", (q) => q.eq("saasId", saasId).gte("at", now - 7 * DAY)).collect();
         const flags = checkSnapshot({
@@ -352,8 +401,8 @@ export const markBackfilled = internalMutation({
 
 // One-time (users/activation) or rolling (traffic) history import. Never overwrites days that already have live data.
 export const recordHistory = internalMutation({
-  args: { integrationId: v.id("integrations"), role: integrationRole, history: historyValidator },
-  handler: async (ctx, { integrationId, role: rawRole, history }) => {
+  args: { integrationId: v.id("integrations"), role: integrationRole, history: historyValidator, backfillId: v.optional(v.id("backfills")) },
+  handler: async (ctx, { integrationId, role: rawRole, history, backfillId }) => {
     const role = normalizeRole(rawRole);
     const integration = await ctx.db.get(integrationId);
     if (!integration) return;
@@ -361,9 +410,11 @@ export const recordHistory = internalMutation({
     if (!saas) return;
     const { saasId } = integration;
     const points = [...history.points].sort((a, b) => a.day.localeCompare(b.day));
+    let written = 0;
+    const done = async () => { if (backfillId) await ctx.db.patch(backfillId, { status: "ok", pointsWritten: written, finishedAt: Date.now() }); };
     if (history.metric === "visitors") {
-      for (const p of points) await upsertDaily(ctx, saasId, p.day, { visitors: p.value });
-      return;
+      for (const p of points) { await upsertDaily(ctx, saasId, p.day, { visitors: p.value }); written++; }
+      return done();
     }
     if (history.metric === "convertedUsers" || history.metric === "trialUsers") {
       let prev: number | null = null;
@@ -371,18 +422,20 @@ export const recordHistory = internalMutation({
         const delta = prev === null ? 0 : Math.max(0, p.value - prev);
         await upsertDaily(ctx, saasId, p.day, history.metric === "convertedUsers" ? { convertedUsers: p.value, newConverted: delta } : { trialUsers: p.value, newTrials: delta });
         prev = p.value;
+        written++;
       }
-      return;
+      return done();
     }
     if (history.metric === "activatedUsers" && role === "activation") {
       let prev: number | null = null;
       for (const p of points) {
         await upsertDaily(ctx, saasId, p.day, { activatedUsers: p.value, newActivated: prev === null ? 0 : p.value - prev });
         prev = p.value;
+        written++;
       }
-      return;
+      return done();
     }
-    if (role !== "users") return;
+    if (role !== "users") return done();
     const firstLive = await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", saasId)).order("asc").first();
     const liveDay = firstLive ? dayKey(firstLive.capturedAt) : "9999-99-99";
     let totals: { day: string; value: number }[];
@@ -403,22 +456,24 @@ export const recordHistory = internalMutation({
     for (const t of totals) {
       if (t.day >= liveDay) { prev = t.value; continue; }
       const at = dayStart(Date.parse(`${t.day}T00:00:00Z`)) + DAY - 1;
-      await ctx.db.insert("snapshots", { saasId, totalUsers: t.value, capturedAt: at, source: integration.provider, trust: integration.trust, backfilled: true });
-      await upsertDaily(ctx, saasId, t.day, { totalUsers: t.value, newUsers: prev === null ? 0 : t.value - prev });
+      // Idempotent: a day that already has a backfilled snapshot is left untouched (history is never rewritten).
+      const dup = await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", saasId).eq("capturedAt", at)).first();
+      if (!dup) {
+        await ctx.db.insert("snapshots", { saasId, totalUsers: t.value, capturedAt: at, source: integration.provider, trust: integration.trust, backfilled: true });
+        await upsertDaily(ctx, saasId, t.day, { totalUsers: t.value, newUsers: prev === null ? 0 : t.value - prev });
+        written++;
+      }
       prev = t.value;
     }
     // Live day's newUsers now has a real baseline.
     const liveRow = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", saasId).eq("day", liveDay)).unique();
-    if (liveRow && prev !== null) await ctx.db.patch(liveRow._id, { newUsers: liveRow.totalUsers - prev });
-    await recomputeDerived(ctx, saasId);
+    if (liveRow && prev !== null && written > 0) await ctx.db.patch(liveRow._id, { newUsers: liveRow.totalUsers - prev });
+    if (written > 0) await recomputeDerived(ctx, saasId);
+    await done();
   },
 });
 
-export async function addEvent(ctx: MutationCtx, saasId: Id<"saas">, kind: Doc<"events">["kind"], day: string, at: number, title: string, detail: string, value?: number, multiple?: number) {
-  const existing = await ctx.db.query("events").withIndex("by_saas_kind_day", (q) => q.eq("saasId", saasId).eq("kind", kind).eq("day", day)).first();
-  if (existing) return null;
-  return ctx.db.insert("events", { saasId, kind, day, at, title, detail, value, multiple });
-}
+export { addEvent };
 
 export type { History };
 export { providerKind };

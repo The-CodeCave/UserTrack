@@ -7,6 +7,7 @@ import { enqueue } from "./send";
 import { providerLabel } from "../providers";
 import { DAY } from "../lib/time";
 import { evaluateNoGrowth, isUnhealthy, NO_GROWTH } from "../lib/emailRules";
+import { dispatchEvent } from "../webhooks";
 
 export const REMINDER_DELAY_MS = 24 * 60 * 60_000;
 
@@ -54,6 +55,7 @@ export async function onSourceSuccess(ctx: MutationCtx, integration: Doc<"integr
     const since = integration.unhealthySince ?? Date.now();
     await ctx.db.patch(integration._id, { healthState: "healthy", unhealthySince: undefined });
     await enqueue(ctx, { userId: owner.userId, type: "source-recovered", dedupeKey: `source-recovered:${integration._id}:${since}`, saasId: saas._id, data: { saasName: saas.name, saasId: saas._id, provider, totalUsers, downForMs: Date.now() - since } });
+    await dispatchEvent(ctx, { type: "integration.recovered", key: `${integration._id}:${since}`, saas, data: { integration: { id: integration._id, role: integration.role ?? "users", provider: integration.provider, label: provider, unhealthySince: new Date(since).toISOString(), downForMs: Date.now() - since } } });
   } else if (!integration.healthState) await ctx.db.patch(integration._id, { healthState: "healthy" });
   // Manual numbers are typed in, not synced — no "connected" confirmation for them.
   if (firstEver && integration.provider !== "manual") {
@@ -72,6 +74,7 @@ export async function onSourceFailure(ctx: MutationCtx, integration: Doc<"integr
   if (!owner) return;
   await ctx.db.patch(integration._id, { healthState: "unhealthy", unhealthySince: now });
   await enqueue(ctx, { userId: owner.userId, type: "source-failed", dedupeKey: `source-failed:${integration._id}:${now}`, saasId: saas._id, data: { saasName: saas.name, saasId: saas._id, provider: providerLabel(integration.provider, integration.config), error, lastSuccessAt: integration.lastSuccessAt, failures } });
+  await dispatchEvent(ctx, { type: "integration.failed", key: `${integration._id}:${now}`, saas, at: now, data: { integration: { id: integration._id, role: integration.role ?? "users", provider: integration.provider, label: providerLabel(integration.provider, integration.config), error, consecutiveFailures: failures, lastSuccessAt: integration.lastSuccessAt ? new Date(integration.lastSuccessAt).toISOString() : undefined } } });
 }
 
 // Daily: products with traction that went quiet for a week while the source stayed healthy.

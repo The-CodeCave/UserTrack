@@ -4,6 +4,8 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { enqueue } from "./send";
 import { crossedThresholds, enteredRankThresholds, evaluateSpike, FOLLOWER_RANK_THRESHOLD_MAX, FOLLOWER_USER_THRESHOLD_MIN, SPIKE } from "../lib/emailRules";
+import { getPreferences } from "./prefs";
+import { FOLLOWED_KIND_PREF } from "./types";
 
 const fmt = (n: number) => new Intl.NumberFormat("en").format(n);
 
@@ -98,6 +100,9 @@ export const notifyFollowers = internalMutation({
       if (profileId === saas.ownerId) continue;
       const p = await ctx.db.get(profileId);
       if (!p) continue;
+      // The master switch is checked by enqueue; the per-kind sub-preference here.
+      const prefs = await getPreferences(ctx, p.userId);
+      if (!prefs[FOLLOWED_KIND_PREF[kind]]) continue;
       await enqueue(ctx, { userId: p.userId, type: "followed-update", dedupeKey: `followed-update:${saasId}:${key}:${p.userId}`, saasId, data: { saasName: saas.name, slug: saas.slug, kind, headline, detail } });
     }
   },

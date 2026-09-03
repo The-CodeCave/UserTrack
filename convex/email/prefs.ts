@@ -14,6 +14,9 @@ const partialFields = {
   monthlyReport: v.optional(v.boolean()),
   weeklyDigest: v.optional(v.boolean()),
   followedSaasUpdates: v.optional(v.boolean()),
+  followedMilestones: v.optional(v.boolean()),
+  followedRanking: v.optional(v.boolean()),
+  followedSpikes: v.optional(v.boolean()),
 };
 
 export function tokenSecret() {
@@ -26,7 +29,8 @@ export async function getPreferences(ctx: QueryCtx | MutationCtx, userId: string
   const row = await ctx.db.query("emailPreferences").withIndex("by_userId", (q) => q.eq("userId", userId)).unique();
   if (!row) return { ...DEFAULT_PREFERENCES };
   const out: EmailPreferences & { timezone?: string } = { ...DEFAULT_PREFERENCES, timezone: row.timezone };
-  for (const k of PREFERENCE_KEYS) out[k] = row[k];
+  // Keys added after a row was written are missing on old rows: fall back to the default.
+  for (const k of PREFERENCE_KEYS) out[k] = row[k] ?? DEFAULT_PREFERENCES[k];
   return out;
 }
 

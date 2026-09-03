@@ -37,10 +37,24 @@ export const visibility = v.object({
   trialConversion: v.optional(v.boolean()),
   convertedCount: v.optional(v.boolean()),
   traffic: v.optional(v.boolean()),
+  // Public benchmark statement ("Top 12% activation in AI") on the public page + API. Default on (domain/visibility.ts).
+  benchmarks: v.optional(v.boolean()),
 });
 export const syncStatus = v.union(v.literal("ok"), v.literal("error"), v.literal("running"));
 export const trustState = v.union(v.literal("healthy"), v.literal("anomaly"), v.literal("review"), v.literal("low_confidence"));
 export const tokenType = v.union(v.literal("api"), v.literal("mcp"));
+// Outbound webhook contract (docs/WEBHOOKS.md). Adding a literal here is a new event type for every endpoint owner.
+export const webhookEventType = v.union(
+  v.literal("milestone.reached"),
+  v.literal("rank.changed"),
+  v.literal("trending.rank_changed"),
+  v.literal("growth.spike"),
+  v.literal("integration.failed"),
+  v.literal("integration.recovered"),
+  v.literal("project.verified"),
+  v.literal("webhook.test"),
+);
+export const webhookDeliveryStatus = v.union(v.literal("pending"), v.literal("success"), v.literal("failed"), v.literal("exhausted"));
 export const emailStatus = v.union(
   v.literal("queued"),
   v.literal("sent"),
@@ -118,6 +132,14 @@ export default defineSchema({
     rank: v.optional(v.number()),
     prevRank: v.optional(v.number()),
     bestRank: v.optional(v.number()),
+    // Materialized from rankHistory on every rerank: position 7 days ago and the delta (positive = climbed). Drives Biggest Movers.
+    rank7dAgo: v.optional(v.number()),
+    rankDelta7d: v.optional(v.number()),
+    trendingRank7dAgo: v.optional(v.number()),
+    trendingRankDelta7d: v.optional(v.number()),
+    bestTrendingRank: v.optional(v.number()),
+    // Optional founding date (month precision) entered by the founder; benchmark age cohorts use it, else tracking age.
+    foundedAt: v.optional(v.number()),
     lastSyncedAt: v.optional(v.number()),
     firstSnapshotAt: v.optional(v.number()),
     // Activation (optional source)
@@ -357,7 +379,19 @@ export default defineSchema({
   // Growth events used as chart annotations and feed items.
   events: defineTable({
     saasId: v.id("saas"),
-    kind: v.union(v.literal("spike"), v.literal("activation_spike"), v.literal("traffic_spike"), v.literal("reconnect"), v.literal("source_changed"), v.literal("launched"), v.literal("verified")),
+    kind: v.union(
+      v.literal("spike"),
+      v.literal("activation_spike"),
+      v.literal("traffic_spike"),
+      v.literal("reconnect"),
+      v.literal("source_changed"),
+      v.literal("launched"),
+      v.literal("verified"),
+      // Discovery-feed kinds (v0.9): a large 7-day leaderboard climb, first meaningful traction of a young product, a top-quarter benchmark month.
+      v.literal("rank_jump"),
+      v.literal("traction"),
+      v.literal("benchmark"),
+    ),
     day: v.string(),
     at: v.number(),
     title: v.string(),
@@ -495,6 +529,103 @@ export default defineSchema({
     .index("by_saas", ["saasId"])
     .index("by_saas_open", ["saasId", "resolvedAt"]),
 
+  // Append-only ranking history: one row per (project, board, window, UTC day) holding the last position of that day.
+  // Written by leaderboard.rerank; never rewritten for past days. Powers Biggest Movers, rank charts and "highest rank ever".
+  rankHistory: defineTable({
+    saasId: v.id("saas"),
+    kind: v.union(v.literal("leaderboard"), v.literal("trending")),
+    window: v.union(v.literal("24h"), v.literal("7d"), v.literal("30d")),
+    day: v.string(),
+    rank: v.number(),
+    score: v.optional(v.number()),
+    at: v.number(),
+  })
+    .index("by_saas_kind_window_day", ["saasId", "kind", "window", "day"])
+    .index("by_kind_window_day", ["kind", "window", "day"]),
+
+  // Weekly benchmark standings per project (one row per ISO week, patched within the week): percentile per cohort × metric.
+  // Enables "Top 12% now, up from Top 27% last month". Never stores other members' values.
+  benchmarkHistory: defineTable({
+    saasId: v.id("saas"),
+    week: v.string(),
+    day: v.string(),
+    standings: v.array(v.object({ groupKey: v.string(), metric: v.string(), value: v.number(), percentile: v.number(), median: v.number(), sampleSize: v.number() })),
+    computedAt: v.number(),
+  }).index("by_saas_week", ["saasId", "week"]),
+
+  // Materialized monthly rankings for /rankings/<year>/<month>/<category> and the datasets API. One row per (period, board, category).
+  rankingSnapshots: defineTable({
+    period: v.string(),
+    board: v.string(),
+    category: v.optional(v.string()),
+    rows: v.array(v.object({ slug: v.string(), name: v.string(), logoUrl: v.optional(v.string()), category: v.optional(v.string()), rank: v.number(), value: v.number(), totalUsers: v.number(), newUsers30d: v.number(), growth30dPct: v.number(), trust: trustLevel })),
+    sampleSize: v.number(),
+    computedAt: v.number(),
+  })
+    .index("by_period_board_category", ["period", "board", "category"])
+    .index("by_period", ["period"]),
+
+  // Provenance of every history import (one row per attempt). Idempotent: re-running never duplicates snapshots.
+  backfills: defineTable({
+    saasId: v.id("saas"),
+    integrationId: v.id("integrations"),
+    provider: providerKind,
+    role: integrationRole,
+    fromDay: v.string(),
+    toDay: v.string(),
+    status: v.union(v.literal("running"), v.literal("ok"), v.literal("error"), v.literal("empty")),
+    pointsWritten: v.optional(v.number()),
+    error: v.optional(v.string()),
+    trigger: v.union(v.literal("first_sync"), v.literal("rolling"), v.literal("manual")),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  })
+    .index("by_saas_time", ["saasId", "startedAt"])
+    .index("by_integration_time", ["integrationId", "startedAt"]),
+
+  // Outbound webhook endpoints. `secret` is only ever read by the delivery action and returned once on create / rotate.
+  webhookEndpoints: defineTable({
+    profileId: v.id("profiles"),
+    url: v.string(),
+    description: v.optional(v.string()),
+    events: v.array(webhookEventType),
+    saasId: v.optional(v.id("saas")),
+    secret: v.string(),
+    secretPrefix: v.string(),
+    status: v.union(v.literal("active"), v.literal("disabled")),
+    disabledReason: v.optional(v.string()),
+    consecutiveFailures: v.number(),
+    lastDeliveryAt: v.optional(v.number()),
+    lastStatus: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_profile", ["profileId"]),
+
+  // One row per (event, endpoint): the delivery ledger and retry queue. Response bodies are never stored.
+  webhookDeliveries: defineTable({
+    endpointId: v.id("webhookEndpoints"),
+    profileId: v.id("profiles"),
+    saasId: v.optional(v.id("saas")),
+    eventId: v.string(),
+    deliveryId: v.string(),
+    type: webhookEventType,
+    payload: v.any(),
+    attempt: v.number(),
+    status: webhookDeliveryStatus,
+    httpStatus: v.optional(v.number()),
+    latencyMs: v.optional(v.number()),
+    error: v.optional(v.string()),
+    nextAttemptAt: v.optional(v.number()),
+    createdAt: v.number(),
+    lastAttemptAt: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
+  })
+    .index("by_endpoint_time", ["endpointId", "createdAt"])
+    .index("by_endpoint_event", ["endpointId", "eventId"])
+    .index("by_profile_time", ["profileId", "createdAt"])
+    .index("by_status_next", ["status", "nextAttemptAt"]),
+
   // Deciles per (group, metric), recomputed daily. Individual values are never stored.
   benchmarkAggregates: defineTable({
     groupKey: v.string(),
@@ -563,6 +694,10 @@ export default defineSchema({
     monthlyReport: v.boolean(),
     weeklyDigest: v.boolean(),
     followedSaasUpdates: v.boolean(),
+    // Sub-preferences of followedSaasUpdates; missing = on (rows written before v0.9).
+    followedMilestones: v.optional(v.boolean()),
+    followedRanking: v.optional(v.boolean()),
+    followedSpikes: v.optional(v.boolean()),
     timezone: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_userId", ["userId"]),

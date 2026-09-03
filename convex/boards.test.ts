@@ -49,10 +49,10 @@ describe("conversion boards", () => {
   it("daily benchmarks aggregate the conversion metrics and skip undefined values", async () => {
     const tx = t();
     const owner = await seedOwner(tx);
-    for (let i = 0; i < 5; i++) await seedSaas(tx, owner, { slug: `s${i}`, signupToConvertedPct: 2 + i });
+    for (let i = 0; i < 10; i++) await seedSaas(tx, owner, { slug: `s${i}`, signupToConvertedPct: 2 + i });
     await tx.mutation(internal.daily.benchmarks, {});
     const agg = (metric: string) => tx.run((ctx) => ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", "all").eq("metric", metric)).unique());
-    expect(await agg("signupToConvertedPct")).toMatchObject({ sampleSize: 5, deciles: expect.arrayContaining([4]) });
+    expect(await agg("signupToConvertedPct")).toMatchObject({ sampleSize: 10, deciles: expect.arrayContaining([6.5]) });
     expect(await agg("trialToConvertedPct")).toBeNull();
   });
 });

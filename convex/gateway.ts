@@ -31,7 +31,8 @@ import { shareStatus } from "./schema";
 import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, STAGE_ORDER, funnelFor, funnelHistoryFor, funnelSources } from "./domain/funnel";
 import { cohortView } from "./cohorts";
 import { projectType as projectTypeArg } from "./schema";
-import { BENCHMARK_METRICS, BENCHMARK_METRIC_LABEL, MIN_SAMPLE, benchmarkInsight, medianMultiple, percentileOf } from "./lib/benchmarks";
+import { MIN_SAMPLE } from "./lib/benchmarks";
+import { benchmarkCards, benchmarkHistoryFor, isBenchmarkEligible } from "./domain/benchmarks";
 import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { explainTrending, trendingFactors } from "./lib/trending";
 import { trendingInputs } from "./leaderboard";
@@ -647,25 +648,8 @@ export const benchmark = query({
     run(async () => {
       const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
       const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
-      const bucket = SIZE_BUCKETS.find((b) => b.key === sizeBucket(saas.totalUsers));
-      const cohorts = [
-        { key: "all", label: "all SaaS on UserTrack" },
-        ...(saas.category ? [{ key: `cat:${saas.category}`, label: `${CATEGORIES.find((c) => c.slug === saas.category)?.label ?? saas.category} SaaS` }] : []),
-        { key: `size:${sizeBucket(saas.totalUsers)}`, label: `products with ${bucket?.label ?? "similar"} users` },
-      ];
-      const cards = [];
-      for (const c of cohorts) {
-        for (const metric of BENCHMARK_METRICS) {
-          const value = saas[metric];
-          if (value === undefined) continue;
-          const agg = await ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", c.key).eq("metric", metric)).unique();
-          if (!agg) continue;
-          const percentile = percentileOf(value, agg.deciles);
-          if (percentile === null) continue;
-          cards.push({ cohort: c.label, metric, metricLabel: BENCHMARK_METRIC_LABEL[metric], value, percentile, median: agg.deciles[4], p10: agg.deciles[0], p90: agg.deciles[8], medianMultiple: medianMultiple(value, agg.deciles[4]), sampleSize: agg.sampleSize, insight: benchmarkInsight({ metricLabel: BENCHMARK_METRIC_LABEL[metric], groupLabel: c.label, percentile, value, median: agg.deciles[4] }) });
-        }
-      }
-      const eligible = saas.isPublic && saas.trust === "verified" && !saas.isDemo;
+      const cards = (await benchmarkCards(ctx, saas)).map((c) => ({ cohort: c.groupLabel, cohortKey: c.group, cohortDefinition: c.cohortDefinition, dimension: c.dimension, metric: c.metric, metricLabel: c.metricLabel, value: c.value, percentile: c.percentile, previousPercentile: c.previousPercentile, band: c.band, median: c.median, p10: c.p10, p90: c.p90, medianMultiple: c.medianMultiple, sampleSize: c.sampleSize, insight: c.insight, changeInsight: c.changeInsight }));
+      const eligible = isBenchmarkEligible(saas);
       return { project: { id: saas._id, slug: saas.slug, name: saas.name }, eligible, minCohortSize: MIN_SAMPLE, cards, note: !eligible ? "Benchmarks compare public, verified products; publish with a verified source first." : cards.length === 0 ? "Not enough benchmark data yet — cohorts need at least " + MIN_SAMPLE + " verified products and refresh daily." : undefined, hiddenGemRules: HIDDEN_GEM_RULES };
     }),
 });

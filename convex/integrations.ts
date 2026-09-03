@@ -1,6 +1,6 @@
 import type { Id } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
-import { action, internalMutation, internalQuery, mutation } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireOwnedSaas } from "./saas";
 import { connectIntegration, requestSync } from "./domain/integrations";
@@ -27,6 +27,30 @@ export const syncNow = mutation({
   handler: async (ctx, { saasId, role }) => {
     await requireOwnedSaas(ctx, saasId);
     await requestSync(ctx, saasId, role ? normalizeRole(role) : undefined);
+  },
+});
+
+// Owner-triggered history import (docs/HISTORY.md). Runs the same idempotent path as the first sync; bounded to 90 days.
+export const backfill = mutation({
+  args: { saasId: v.id("saas"), role: v.optional(integrationRole), days: v.optional(v.number()) },
+  handler: async (ctx, { saasId, role, days }) => {
+    await requireOwnedSaas(ctx, saasId);
+    const wanted = role ? normalizeRole(role) : "users";
+    const all = await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", saasId)).collect();
+    const integration = all.find((i) => normalizeRole(i.role) === wanted);
+    if (!integration) throw new Error("No source connected for that role");
+    const running = await ctx.db.query("backfills").withIndex("by_integration_time", (q) => q.eq("integrationId", integration._id)).order("desc").first();
+    if (running && running.status === "running" && Date.now() - running.startedAt < 10 * 60_000) throw new Error("A backfill is already running");
+    await ctx.scheduler.runAfter(0, internal.sync.backfill, { integrationId: integration._id, days: Math.min(90, Math.max(1, days ?? 30)) });
+  },
+});
+
+export const backfills = query({
+  args: { saasId: v.id("saas") },
+  handler: async (ctx, { saasId }) => {
+    await requireOwnedSaas(ctx, saasId);
+    const rows = await ctx.db.query("backfills").withIndex("by_saas_time", (q) => q.eq("saasId", saasId)).order("desc").take(10);
+    return rows.map((r) => ({ id: r._id, provider: r.provider, role: normalizeRole(r.role), fromDay: r.fromDay, toDay: r.toDay, status: r.status, pointsWritten: r.pointsWritten, error: r.error, trigger: r.trigger, startedAt: r.startedAt, finishedAt: r.finishedAt }));
   },
 });
 

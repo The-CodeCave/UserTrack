@@ -1,9 +1,9 @@
 import { v } from "convex/values";
 import { query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { RANGE_MS, RANGES, DAY, dayKey } from "./lib/time";
+import { RANGE_MS, RANGES, DAY, dayKey, type Range } from "./lib/time";
 import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
-import { BENCHMARK_METRIC_LABEL, isConversionBenchmark, percentileOf, publicBenchmarkStatement, type BenchmarkMetric } from "./lib/benchmarks";
+import { benchmarkHistoryFor, publicBenchmarkHighlight, type BenchmarkHighlight } from "./domain/benchmarks";
 import { seriesFor } from "./domain/metrics";
 import { FUNNEL_TIMEFRAMES, funnelFor, funnelHistoryFor, funnelOptionsFor } from "./domain/funnel";
 import { stripPrivate, visibilityOf } from "./domain/visibility";
@@ -13,14 +13,20 @@ import { trendingInputs } from "./leaderboard";
 import { providerLabel } from "./providers";
 import { CATEGORIES } from "../src/lib/categories";
 import { aggregateHistory, founderAggregates } from "./lib/founder";
+import { downsample, findGaps, rankMovement, resolutionFor, type HistoryPoint } from "./lib/history";
 
 const rangeArg = v.union(...RANGES.map((r) => v.literal(r)));
 // Secondary conversion boards only list products whose owner published the rate (visibility), never merely connected a source.
-export const BOARDS = ["trending", "fastest", "most-users", "most-new", "most-activated", "activation-rate", "new-rising", "best-conversion", "best-trial-conversion", "converted-growth"] as const;
+export const BOARDS = ["trending", "fastest", "most-users", "most-new", "most-activated", "activation-rate", "new-rising", "hidden-gems", "movers", "best-conversion", "best-trial-conversion", "converted-growth"] as const;
 export type Board = (typeof BOARDS)[number];
 const boardArg = v.union(...BOARDS.map((b) => v.literal(b)));
 const windowArg = v.union(v.literal("24h"), v.literal("7d"), v.literal("30d"));
 const sizeArg = v.union(...SIZE_BUCKETS.map((b) => v.literal(b.key)));
+export const PLATFORMS = ["web", "mobile", "hybrid"] as const;
+const platformArg = v.union(...PLATFORMS.map((p) => v.literal(p)));
+export const platformOf = (s: Pick<Doc<"saas">, "projectType">) => s.projectType ?? "web";
+// New & rising: listed within the last 30 days (first stored snapshot, backfills included), ranked by 7-day new users.
+export const NEW_RISING_RULES = { maxAgeDays: 30, minNew7d: 5 } as const;
 
 export function publicProfile(p: Doc<"profiles">) {
   const { _id, username, displayName, avatarUrl, bio, website, x, github, linkedin, location, followerCount, _creationTime } = p;
@@ -59,7 +65,14 @@ async function publicSet(ctx: QueryCtx, category?: string) {
 
 const isVerified = (s: Doc<"saas">) => s.trust === "verified" && s.trustState !== "review";
 
-export interface BoardFilters { board: Board; window: "24h" | "7d" | "30d"; verifiedOnly: boolean; category?: string; size?: string; limit: number }
+// Hidden gems: small products with unusually strong, trustworthy traction. The criteria are public so the list is explainable.
+export const HIDDEN_GEM_RULES = { maxUsers: 1000, minNew7d: 10, minGrowth7dPct: 10, minHistoryDays: 7, minTrustScore: 60 } as const;
+const isHiddenGem = (s: Doc<"saas">, now: number) =>
+  isVerified(s) && !s.isDemo && s.totalUsers < HIDDEN_GEM_RULES.maxUsers && s.newUsers7d >= HIDDEN_GEM_RULES.minNew7d && (s.growth7dPct ?? 0) >= HIDDEN_GEM_RULES.minGrowth7dPct &&
+  s.firstSnapshotAt !== undefined && now - s.firstSnapshotAt >= HIDDEN_GEM_RULES.minHistoryDays * DAY && (s.trustScore ?? 0) >= HIDDEN_GEM_RULES.minTrustScore;
+
+
+export interface BoardFilters { board: Board; window: "24h" | "7d" | "30d"; verifiedOnly: boolean; category?: string; size?: string; platform?: string; limit: number }
 
 // Sort + filter over the (small) public set. Ranks/trending are precomputed; everything else is a field sort.
 export function sortBoard(rows: Doc<"saas">[], f: BoardFilters) {
@@ -68,7 +81,8 @@ export function sortBoard(rows: Doc<"saas">[], f: BoardFilters) {
   const growthIn = (s: Doc<"saas">) => (w === "30d" ? s.growth30dPct : w === "7d" ? (s.growth7dPct ?? 0) : s.totalUsers - s.newUsers24h > 0 ? (s.newUsers24h / (s.totalUsers - s.newUsers24h)) * 100 : 0);
   const trendingIn = (s: Doc<"saas">) => (w === "24h" ? s.trendingScore24h : w === "7d" ? s.trendingScore7d : s.trendingScore30d) ?? 0;
   const activatedIn = (s: Doc<"saas">) => (w === "24h" ? s.activated24h : w === "7d" ? s.activated7d : s.activated30d);
-  let list = rows.filter((s) => (!f.verifiedOnly || isVerified(s)) && (!f.size || sizeBucket(s.totalUsers) === f.size) && (!f.category || s.category === f.category));
+  const now = Date.now();
+  let list = rows.filter((s) => (!f.verifiedOnly || isVerified(s)) && (!f.size || sizeBucket(s.totalUsers) === f.size) && (!f.category || s.category === f.category) && (!f.platform || platformOf(s) === f.platform));
   const by = (fn: (s: Doc<"saas">) => number) => list.sort((a, b) => fn(b) - fn(a) || b.newUsers30d - a.newUsers30d || b.totalUsers - a.totalUsers);
   switch (f.board) {
     case "trending":
@@ -94,8 +108,17 @@ export function sortBoard(rows: Doc<"saas">[], f: BoardFilters) {
       by((s) => s.activationRatePct ?? 0);
       break;
     case "new-rising":
-      list = list.filter((s) => s.firstSnapshotAt !== undefined && Date.now() - s.firstSnapshotAt <= 30 * DAY);
+      list = list.filter((s) => s.firstSnapshotAt !== undefined && now - s.firstSnapshotAt <= NEW_RISING_RULES.maxAgeDays * DAY && s.newUsers7d >= NEW_RISING_RULES.minNew7d);
       by((s) => s.newUsers7d);
+      break;
+    case "hidden-gems":
+      list = list.filter((s) => isHiddenGem(s, now));
+      by((s) => s.growth7dPct ?? 0);
+      break;
+    case "movers":
+      // Stored 7-day leaderboard movement (rankHistory, materialized by rerank): climbers first, biggest climb wins.
+      list = list.filter((s) => isVerified(s) && !s.isDemo && s.rank !== undefined && (s.rankDelta7d ?? 0) > 0);
+      list.sort((a, b) => (b.rankDelta7d ?? 0) - (a.rankDelta7d ?? 0) || (a.rank ?? 0) - (b.rank ?? 0));
       break;
     case "best-conversion":
       list = list.filter((s) => s.signupToConvertedPct !== undefined && s.totalUsers >= 50 && visibilityOf(s).conversionRate);
@@ -114,17 +137,26 @@ export function sortBoard(rows: Doc<"saas">[], f: BoardFilters) {
 }
 
 export const board = query({
-  args: { board: boardArg, window: v.optional(windowArg), verifiedOnly: v.optional(v.boolean()), category: v.optional(v.string()), size: v.optional(sizeArg), limit: v.optional(v.number()) },
+  args: { board: boardArg, window: v.optional(windowArg), verifiedOnly: v.optional(v.boolean()), category: v.optional(v.string()), size: v.optional(sizeArg), platform: v.optional(platformArg), limit: v.optional(v.number()) },
   handler: async (ctx, a) => {
-    const f: BoardFilters = { board: a.board, window: a.window ?? (a.board === "trending" ? "7d" : "30d"), verifiedOnly: a.verifiedOnly ?? true, category: a.category, size: a.size, limit: Math.min(a.limit ?? 50, 100) };
+    const f: BoardFilters = { board: a.board, window: a.window ?? (a.board === "trending" ? "7d" : "30d"), verifiedOnly: a.verifiedOnly ?? true, category: a.category, size: a.size, platform: a.platform, limit: Math.min(a.limit ?? 50, 100) };
     const rows = sortBoard(await publicSet(ctx, f.category), f);
     return Promise.all(
       rows.map(async (s) => ({
         ...(await withOwnerAndSpark(ctx, s)),
-        movement: f.board === "trending" ? trendingMovement(s, f.window) : movement(s.rank, s.prevRank),
+        movement: f.board === "trending" ? trendingMovement(s, f.window) : f.board === "movers" ? rankMovement(s.rank7dAgo, s.rank) : movement(s.rank, s.prevRank),
         explain: f.board === "trending" ? explainTrending(trendingInputs(s)[f.window]) : undefined,
       })),
     );
+  },
+});
+
+// Last-updated stamp for public pages: the newest successful sync among the listed rows.
+export const boardMeta = query({
+  args: { category: v.optional(v.string()) },
+  handler: async (ctx, { category }) => {
+    const rows = (await publicSet(ctx, category)).filter(isVerified);
+    return { updatedAt: rows.reduce((a, s) => Math.max(a, s.lastSyncedAt ?? 0), 0) || null, count: rows.length };
   },
 });
 
@@ -237,37 +269,23 @@ export const event = query({
 });
 
 // Public benchmark statement ("Top 12% 30-day growth in Developer Tools"): strong positions only, category cohort preferred.
-export interface BenchmarkHighlight { statement: string; percentile: number; metric: string; cohort: string; sampleSize: number }
+export type { BenchmarkHighlight };
 export const benchmarkHighlight = query({
   args: { slug: v.string() },
   handler: async (ctx, { slug }): Promise<BenchmarkHighlight | null> => {
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
-    if (!s || !s.isPublic || !isVerified(s) || s.isDemo) return null;
-    const cohorts = [
-      ...(s.category ? [{ key: `cat:${s.category}`, label: CATEGORIES.find((c) => c.slug === s.category)?.label ?? s.category }] : []),
-      { key: `size:${sizeBucket(s.totalUsers)}`, label: `products with ${SIZE_BUCKETS.find((b) => b.key === sizeBucket(s.totalUsers))?.label ?? "similar"} users` },
-      { key: "all", label: "all SaaS on UserTrack" },
-    ];
-    const vis = visibilityOf(s);
-    const metrics: { metric: BenchmarkMetric; value: number | undefined }[] = [
-      { metric: "growth30dPct", value: s.growth30dPct }, { metric: "activationRatePct", value: s.activationRatePct }, { metric: "newUsers30d", value: s.newUsers30d },
-      { metric: "signupToConvertedPct", value: s.signupToConvertedPct }, { metric: "convertedGrowth30dPct", value: s.convertedGrowth30dPct }, { metric: "trialToConvertedPct", value: vis.trialConversion ? s.trialToConvertedPct : undefined },
-    ];
-    let best: BenchmarkHighlight | null = null;
-    for (const c of cohorts) {
-      for (const m of metrics) {
-        // Conversion standings are never published unless the founder made the rate public.
-        if (m.value === undefined || (isConversionBenchmark(m.metric) && !vis.conversionRate)) continue;
-        const agg = await ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", c.key).eq("metric", m.metric)).unique();
-        if (!agg) continue;
-        const percentile = percentileOf(m.value, agg.deciles);
-        if (percentile === null) continue;
-        const statement = publicBenchmarkStatement({ metricLabel: BENCHMARK_METRIC_LABEL[m.metric], groupLabel: c.label, percentile });
-        if (statement && (!best || percentile > best.percentile)) best = { statement, percentile, metric: m.metric, cohort: c.label, sampleSize: agg.sampleSize };
-      }
-      if (best) break;
-    }
-    return best;
+    if (!s) return null;
+    return publicBenchmarkHighlight(ctx, s);
+  },
+});
+
+// Weekly benchmark standings, public projection: top-quarter positions only, and only when the owner publishes benchmarks.
+export const benchmarkHistory = query({
+  args: { slug: v.string(), weeks: v.optional(v.number()) },
+  handler: async (ctx, { slug, weeks }) => {
+    const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    if (!s || !s.isPublic || !isVerified(s) || s.isDemo || !visibilityOf(s).benchmarks) return null;
+    return { slug: s.slug, weeks: await benchmarkHistoryFor(ctx, s, Math.min(Math.max(weeks ?? 26, 4), 52), true) };
   },
 });
 
@@ -276,7 +294,80 @@ export const series = query({
   handler: async (ctx, { slug, range }) => {
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
     if (!s || !s.isPublic) return null;
-    return seriesFor(ctx, s, range);
+    return (await historyFor(ctx, s, range)).points;
+  },
+});
+
+// Chart/API history with storage-aware resolution and explicit gaps (docs/HISTORY.md). Never interpolates.
+export async function historyFor(ctx: QueryCtx, s: Doc<"saas">, range: Range) {
+  const spanDays = s.firstSnapshotAt ? (Date.now() - s.firstSnapshotAt) / DAY : 0;
+  const resolution = resolutionFor(range, spanDays);
+  let points: HistoryPoint[];
+  if (resolution === "raw") points = await seriesFor(ctx, s, range);
+  else {
+    const ms = RANGE_MS[range];
+    const cutoff = ms === null ? 0 : Date.now() - ms;
+    const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).gte("day", dayKey(cutoff))).collect();
+    const vis = visibilityOf(s);
+    points = downsample(rows.map((r) => ({ day: r.day, totalUsers: r.totalUsers, newUsers: r.newUsers, activatedUsers: vis.activationRate ? r.activatedUsers : undefined, visitors: vis.traffic ? r.visitors : undefined, convertedUsers: vis.convertedCount ? r.convertedUsers : undefined })), resolution);
+  }
+  return { range, resolution, points, gaps: findGaps(points, resolution === "raw" ? 1 : resolution === "day" ? 3 : resolution === "week" ? 14 : 45) };
+}
+
+export const history = query({
+  args: { slug: v.string(), range: rangeArg },
+  handler: async (ctx, { slug, range }) => {
+    const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    if (!s || !s.isPublic) return null;
+    return historyFor(ctx, s, range);
+  },
+});
+
+const rankKindArg = v.union(v.literal("leaderboard"), v.literal("trending"));
+
+// Stored daily ranking positions (append-only rankHistory), oldest first, with the best position ever.
+export const rankHistory = query({
+  args: { slug: v.string(), kind: v.optional(rankKindArg), window: v.optional(windowArg), days: v.optional(v.number()) },
+  handler: async (ctx, { slug, kind = "leaderboard", window, days }) => {
+    const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    if (!s || !s.isPublic) return null;
+    const w = window ?? (kind === "trending" ? "7d" : "30d");
+    const since = dayKey(Date.now() - Math.min(Math.max(days ?? 90, 7), 730) * DAY);
+    const rows = await ctx.db.query("rankHistory").withIndex("by_saas_kind_window_day", (q) => q.eq("saasId", s._id).eq("kind", kind).eq("window", w).gte("day", since)).collect();
+    const points = rows.map((r) => ({ day: r.day, t: Date.parse(`${r.day}T12:00:00Z`), rank: r.rank, score: r.score }));
+    const current = kind === "trending" ? trendingRankFor(s, w).rank : s.rank;
+    return { slug: s.slug, kind, window: w, points, current, best: kind === "trending" ? s.bestTrendingRank : s.bestRank, rank7dAgo: kind === "trending" ? s.trendingRank7dAgo : s.rank7dAgo, movement7d: kind === "trending" ? rankMovement(s.trendingRank7dAgo, trendingRankFor(s, w).rank) : rankMovement(s.rank7dAgo, s.rank) };
+  },
+});
+
+// Related products for a project page: same category first, then similar size, then similar growth stage. Public + verified only.
+export const related = query({
+  args: { slug: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { slug, limit }) => {
+    const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    if (!s || !s.isPublic) return [];
+    const all = (await publicSet(ctx)).filter((x) => x._id !== s._id && isVerified(x) && !x.isDemo === !s.isDemo);
+    const bucket = sizeBucket(s.totalUsers);
+    const score = (x: Doc<"saas">) => (x.category && x.category === s.category ? 4 : 0) + (sizeBucket(x.totalUsers) === bucket ? 2 : 0) + (Math.sign(x.growth30dPct - 10) === Math.sign(s.growth30dPct - 10) ? 1 : 0);
+    const rows = all.map((x) => ({ x, score: score(x) })).filter((r) => r.score > 0).sort((a, b) => b.score - a.score || b.x.newUsers30d - a.x.newUsers30d).slice(0, Math.min(limit ?? 4, 8));
+    return Promise.all(rows.map((r) => withOwnerAndSpark(ctx, r.x)));
+  },
+});
+
+// Frozen monthly rankings (rankingSnapshots) for /rankings/<year>/<month>/<category> and the datasets API.
+export const rankingSnapshot = query({
+  args: { period: v.string(), board: v.optional(v.string()), category: v.optional(v.string()) },
+  handler: async (ctx, { period, board = "most-new", category }) => {
+    return ctx.db.query("rankingSnapshots").withIndex("by_period_board_category", (q) => q.eq("period", period).eq("board", board).eq("category", category)).unique();
+  },
+});
+
+// Every (period, board, category) that has a frozen ranking — for the sitemap and the rankings archive index.
+export const rankingPeriods = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("rankingSnapshots").withIndex("by_period").order("desc").take(500);
+    return rows.map((r) => ({ period: r.period, board: r.board, category: r.category ?? null, sampleSize: r.sampleSize, computedAt: r.computedAt }));
   },
 });
 
@@ -352,7 +443,7 @@ export const search = query({
   args: { q: v.string() },
   handler: async (ctx, { q }) => {
     const term = q.trim().toLowerCase();
-    if (term.length < 2) return { saas: [], profiles: [] };
+    if (term.length < 2) return { saas: [], profiles: [], categories: [] };
     const byName = await ctx.db.query("saas").withSearchIndex("search_name", (s) => s.search("name", term).eq("isPublic", true)).take(10);
     const byDesc = await ctx.db.query("saas").withSearchIndex("search_description", (s) => s.search("description", term).eq("isPublic", true)).take(10);
     const all = await publicSet(ctx);
@@ -366,48 +457,50 @@ export const search = query({
       const rows = await founderRows(ctx, p);
       founders.push({ ...publicProfile(p), projectCount: rows.length, totalUsers: rows.reduce((a, s) => a + s.totalUsers, 0), newUsers30d: rows.reduce((a, s) => a + Math.max(0, s.newUsers30d), 0) });
     }
-    return { saas: await Promise.all(saas.map((s) => withOwnerAndSpark(ctx, s))), profiles: founders };
+    const categories = CATEGORIES.filter((c) => c.slug.includes(term) || c.label.toLowerCase().includes(term) || c.seo.toLowerCase().includes(term)).map((c) => ({ slug: c.slug, label: c.label, count: all.filter((s) => s.category === c.slug && isVerified(s)).length })).filter((c) => c.count > 0);
+    return { saas: await Promise.all(saas.map((s) => withOwnerAndSpark(ctx, s))), profiles: founders, categories };
   },
 });
 
-// Hidden gems: small products with unusually strong, trustworthy traction. The criteria are public so the list is explainable.
-export const HIDDEN_GEM_RULES = { maxUsers: 1000, minNew7d: 10, minGrowth7dPct: 10, minHistoryDays: 7, minTrustScore: 60 } as const;
-const isHiddenGem = (s: Doc<"saas">, now: number) =>
-  isVerified(s) && !s.isDemo && s.totalUsers < HIDDEN_GEM_RULES.maxUsers && s.newUsers7d >= HIDDEN_GEM_RULES.minNew7d && (s.growth7dPct ?? 0) >= HIDDEN_GEM_RULES.minGrowth7dPct &&
-  s.firstSnapshotAt !== undefined && now - s.firstSnapshotAt >= HIDDEN_GEM_RULES.minHistoryDays * DAY && (s.trustScore ?? 0) >= HIDDEN_GEM_RULES.minTrustScore;
-
-// Discovery sections from one read of the public set. Empty sections are omitted client-side.
+// Discovery sections from one read of the public set, optionally narrowed to a category. Empty sections are omitted client-side.
 export const discover = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { category: v.optional(v.string()) },
+  handler: async (ctx, { category }) => {
     const now = Date.now();
-    const all = await publicSet(ctx);
-    const pick = (board: Board, window: "24h" | "7d" | "30d", extra?: Partial<BoardFilters>, n = 5) => sortBoard(all, { board, window, verifiedOnly: true, limit: n, ...extra });
-    const hidden = all.filter((s) => isHiddenGem(s, now)).sort((a, b) => (b.growth7dPct ?? 0) - (a.growth7dPct ?? 0)).slice(0, 5);
+    const all = await publicSet(ctx, category);
+    const pick = (board: Board, window: "24h" | "7d" | "30d", extra?: Partial<BoardFilters>, n = 5) => sortBoard(all, { board, window, verifiedOnly: true, limit: n, category, ...extra });
     const verifiedRecently = all.filter((s) => isVerified(s) && !s.isDemo && s.verifiedAt !== undefined).sort((a, b) => b.verifiedAt! - a.verifiedAt!).slice(0, 5);
-    const movers = all
-      .filter((s) => isVerified(s) && !s.isDemo && s.trendingRank !== undefined && s.prevTrendingRank !== undefined && s.prevTrendingRank > s.trendingRank)
-      .sort((a, b) => (b.prevTrendingRank! - b.trendingRank!) - (a.prevTrendingRank! - a.trendingRank!)).slice(0, 5);
     const expand = (rows: Doc<"saas">[], w: "24h" | "7d" | "30d" = "7d") => Promise.all(rows.map(async (s) => ({ ...(await withOwnerAndSpark(ctx, s)), movement: trendingMovement(s, w) })));
+    const movers = pick("movers", "30d");
     return {
+      category: category ?? null,
       trending: await expand(pick("trending", "7d")),
       fastestToday: await expand(pick("fastest", "24h"), "24h"),
       fastestWeek: await expand(pick("fastest", "7d")),
+      fastestMonth: await expand(pick("fastest", "30d"), "30d"),
       newest: await expand(pick("new-rising", "7d")),
       recentlyVerified: await expand(verifiedRecently),
-      movers: await expand(movers),
-      hiddenGems: await expand(hidden),
+      // Movement over 7 stored days: `rank7dAgo → rank` (rankHistory), never the position at the previous 4-hour refresh.
+      movers: await Promise.all(movers.map(async (s) => ({ ...(await withOwnerAndSpark(ctx, s)), movement: rankMovement(s.rank7dAgo, s.rank), rank7dAgo: s.rank7dAgo, rankDelta7d: s.rankDelta7d }))),
+      hiddenGems: await expand(pick("hidden-gems", "7d")),
       hiddenGemRules: HIDDEN_GEM_RULES,
-      devTools: await expand(pick("most-new", "30d", { category: "developer-tools" })),
-      ai: await expand(pick("most-new", "30d", { category: "ai" })),
-      feed: await feedItems(ctx, all, 12),
-      categories: CATEGORIES.map((c) => ({ ...c, count: all.filter((s) => s.category === c.slug && isVerified(s)).length })).filter((c) => c.count > 0),
+      newRisingRules: NEW_RISING_RULES,
+      devTools: category ? [] : await expand(pick("most-new", "30d", { category: "developer-tools" })),
+      ai: category ? [] : await expand(pick("most-new", "30d", { category: "ai" })),
+      mobile: await expand(pick("most-new", "30d", { platform: "mobile" }), "30d"),
+      feed: await feedItems(ctx, all, 12, category),
+      categories: categoryCounts(category ? await publicSet(ctx) : all),
+      updatedAt: all.reduce((a, s) => Math.max(a, s.lastSyncedAt ?? 0), 0) || null,
     };
   },
 });
 
-export type FeedKind = "milestone" | "spike" | "activation_spike" | "launched" | "verified";
-const FEED_EVENT_KINDS = new Set(["spike", "activation_spike", "launched", "verified"]);
+function categoryCounts(rows: Doc<"saas">[]) {
+  return CATEGORIES.map((c) => ({ ...c, count: rows.filter((s) => s.category === c.slug && isVerified(s)).length })).filter((c) => c.count > 0);
+}
+
+export type FeedKind = "milestone" | "spike" | "activation_spike" | "launched" | "verified" | "rank_jump" | "traction" | "benchmark";
+const FEED_EVENT_KINDS = new Set(["spike", "activation_spike", "launched", "verified", "rank_jump", "traction", "benchmark"]);
 
 // The discovery feed is a merge of two stored, deduplicated logs: milestones (unique key per SaaS) and events (unique kind per day).
 // Identity is stable (`milestone:{saasId}:{key}` / `{kind}:{saasId}:{day}`), so the feed never invents or repeats activity.
@@ -485,6 +578,7 @@ export const sitemap = query({
       saas: rows.map((s) => ({ slug: s.slug, updatedAt: s.lastSyncedAt ?? s._creationTime })),
       profiles: [...owners.values()].filter(isProfilePublic).map((p) => ({ username: p.username, updatedAt: p._creationTime })),
       categories: CATEGORIES.map((c) => c.slug).filter((c) => rows.some((s) => s.category === c)),
+      rankings: (await ctx.db.query("rankingSnapshots").withIndex("by_period").order("desc").take(500)).map((r) => ({ period: r.period, board: r.board, category: r.category ?? null, computedAt: r.computedAt })),
     };
   },
 });

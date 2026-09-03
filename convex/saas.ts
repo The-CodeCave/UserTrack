@@ -6,7 +6,8 @@ import { getProfileForUser, requireProfile } from "./profiles";
 import { createProject, updateProject } from "./domain/projects";
 import { integrationView } from "./domain/integrations";
 import { markLaunched } from "./domain/events";
-import { BENCHMARK_METRICS, BENCHMARK_METRIC_LABEL, MIN_SAMPLE, benchmarkInsight, medianMultiple, percentileOf, type BenchmarkMetric } from "./lib/benchmarks";
+import { MIN_SAMPLE } from "./lib/benchmarks";
+import { benchmarkCards, benchmarkHistoryFor, isBenchmarkEligible } from "./domain/benchmarks";
 import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { CATEGORIES } from "../src/lib/categories";
 import { publicTrustLabel } from "./lib/trust";
@@ -41,6 +42,7 @@ const editable = {
   appStoreUrl: v.optional(v.string()),
   playStoreUrl: v.optional(v.string()),
   authMethods: v.optional(v.array(v.string())),
+  foundedAt: v.optional(v.number()),
 };
 
 export const create = mutation({
@@ -138,37 +140,13 @@ export const getMine = query({
   },
 });
 
-// Percentile cards for the owner's dashboard. Uses stored deciles only; cohorts below MIN_SAMPLE simply do not exist.
+// Percentile cards for the owner's dashboard (domain/benchmarks.ts). Cohorts below MIN_SAMPLE simply do not exist.
 export const benchmarks = query({
   args: { id: v.id("saas") },
   handler: async (ctx, { id }) => {
     const { saas } = await requireOwnedSaas(ctx, id);
-    const bucket = SIZE_BUCKETS.find((b) => b.key === sizeBucket(saas.totalUsers));
-    const groups = [
-      { key: "all", label: "all SaaS on UserTrack", short: "All SaaS" },
-      ...(saas.category ? [{ key: `cat:${saas.category}`, label: `${CATEGORIES.find((c) => c.slug === saas.category)?.label ?? saas.category} SaaS`, short: CATEGORIES.find((c) => c.slug === saas.category)?.label ?? saas.category }] : []),
-      { key: `size:${sizeBucket(saas.totalUsers)}`, label: `products with ${bucket?.label ?? "similar"} users`, short: `${bucket?.label ?? "similar"} users` },
-    ];
-    const previous: Partial<Record<BenchmarkMetric, number | undefined>> = { newUsers30d: saas.newUsersPrev30d, growth7dPct: undefined, growth30dPct: undefined, activationRatePct: undefined, trendingScore7d: undefined };
-    const out = [];
-    for (const g of groups) {
-      for (const metric of BENCHMARK_METRICS) {
-        const value = saas[metric];
-        if (value === undefined) continue;
-        const agg = await ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", g.key).eq("metric", metric)).unique();
-        if (!agg) continue;
-        const percentile = percentileOf(value, agg.deciles);
-        if (percentile === null) continue;
-        const median = agg.deciles[4];
-        out.push({
-          group: g.key, groupLabel: g.label, groupShort: g.short, metric, metricLabel: BENCHMARK_METRIC_LABEL[metric], value, percentile, sampleSize: agg.sampleSize, median,
-          p10: agg.deciles[0], p90: agg.deciles[8], medianMultiple: medianMultiple(value, median), previousValue: previous[metric],
-          insight: benchmarkInsight({ metricLabel: BENCHMARK_METRIC_LABEL[metric], groupLabel: g.label, percentile, value, median }),
-          computedAt: agg.computedAt,
-        });
-      }
-    }
-    return { eligible: saas.isPublic && saas.trust === "verified" && !saas.isDemo, minSample: MIN_SAMPLE, cards: out };
+    const cards = await benchmarkCards(ctx, saas);
+    return { eligible: isBenchmarkEligible(saas), minSample: MIN_SAMPLE, cards, history: await benchmarkHistoryFor(ctx, saas, 26) };
   },
 });
 
