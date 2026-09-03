@@ -57,6 +57,7 @@ import type * as lib_rateLimits from "../lib/rateLimits.js";
 import type * as lib_retention from "../lib/retention.js";
 import type * as lib_shareRules from "../lib/shareRules.js";
 import type * as lib_spikes from "../lib/spikes.js";
+import type * as lib_ssrf from "../lib/ssrf.js";
 import type * as lib_time from "../lib/time.js";
 import type * as lib_tokens from "../lib/tokens.js";
 import type * as lib_trending from "../lib/trending.js";
@@ -156,6 +157,7 @@ declare const fullApi: ApiFromModules<{
   "lib/retention": typeof lib_retention;
   "lib/shareRules": typeof lib_shareRules;
   "lib/spikes": typeof lib_spikes;
+  "lib/ssrf": typeof lib_ssrf;
   "lib/time": typeof lib_time;
   "lib/tokens": typeof lib_tokens;
   "lib/trending": typeof lib_trending;

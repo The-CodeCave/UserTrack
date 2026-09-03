@@ -72,7 +72,7 @@ Rules: verify against the **raw** request body (not a re-serialized object), com
 - Endpoint state: `lastDeliveryAt`, `lastStatus`, `lastError`, `consecutiveFailures`; **25** consecutive failures disable the endpoint (`disabledReason`), the owner re-enables it in the dashboard.
 - `webhooks.retrySweep` (hourly cron) re-queues overdue `failed` / stuck `pending` rows whose scheduled function was lost. Owners can also retry a single delivery.
 
-## SSRF protection (`checkWebhookUrl`, `isPrivateIp`, `resolvePublic`)
+## SSRF protection (`checkWebhookUrl` → `convex/lib/ssrf.ts`: `checkPublicHttpsUrl`, `isPrivateIp`, `resolvePublicHost`; shared with providers since SEC-3)
 
 - HTTPS only; no credentials in the URL; ≤ 2048 chars.
 - Blocked hostnames: `localhost`, `*.localhost`, `*.local`, `*.internal`, `*.lan`, `*.home`, `*.corp`, `*.intranet`, `*.railway.internal`, `*.convex.cloud`, `*.convex.site`, `metadata.google.internal`, `metadata`, `instance-data`, `kubernetes.default.svc`, bare single-label hosts.

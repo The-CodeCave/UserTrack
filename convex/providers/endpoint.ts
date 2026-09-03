@@ -1,4 +1,5 @@
-import { asCount, fetchJson, hostOf, sameSite, IDENTITY_CAP, type LifecycleStage, type Provider, type ProviderMetrics, type Role, type StageIdentities } from "./types";
+import { checkPublicHttpsUrl } from "../lib/ssrf";
+import { asCount, fetchJson, hostOf, hostnameOf, sameSite, IDENTITY_CAP, type LifecycleStage, type Provider, type ProviderMetrics, type Role, type StageIdentities } from "./types";
 import { parseMode } from "./conversion";
 
 export interface EndpointConfig { url: string; token: string }
@@ -45,6 +46,8 @@ export const endpoint: Provider<EndpointConfig> = {
     const cfg = c as Partial<EndpointConfig>;
     const url = cfg?.url?.trim();
     if (!url || !/^https:\/\//.test(url) || !hostOf(url)) return { ok: false, error: "Enter an https:// endpoint URL" };
+    const check = checkPublicHttpsUrl(url, { what: "The endpoint URL", anyPort: true });
+    if (!check.ok) return { ok: false, error: check.reason };
     const token = cfg?.token?.trim() ?? "";
     return { ok: true, config: { url, token } };
   },
@@ -64,4 +67,5 @@ export const endpoint: Provider<EndpointConfig> = {
     return out;
   },
   publicConfig: ({ url }) => ({ host: hostOf(url) ?? url }),
+  hosts: ({ url }) => [hostnameOf(url)],
 };

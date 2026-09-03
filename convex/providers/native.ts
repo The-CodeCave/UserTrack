@@ -3,7 +3,8 @@
 import { EVENTS_PATH, HEADER_NONCE, METRICS_PATH, MIN_CLIENT_VERSION, NATIVE_PACKAGE, NATIVE_SOURCE_LABEL, type NativeSource, normalizeSource, PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS, signedHeaders, verify, versionAtLeast } from "../lib/nativeProtocol";
 import { parseMode } from "./conversion";
 import { parseIdentities } from "./endpoint";
-import { asCount, capabilitiesFromList, hostOf, ProviderError, str, type History, type Provider, type ProviderCapabilities, type ProviderMetrics, type Role } from "./types";
+import { checkPublicHttpsUrl } from "../lib/ssrf";
+import { asCount, capabilitiesFromList, hostOf, hostnameOf, isRedirect, ProviderError, REDIRECT_ERROR, str, type History, type Provider, type ProviderCapabilities, type ProviderMetrics, type Role } from "./types";
 
 // What the last successful pull reported; patched into the config by the sync engine (metrics.reported).
 export interface ReportedCapabilities { roles: Role[]; history: boolean; identity: boolean; exactCounts: boolean }
@@ -57,8 +58,8 @@ export function normalizeBaseUrl(raw: string, source: NativeSource = "better-aut
   } catch {
     return { ok: false as const, error: `Enter the ${what} of your app, e.g. https://app.example.com${defaultBasePath(source)}` };
   }
-  const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
-  if (u.protocol !== "https:" && !(u.protocol === "http:" && local)) return { ok: false as const, error: `The ${what} must use https://` };
+  const pub = checkPublicHttpsUrl(trimmed, { what: `The ${what}`, anyPort: true });
+  if (!pub.ok) return { ok: false as const, error: pub.reason };
   if (u.search || u.hash) return { ok: false as const, error: `The ${what} must not contain a query string` };
   if (u.pathname === "/" || u.pathname === "") u.pathname = defaultBasePath(source);
   return { ok: true as const, url: u.toString().replace(/\/+$/, "") };
@@ -75,6 +76,7 @@ export function explainStatus(status: number, code: string | undefined, url: str
   if (status === 401 && code === "USERTRACK_STALE_REQUEST") return { message: `${host} rejected the request as stale — the server clock is off by more than 5 minutes.`, retryable: true };
   if (status === 401 && code === "USERTRACK_REPLAY") return { message: `${host} reported a replayed request. Retry in a moment.`, retryable: true };
   if (status === 401 || status === 403) return { message: `${host} rejected the signature. USERTRACK_PROJECT_ID or USERTRACK_SECRET in the app does not match this integration — check the env vars, redeploy, or rotate the secret.`, retryable: false };
+  if (status >= 300 && status < 400) return { message: `${host} redirected the request (${status}) — ${REDIRECT_ERROR.toLowerCase()}.`, retryable: false };
   if (status === 429) return { message: `${host} is rate limiting UserTrack (429).`, retryable: true };
   if (status === 502 || status === 503 || status === 504) return { message: `${host} is not reachable right now (${status}) — is the app deployed and running?`, retryable: true };
   if (status >= 500) return { message: `${host} answered ${status} — ${pkg} could not count users (data source error?).`, retryable: true };
@@ -88,10 +90,11 @@ async function pull(cfg: NativeStoredConfig, request: Record<string, unknown>): 
   const headers = await signedHeaders(cfg.secret, cfg.projectId, { method: "REQUEST", path: METRICS_PATH, body });
   let res: Response;
   try {
-    res = await fetch(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", "user-agent": "UserTrack/1.0 (+https://usertrack.dev)", ...headers }, body, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    res = await fetch(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", "user-agent": "UserTrack/1.0 (+https://usertrack.dev)", ...headers }, body, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
   } catch (e) {
     throw new ProviderError(`Could not reach ${hostOf(url) ?? url}: ${(e as Error).name === "TimeoutError" ? "timed out" : "connection failed"}. Is the app deployed and reachable over HTTPS?`, true);
   }
+  if (isRedirect(res)) throw new ProviderError(explainStatus(res.status || 302, undefined, cfg.url, source).message, false);
   const text = await res.text();
   if (!res.ok) {
     let code: string | undefined;
@@ -207,5 +210,6 @@ export const native: Provider<NativeStoredConfig> = {
     return { ...base, historicalUsers: base.historicalUsers && r.history, identity: r.identity };
   },
   publicConfig: (cfg) => ({ url: cfg.url, source: sourceOf(cfg), secret: `${cfg.secretPrefix}…`, events: EVENTS_PATH }),
+  hosts: (cfg) => [hostnameOf(cfg.url)],
   labelFor: (cfg) => (sourceOf(cfg) === "better-auth" ? "Better Auth" : sourceOf(cfg) === "custom" ? "UserTrack SDK" : `${sourceLabel(sourceOf(cfg))} (UserTrack SDK)`),
 };

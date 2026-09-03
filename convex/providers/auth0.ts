@@ -1,3 +1,4 @@
+import { checkPublicHttpsUrl } from "../lib/ssrf";
 import { asCount, fetchJson, isoDaysAgo, DAY_MS, type Provider, type ProviderMetrics } from "./types";
 
 export interface Auth0Config { domain: string; clientId: string; clientSecret: string }
@@ -33,6 +34,8 @@ export const auth0: Provider<Auth0Config> = {
     const clientId = cfg?.clientId?.trim() ?? "";
     const clientSecret = cfg?.clientSecret?.trim() ?? "";
     if (!domain || !/^[a-z0-9.-]+$/.test(domain)) return { ok: false, error: "Enter your Auth0 domain (e.g. acme.eu.auth0.com)" };
+    const check = checkPublicHttpsUrl(`https://${domain}`, { what: "The Auth0 domain" });
+    if (!check.ok) return { ok: false, error: check.reason };
     if (!clientId) return { ok: false, error: "Enter the client ID" };
     if (!clientSecret) return { ok: false, error: "Enter the client secret" };
     return { ok: true, config: { domain, clientId, clientSecret } };
@@ -61,4 +64,5 @@ export const auth0: Provider<Auth0Config> = {
     return { metric: "newUsers", points };
   },
   publicConfig: ({ domain, clientId }) => ({ domain, clientId: `${clientId.slice(0, 6)}…` }),
+  hosts: ({ domain }) => [domain],
 };

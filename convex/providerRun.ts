@@ -4,6 +4,7 @@ import { ConvexError } from "convex/values";
 import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getProvider, ProviderError, type History, type ProviderMetrics, type Role } from "./providers";
+import { BLOCKED_HOST_ERROR, resolvePublicHost } from "./lib/ssrf";
 
 function toProviderError(e: unknown): never {
   if (e instanceof ConvexError) {
@@ -14,9 +15,19 @@ function toProviderError(e: unknown): never {
   throw e;
 }
 
+// Founder-supplied hosts are resolved right before the request; one generic error for every refusal (no port-scan oracle).
+export async function assertPublicHosts(hosts: string[]) {
+  for (const host of hosts) {
+    if (!(await resolvePublicHost(host)).ok) throw new ProviderError(BLOCKED_HOST_ERROR, false);
+  }
+}
+
 export async function fetchMetrics(ctx: ActionCtx, kind: string, config: unknown, role: Role): Promise<ProviderMetrics> {
   const p = getProvider(kind);
-  if (p.runtime?.(config) !== "node") return p.fetch(config, role);
+  if (p.runtime?.(config) !== "node") {
+    await assertPublicHosts(p.hosts?.(config) ?? []);
+    return p.fetch(config, role);
+  }
   try {
     return await ctx.runAction(internal.node.postgres.fetch, { pg: p.toPostgres!(config, role), role });
   } catch (e) {
@@ -26,7 +37,11 @@ export async function fetchMetrics(ctx: ActionCtx, kind: string, config: unknown
 
 export async function fetchHistory(ctx: ActionCtx, kind: string, config: unknown, role: Role, days: number): Promise<History | null> {
   const p = getProvider(kind);
-  if (p.runtime?.(config) !== "node") return p.fetchHistory ? p.fetchHistory(config, role, days) : null;
+  if (p.runtime?.(config) !== "node") {
+    if (!p.fetchHistory) return null;
+    await assertPublicHosts(p.hosts?.(config) ?? []);
+    return p.fetchHistory(config, role, days);
+  }
   try {
     return await ctx.runAction(internal.node.postgres.fetchHistory, { pg: p.toPostgres!(config, role), role, days });
   } catch (e) {

@@ -114,6 +114,8 @@ export interface Provider<Config> {
   // "node" = needs a TCP database connection; the engine dispatches to internal.node.postgres with `toPostgres(config)`.
   runtime?(config: Config): Runtime;
   toPostgres?(config: Config, role: Role): PostgresQuery;
+  // Founder-supplied hostnames; convex/providerRun.ts resolves them and refuses private addresses before every fetch (SSRF).
+  hosts?(config: Config): string[];
 }
 
 export function capabilitiesFromList(list: Capability[], role: Role): ProviderCapabilities {
@@ -143,6 +145,15 @@ export function verificationLevel(kind: string, trust: Trust, caps: ProviderCapa
   return "verified";
 }
 
+// Raw hostname of a URL ("" when unparseable) — for DNS checks; hostOf() strips www. for display.
+export function hostnameOf(url: string) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
 export function hostOf(url: string) {
   try {
     return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
@@ -166,10 +177,16 @@ export class ProviderError extends Error {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const MAX_BACKOFF_MS = 5_000;
+export const FETCH_TIMEOUT_MS = 15_000;
+export const REDIRECT_ERROR = "Endpoint redirected — point the URL at the final location";
+
+export const isRedirect = (res: Response) => res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400);
 
 // fetch + JSON with one bounded retry on 429 / 503 (honours Retry-After up to 5s) so provider rate limits fail soft.
+// Redirects are never followed (they could point at an internal address) and every request is bounded to FETCH_TIMEOUT_MS.
 export async function fetchJson<T = Record<string, unknown>>(url: string, init?: RequestInit, attempt = 0): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), ...init });
+  if (isRedirect(res)) throw new ProviderError(REDIRECT_ERROR, false);
   if (!res.ok) {
     if ((res.status === 429 || res.status === 503) && attempt < 2) {
       const retryAfter = Number(res.headers.get("retry-after") ?? "1");

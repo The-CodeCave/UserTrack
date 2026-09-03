@@ -1,4 +1,5 @@
-import { asCount, fetchJson, hostOf, DAY_MS, dayKey, type Provider, type ProviderMetrics } from "./types";
+import { checkPublicHttpsUrl } from "../lib/ssrf";
+import { asCount, fetchJson, hostOf, hostnameOf, DAY_MS, dayKey, type Provider, type ProviderMetrics } from "./types";
 
 export interface PlausibleConfig { siteId: string; apiKey: string; host: string }
 
@@ -18,6 +19,8 @@ export const plausible: Provider<PlausibleConfig> = {
     if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(siteId)) return { ok: false, error: "Enter the site domain as shown in Plausible (e.g. acme.com)" };
     if (!apiKey) return { ok: false, error: "Enter an API key" };
     if (!/^https:\/\//.test(host) || !hostOf(host)) return { ok: false, error: "Host must be an https URL" };
+    const check = checkPublicHttpsUrl(host, { what: "The Plausible host" });
+    if (!check.ok) return { ok: false, error: check.reason };
     return { ok: true, config: { siteId, apiKey, host } };
   },
   trust: () => "verified",
@@ -42,4 +45,5 @@ export const plausible: Provider<PlausibleConfig> = {
     return { metric: "visitors", points: (json.results ?? []).map((r) => ({ day: r.date.slice(0, 10), value: asCount(r.visitors ?? 0, "Plausible visitors") })) };
   },
   publicConfig: ({ siteId }) => ({ site: siteId }),
+  hosts: ({ host }) => [hostnameOf(host)],
 };

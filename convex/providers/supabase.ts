@@ -1,4 +1,5 @@
-import { asCount, hostOf, isoDaysAgo, ProviderError, DAY_MS, dayKey, type PostgresQuery, type Provider, type ProviderCapabilities, type ProviderMetrics } from "./types";
+import { checkPublicHttpsUrl } from "../lib/ssrf";
+import { asCount, hostOf, hostnameOf, isoDaysAgo, isRedirect, ProviderError, DAY_MS, dayKey, FETCH_TIMEOUT_MS, REDIRECT_ERROR, type PostgresQuery, type Provider, type ProviderCapabilities, type ProviderMetrics } from "./types";
 import { defaultSsl, isIdent, parseConnectionString, projectRefFromHost, splitTable, validateSql } from "./postgres";
 
 // Two modes behind one adapter:
@@ -18,13 +19,15 @@ export interface SupabaseConfig {
 
 async function tableCount(cfg: SupabaseConfig, filter = "") {
   const headers = { apikey: cfg.serviceKey!, Authorization: `Bearer ${cfg.serviceKey}`, Prefer: "count=exact", Range: "0-0" };
-  const res = await fetch(`${cfg.url}/rest/v1/${cfg.table}?select=id${filter}`, { method: "HEAD", headers });
+  const res = await fetch(`${cfg.url}/rest/v1/${cfg.table}?select=id${filter}`, { method: "HEAD", headers, redirect: "manual", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (isRedirect(res)) throw new ProviderError(REDIRECT_ERROR, false);
   if (!res.ok) throw new ProviderError(`${res.status} from Supabase table ${cfg.table}`, res.status >= 500);
   return asCount(res.headers.get("content-range")?.split("/")[1], "Supabase content-range");
 }
 
 async function authCount(cfg: SupabaseConfig) {
-  const res = await fetch(`${cfg.url}/auth/v1/admin/users?per_page=1`, { headers: { apikey: cfg.serviceKey!, Authorization: `Bearer ${cfg.serviceKey}` } });
+  const res = await fetch(`${cfg.url}/auth/v1/admin/users?per_page=1`, { headers: { apikey: cfg.serviceKey!, Authorization: `Bearer ${cfg.serviceKey}` }, redirect: "manual", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (isRedirect(res)) throw new ProviderError(REDIRECT_ERROR, false);
   if (!res.ok) throw new ProviderError(`${res.status} from Supabase auth`, res.status >= 500);
   return asCount(res.headers.get("x-total-count"), "Supabase X-Total-Count");
 }
@@ -70,6 +73,8 @@ export const supabase: Provider<SupabaseConfig> = {
     const url = cfg?.url?.trim().replace(/\/$/, "");
     const key = cfg?.serviceKey?.trim();
     if (!url || !hostOf(url)?.endsWith("supabase.co")) return { ok: false, error: "Enter your project URL (https://xxx.supabase.co) or a read-only database connection string" };
+    const check = checkPublicHttpsUrl(url, { what: "The project URL" });
+    if (!check.ok) return { ok: false, error: check.reason };
     if (!key || key.length < 20) return { ok: false, error: "Enter the service role key (or use a database connection string instead)" };
     if (table?.includes(".")) return { ok: false, error: "The API mode reads public tables only; use a connection string for other schemas" };
     if (role === "activation" && !table) return { ok: false, error: "Activation needs a table that has one row per activated user" };
@@ -112,4 +117,5 @@ export const supabase: Provider<SupabaseConfig> = {
     return { metric: role === "activation" ? "activatedUsers" : "totalUsers", points };
   },
   publicConfig: (cfg) => ({ project: supabaseProjectRef(cfg) ?? "supabase", mode: cfg.mode === "database" ? "read-only database" : "service key", source: cfg.sql ? "custom query" : cfg.table ?? "auth.users" }),
+  hosts: (cfg) => (cfg.mode === "api" ? [hostnameOf(cfg.url ?? "")] : []),
 };

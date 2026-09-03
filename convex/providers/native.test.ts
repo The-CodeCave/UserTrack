@@ -25,11 +25,13 @@ const respond = (body: unknown) => vi.stubGlobal("fetch", vi.fn(async (url: stri
 afterEach(() => vi.unstubAllGlobals());
 
 describe("validate / normalizeBaseUrl", () => {
-  it("requires https except for localhost and defaults the path per source", () => {
+  it("requires a public https host and defaults the path per source", () => {
     expect(normalizeBaseUrl("https://app.example.com")).toEqual({ ok: true, url: "https://app.example.com/api/auth" });
     expect(normalizeBaseUrl("https://app.example.com", "prisma")).toEqual({ ok: true, url: "https://app.example.com/api/usertrack" });
     expect(normalizeBaseUrl("https://app.example.com/auth/")).toEqual({ ok: true, url: "https://app.example.com/auth" });
-    expect(normalizeBaseUrl("http://localhost:3000")).toEqual({ ok: true, url: "http://localhost:3000/api/auth" });
+    expect(normalizeBaseUrl("http://localhost:3000").ok).toBe(false);
+    expect(normalizeBaseUrl("https://10.0.0.5:3000")).toEqual({ ok: false, error: "Private, loopback, link-local and metadata addresses are not allowed" });
+    expect(normalizeBaseUrl("https://app.example.com:8080/api/auth")).toEqual({ ok: true, url: "https://app.example.com:8080/api/auth" });
     expect(normalizeBaseUrl("http://app.example.com").ok).toBe(false);
     expect(normalizeBaseUrl("not a url", "custom").ok).toBe(false);
     expect(normalizeBaseUrl("https://app.example.com/api/auth?x=1").ok).toBe(false);

@@ -8,9 +8,10 @@ import { requireProfile } from "./profiles";
 import { projectUrls } from "./domain/projects";
 import { webhookEventType } from "./schema";
 import {
-  DISABLE_AFTER_FAILURES, MAX_ATTEMPTS, MAX_ENDPOINTS, WEBHOOK_EVENT_TYPES, WEBHOOK_TIMEOUT_MS, allPublic, buildPayload, checkWebhookUrl, eventIdFor, generateWebhookSecret, maskSecret, newDeliveryId,
+  DISABLE_AFTER_FAILURES, MAX_ATTEMPTS, MAX_ENDPOINTS, WEBHOOK_EVENT_TYPES, WEBHOOK_TIMEOUT_MS, buildPayload, checkWebhookUrl, eventIdFor, generateWebhookSecret, maskSecret, newDeliveryId,
   nextAttemptDelay, serializePayload, signPayload, signatureHeaders, type WebhookEventType, type WebhookProject,
 } from "./lib/webhooks";
+import { resolvePublicHost } from "./lib/ssrf";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -67,24 +68,6 @@ export const loadDelivery = internalQuery({
 
 const RETRYABLE = new Set([408, 425, 429]);
 
-// Resolves the host right before the request (DNS over HTTPS) so a hostname that now points at a private range is refused.
-async function resolvePublic(host: string): Promise<{ ok: true } | { ok: false; reason: string }> {
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":")) return allPublic([host]) ? { ok: true } : { ok: false, reason: "blocked address" };
-  const answers: string[] = [];
-  for (const type of ["A", "AAAA"]) {
-    try {
-      const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=${type}`, { headers: { Accept: "application/dns-json" }, signal: AbortSignal.timeout(4000) });
-      if (!res.ok) continue;
-      const json = (await res.json()) as { Answer?: { type: number; data: string }[] };
-      for (const a of json.Answer ?? []) if (a.type === 1 || a.type === 28) answers.push(a.data);
-    } catch {
-      // A resolver hiccup is treated like an unknown host below.
-    }
-  }
-  if (!answers.length) return { ok: false, reason: "host did not resolve" };
-  return allPublic(answers) ? { ok: true } : { ok: false, reason: "host resolves to a private or internal address" };
-}
-
 export const deliver = internalAction({
   args: { deliveryId: v.id("webhookDeliveries") },
   handler: async (ctx, { deliveryId }) => {
@@ -101,7 +84,7 @@ export const deliver = internalAction({
       await ctx.runMutation(internal.webhooks.recordAttempt, { deliveryId, ok: false, retryable: false, error: `blocked url: ${url.reason}`, latencyMs: 0 });
       return;
     }
-    const dns = await resolvePublic(url.host);
+    const dns = await resolvePublicHost(url.host);
     if (!dns.ok) {
       await ctx.runMutation(internal.webhooks.recordAttempt, { deliveryId, ok: false, retryable: false, error: `blocked: ${dns.reason}`, latencyMs: 0 });
       return;

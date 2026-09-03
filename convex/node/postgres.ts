@@ -1,7 +1,9 @@
 "use node";
 // Node runtime: the only place UserTrack opens TCP connections. Read-only session, bounded timeouts, aggregates only.
 import { Client, type ClientConfig } from "pg";
+import { lookup } from "node:dns/promises";
 import { ConvexError, v } from "convex/values";
+import { BLOCKED_HOST_ERROR, allPublic, isBlockedHost, isIpLiteral } from "../lib/ssrf";
 import { internalAction } from "../_generated/server";
 import { integrationRole } from "../schema";
 import { COLUMNS_SQL, TABLES_SQL, countQuery, dailyQuery, identityQuery, rankTables, suggestColumns, type ColumnInfo, type TableInfo } from "../providers/postgres";
@@ -30,6 +32,7 @@ export function explain(e: unknown): { message: string; retryable: boolean } {
   const err = e as NodeJS.ErrnoException & { code?: string; routine?: string };
   const code = err?.code ?? "";
   const msg = String(err?.message ?? e);
+  if (code === "UT_PRIVATE_HOST") return { message: `${BLOCKED_HOST_ERROR} (use your provider's public hostname or connection pooler)`, retryable: false };
   if (code === "ENOTFOUND" || code === "EAI_AGAIN") return { message: "Host not found — check the hostname in the connection string", retryable: false };
   if (code === "ECONNREFUSED") return { message: "Connection refused — is the database reachable from the internet and the port correct?", retryable: false };
   if (code === "ETIMEDOUT" || /timeout/i.test(msg)) return { message: "Connection timed out — allow inbound connections from the internet (or use your provider's connection pooler)", retryable: true };
@@ -45,6 +48,27 @@ export function explain(e: unknown): { message: string; retryable: boolean } {
   return { message: msg.slice(0, 200), retryable: !/syntax|invalid|does not exist/i.test(msg) };
 }
 
+type Resolver = (host: string) => Promise<{ address: string }[]>;
+const privateHost = () => Object.assign(new Error("private host"), { code: "UT_PRIVATE_HOST" });
+
+// Refuses database hosts that are, or resolve to, private / loopback / link-local addresses before any TCP connection.
+// UT_ALLOW_PRIVATE_DB=1 lifts the check for local development against a database on the same machine.
+export async function assertPublicDbHost(host: string, resolve: Resolver = (h) => lookup(h, { all: true }), env: Record<string, string | undefined> = process.env) {
+  if (env.UT_ALLOW_PRIVATE_DB === "1") return;
+  if (isBlockedHost(host)) throw privateHost();
+  if (isIpLiteral(host)) return;
+  const answers = await resolve(host);
+  if (!allPublic(answers.map((a) => a.address))) throw privateHost();
+}
+
+const hostOfConnection = (connectionString: string) => {
+  try {
+    return new URL(connectionString).hostname;
+  } catch {
+    return "";
+  }
+};
+
 async function withClient<T>(q: PostgresQuery, fn: (c: Client) => Promise<T>): Promise<T> {
   const cfg: ClientConfig = {
     connectionString: q.connectionString,
@@ -56,6 +80,7 @@ async function withClient<T>(q: PostgresQuery, fn: (c: Client) => Promise<T>): P
   };
   const client = new Client(cfg);
   try {
+    await assertPublicDbHost(hostOfConnection(q.connectionString));
     await client.connect();
     await client.query("SET default_transaction_read_only = on");
     return await fn(client);

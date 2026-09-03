@@ -1,4 +1,5 @@
 // Outbound webhooks: URL policy (SSRF), HMAC-SHA256 signing, retry schedule and payload shape. Pure; no I/O (docs/WEBHOOKS.md).
+import { checkPublicHttpsUrl } from "./ssrf";
 
 export const WEBHOOK_EVENTS = [
   { type: "milestone.reached", label: "Milestone reached", blurb: "User / activated / converted thresholds, Top 10 / Top 100 entries, records and streaks." },
@@ -15,7 +16,6 @@ export const WEBHOOK_EVENT_TYPES = WEBHOOK_EVENTS.map((e) => e.type) as WebhookE
 export const WEBHOOK_API_VERSION = "2026-09-01";
 export const WEBHOOK_TIMEOUT_MS = 10_000;
 export const MAX_ENDPOINTS = 10;
-export const MAX_URL_LENGTH = 2048;
 // Attempt n waits RETRY_DELAYS_MS[n-1] after the previous failure: immediate, 5 min, 30 min, 2 h, 12 h → 5 attempts, then exhausted.
 export const RETRY_DELAYS_MS = [0, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 12 * 3_600_000] as const;
 export const MAX_ATTEMPTS = RETRY_DELAYS_MS.length;
@@ -30,66 +30,10 @@ export function nextAttemptDelay(attempt: number) {
 
 // ---- URL policy --------------------------------------------------------------------------------------------------------
 
-const BLOCKED_HOST_SUFFIXES = [".localhost", ".local", ".internal", ".lan", ".home", ".corp", ".intranet", ".railway.internal", ".convex.cloud", ".convex.site"];
-const BLOCKED_HOSTS = new Set(["localhost", "metadata.google.internal", "metadata", "instance-data", "kubernetes.default.svc"]);
+export { MAX_URL_LENGTH, allPublic, isPrivateIp, type UrlCheck } from "./ssrf";
 
-export type UrlCheck = { ok: true; url: string; host: string } | { ok: false; reason: string };
-
-// Accepts only public https URLs (http is allowed for nothing — HTTPS is mandatory). Literal IPs must be public.
-export function checkWebhookUrl(raw: string): UrlCheck {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0 || trimmed.length > MAX_URL_LENGTH) return { ok: false, reason: "Enter a URL" };
-  let u: URL;
-  try {
-    u = new URL(trimmed);
-  } catch {
-    return { ok: false, reason: "Not a valid URL" };
-  }
-  if (u.protocol !== "https:") return { ok: false, reason: "Webhook URLs must use https://" };
-  if (u.username || u.password) return { ok: false, reason: "Credentials in the URL are not allowed" };
-  const host = u.hostname.toLowerCase().replace(/\.$/, "");
-  if (!host || BLOCKED_HOSTS.has(host) || BLOCKED_HOST_SUFFIXES.some((s) => host.endsWith(s))) return { ok: false, reason: "Internal or local hostnames are not allowed" };
-  if (!host.includes(".") && !isIp(host)) return { ok: false, reason: "Use a fully qualified public hostname" };
-  if (isIp(host) && isPrivateIp(host)) return { ok: false, reason: "Private, loopback, link-local and metadata addresses are not allowed" };
-  return { ok: true, url: u.toString(), host };
-}
-
-const isIp = (host: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":") || /^\[.*\]$/.test(host);
-
-// RFC 1918 / 6598 / loopback / link-local / metadata / multicast / unspecified for IPv4, plus ULA / link-local / loopback / v4-mapped for IPv6.
-export function isPrivateIp(ip: string): boolean {
-  const v4 = ip.replace(/^\[|\]$/g, "");
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v4)) {
-    const [a, b] = v4.split(".").map(Number);
-    if ([a, b].some((n) => n > 255)) return true;
-    return (
-      a === 0 || a === 10 || a === 127 || a >= 224 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 192 && b === 0) ||
-      (a === 198 && (b === 18 || b === 19))
-    );
-  }
-  const v6 = v4.toLowerCase();
-  if (v6 === "::" || v6 === "::1") return true;
-  if (v6.startsWith("::ffff:")) {
-    const rest = v6.slice(7);
-    if (rest.includes(".")) return isPrivateIp(rest);
-    // URL parsing normalizes v4-mapped addresses to hex groups (::ffff:a00:1) — expand them back.
-    const [hi, lo] = rest.split(":").map((g) => parseInt(g || "0", 16));
-    return isPrivateIp(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
-  }
-  if (/^fe[89ab]/.test(v6) || /^f[cd]/.test(v6) || v6.startsWith("ff")) return true;
-  if (v6.startsWith("64:ff9b:")) return true;
-  return false;
-}
-
-// DNS answers (resolved right before delivery) must all be public, or the delivery is refused.
-export function allPublic(addresses: string[]) {
-  return addresses.length > 0 && addresses.every((a) => !isPrivateIp(a));
-}
+// Accepts only public https URLs (any port); our own Convex deployments are refused as well. Generic policy lives in ./ssrf.ts.
+export const checkWebhookUrl = (raw: string) => checkPublicHttpsUrl(raw, { what: "Webhook URLs", anyPort: true, blockSuffixes: [".convex.site"] });
 
 // ---- Signing ---------------------------------------------------------------------------------------------------------
 

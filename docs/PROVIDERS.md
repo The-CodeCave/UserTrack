@@ -85,6 +85,18 @@ Today `postgres` and `supabase` in database mode are the only Node-runtime sourc
 - Backfills run through `mapLimit` where a provider needs one request per day (Clerk: 4 in flight).
 - Postgres: connect timeout 10 s, statement/query timeout 20 s; `57014` (statement timeout) and network timeouts are retryable, everything else is a configuration error.
 
+## Security (SSRF policy, v1.0 — SEC-3)
+
+Every founder-supplied host goes through the same policy as outbound webhooks; the generic parts live in `convex/lib/ssrf.ts` (`checkPublicHttpsUrl`, `isBlockedHost`, `isPrivateIp`, `canonicalIpv4`, `allPublic`, `resolvePublicHost`) and `convex/lib/webhooks.ts` only wraps it (`checkWebhookUrl` = any port + `*.convex.site` refused).
+
+**At validate time** (`validate(config, role)`, i.e. the wizard, `integrations.create/update`, `usertrack_configure_integration`): the URL must be `https://` without userinfo; the host must not be an internal name (`localhost`, `*.local`, `*.internal`, `*.lan`, `*.home`, `*.corp`, `*.intranet`, `*.railway.internal`, metadata hosts), not `*.convex.cloud`, not one of **our own** hostnames (`SITE_URL`, `NEXT_PUBLIC_SITE_URL`, `CONVEX_SITE_URL`, `CONVEX_CLOUD_URL`), and not a private / loopback / link-local / metadata / multicast / unspecified IP literal in any spelling (`10.0.0.1`, `2130706433`, `0x7f000001`, `0177.0.0.1`, `127.1`, `[::1]`, `[::ffff:10.0.0.1]`, …). Ports: `endpoint` and `native` accept any port (the founder's own app), every API host (PostHog, Plausible, Supabase API mode, Auth0 custom domains) only 443 / 8443. Applies to `endpoint.url`, `native.url`, `posthog.host`, `plausible.host`, `supabase.url` (still `*.supabase.co`) and `auth0.domain`. Firebase, GA4, Clerk, Stripe, RevenueCat, Paddle, Lemon Squeezy and Chargebee only call fixed vendor hosts and need no host check.
+
+**At fetch time** (every sync, verify and backfill): providers expose `hosts(config)`; `convex/providerRun.ts` (`assertPublicHosts`) resolves each host through Cloudflare DNS-over-HTTPS (A + AAAA) right before calling `fetch` / `fetchHistory` and refuses the source when any answer is private, when the name does not resolve, or when a stored (pre-SEC-3) config still carries a blocked host — with one generic non-retryable `ProviderError` (`blocked: private or internal address — …`) so timing or wording cannot serve as a port-scan oracle. `fetchJson` (and the raw `fetch` calls in Supabase API mode and the native pull) send `redirect: "manual"` and turn any 3xx into the non-retryable *"Endpoint redirected — point the URL at the final location"*; every provider request is bounded by `AbortSignal.timeout(15 s)`.
+
+**Postgres / Supabase database mode** (`convex/node/postgres.ts`, `assertPublicDbHost`): before `client.connect()` the hostname is resolved with Node `dns.lookup(host, { all: true })` and refused when it is a blocked name or any address is private / loopback / link-local / ULA; IP literals are checked directly. The refusal maps through `explain()` to *"blocked: private or internal address — … (use your provider's public hostname or connection pooler)"* (`retryable: false`). `UT_ALLOW_PRIVATE_DB=1` on the Convex deployment lifts only this database check for local development against a database on the same machine — never set it in production.
+
+Tests: `convex/lib/ssrf.test.ts`, `convex/providers/ssrf.test.ts`, `convex/providerRun.test.ts`, `convex/node/postgres.guard.test.ts`.
+
 ## Provider matrix
 
 | Provider | Roles | Credential (least privilege) | Reads | Capabilities | History backfill | Known limits |
@@ -166,7 +178,7 @@ Epoch columns compare against `extract(epoch from $n::timestamptz)` (× 1000 for
 
 ### SSL
 
-`defaultSsl(host, params)`: `sslmode=disable` → `disable`; any other `sslmode` → `require`; no `sslmode` → `disable` for `localhost`, `127.0.0.1`, `::1`, `*.local`, otherwise `require`. The wizard's `auto` passes no value so this default applies. `require` uses `{ rejectUnauthorized: false }` (encrypted transport, provider certificates accepted without a CA bundle).
+`defaultSsl(host, params)`: `sslmode=disable` → `disable`; any other `sslmode` → `require`; no `sslmode` → `disable` for `localhost`, `127.0.0.1`, `::1`, `*.local`, otherwise `require` (such hosts only connect with `UT_ALLOW_PRIVATE_DB=1`, see Security). The wizard's `auto` passes no value so this default applies. `require` uses `{ rejectUnauthorized: false }` (encrypted transport, provider certificates accepted without a CA bundle).
 
 ### Error mapping (`explain()` in `convex/node/postgres.ts`)
 

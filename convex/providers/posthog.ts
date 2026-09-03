@@ -1,4 +1,5 @@
-import { asCount, fetchJson, hostOf, IDENTITY_CAP, type HistoryPoint, type Provider, type ProviderMetrics, type StageIdentities } from "./types";
+import { checkPublicHttpsUrl } from "../lib/ssrf";
+import { asCount, fetchJson, hostOf, hostnameOf, IDENTITY_CAP, type HistoryPoint, type Provider, type ProviderMetrics, type StageIdentities } from "./types";
 
 export interface PostHogConfig { host: string; projectId: string; apiKey: string; activationEvent?: string }
 
@@ -37,6 +38,8 @@ export const posthog: Provider<PostHogConfig> = {
     const apiKey = cfg?.apiKey?.trim() ?? "";
     const activationEvent = cfg?.activationEvent?.trim() || undefined;
     if (!/^https:\/\//.test(host) || !hostOf(host)) return { ok: false, error: "Host must be an https URL (e.g. https://eu.posthog.com)" };
+    const check = checkPublicHttpsUrl(host, { what: "The PostHog host" });
+    if (!check.ok) return { ok: false, error: check.reason };
     if (!/^\d+$/.test(projectId)) return { ok: false, error: "Enter the numeric project ID" };
     if (!apiKey) return { ok: false, error: "Enter a personal API key" };
     if (activationEvent && (activationEvent.length > 120 || activationEvent.includes("'"))) return { ok: false, error: "Invalid event name" };
@@ -67,4 +70,5 @@ export const posthog: Provider<PostHogConfig> = {
     return { metric: "activatedUsers", points: points.map((p) => ({ day: p.day, value: (running += p.value) })) };
   },
   publicConfig: ({ host, projectId, activationEvent }) => ({ host: hostOf(host) ?? host, project: projectId, event: activationEvent ?? "—" }),
+  hosts: ({ host }) => [hostnameOf(host)],
 };

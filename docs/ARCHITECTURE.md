@@ -101,6 +101,7 @@ interface Provider<Config> {
 ```
 - **Capability model.** `describeProvider(p, config, role)` is what one configured source can deliver; it drives the connect wizard's capability list, `integrations.test` / `usertrack_verify_integration`, the manage page and the funnel's per-stage provenance. Postgres, Supabase and Firebase override `describe()` because ranges/history depend on the configuration (timestamp column, custom SQL, scan enabled).
 - **Verification levels.** `verificationLevel(kind, trust, caps, role)` → `self_reported` (trust ≠ verified, or manual) · `partially_verified` (verified `users` source that can read neither totals nor ranges) · `verified`. This is the *source* wording; the *SaaS* wording (`publicTrustLabel`) still comes from the trust score below.
+- **SSRF policy (v1.0, SEC-3).** `convex/lib/ssrf.ts` is shared by providers and webhooks: `checkPublicHttpsUrl` at validate time (https only, no userinfo, no internal names / own deployment hosts / private IP literals in any spelling, ports 443 / 8443 unless the provider is `endpoint` / `native`), `resolvePublicHost` (Cloudflare DoH, all answers public) right before every fetch through `providerRun.assertPublicHosts(p.hosts?.(config))`, `fetchJson` with `redirect: "manual"` + 15 s timeout, and `assertPublicDbHost` (`dns.lookup`, `UT_ALLOW_PRIVATE_DB=1` escape hatch for local dev) before any Postgres connection. One generic error, `retryable: false`. `docs/PROVIDERS.md` → Security.
 - **Runtime dispatch.** `convex/providerRun.ts` is the only switch: `runtime() !== "node"` → `provider.fetch` in V8; otherwise `ctx.runAction(internal.node.postgres.fetch | fetchHistory, { pg: toPostgres(config, role) })`. `convex/node/postgres.ts` (`"use node"`, `pg` listed in `convex.json` → `node.externalPackages`) opens a read-only session (`SET default_transaction_read_only = on`), 10 s connect / 20 s statement timeouts, runs only `count(*)` / `GROUP BY day` / `version()` / catalog listings, and maps driver errors to secret-free `{ message, retryable }` (`explain()`), re-thrown as `ProviderError` on the V8 side. Same file serves the wizard (`introspect`: tables ≤ 200 with row estimates, or columns + suggested mapping + preview count).
 
 | Provider | Roles | Runtime | Reads | History |
@@ -199,7 +200,7 @@ producer (addMilestones · rerank · sync spike/verified · lifecycle failed/rec
         ├─ owner's active endpoints subscribed to `type` (optional single-project scope); demo products never emit
         ├─ eventId = evt_<type>_<saasId>_<key> (deterministic) → skip endpoints that already have a delivery
         └─ insert webhookDeliveries{pending} + scheduler.runAfter(0, webhooks.deliver)
-   webhooks.deliver (action): URL policy → DoH resolve (all answers public) → HMAC-SHA256 `${ts}.${body}` →
+   webhooks.deliver (action): URL policy → DoH resolve (all answers public; both from lib/ssrf.ts) → HMAC-SHA256 `${ts}.${body}` →
                               POST (10 s timeout, no redirects) → recordAttempt: success | failed (+ retry 5m/30m/2h/12h) | exhausted
    hourly retrySweep re-queues lost retries; 25 consecutive failures disable the endpoint
 ```
