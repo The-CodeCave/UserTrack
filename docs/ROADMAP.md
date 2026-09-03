@@ -65,7 +65,7 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 - Share Card Studio (Blueprint / Aurora / Minimal, 1200×630 + 1080×1080, timeframes, toggles, title; Download / Copy image / Copy link / Post to X) with share buttons on every major metric, chart, rank, benchmark, milestone and the founder page; deterministic, rate-limited, cacheable card URLs; honest chart scale. `docs/SHARING.md`.
 - Share engine (`shareEvents`, significance floors, one-time keys, monthly benchmark cards) + Share Center; drafts for X; milestone emails link to the Center.
 - X OAuth 2.0 PKCE + opt-in auto-posting and the separate UserTrack-account pathway (OAuth 1.0a), all feature-flagged with human setup in `HUMAN_TODO.md`. `docs/SOCIAL.md`.
-- API `/users/{username}` aggregates + `/history`; MCP +6 tools (35) and the share workflow.
+- API `/users/{username}` aggregates + `/history`; MCP +6 tools (36) and the share workflow.
 
 ## Next opportunities
 0. **Real-world adapter runs** — the Prisma / Drizzle / Convex / Auth.js adapters are tested against fakes and rendered SQL; one live founder integration per adapter (see `packages/node/HUMAN_TODO.md`) would confirm the count semantics end to end, then publish the three packages.

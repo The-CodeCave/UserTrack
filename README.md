@@ -87,7 +87,7 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | Command | Purpose |
 |---|---|
 | `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
-| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (381 tests in 44 files: metrics, funnel, trending, trust, milestones, benchmarks, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, share, rate limit, email rules, templates, tokens, webhook signatures, MCP tools, and `convex-test` function tests for discovery / dedupe / preferences / lifecycle / milestones / reports / gateway) |
+| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (387 tests in 44 files: metrics, funnel, trending, trust, milestones, benchmarks, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, share, rate limit, email rules, templates, tokens, webhook signatures, MCP tools, and `convex-test` function tests for discovery / dedupe / preferences / lifecycle / milestones / reports / gateway) |
 | `node scripts/email-preview.mjs` | Render every email template with sample data to `/tmp/ut-emails/*.html` |
 | `pnpm packages:build` · `pnpm packages:test` · `pnpm packages:typecheck` | Build / test / typecheck every workspace package (`@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth`; 61 tests) |
 | `pnpm convex:dev` · `pnpm convex:deploy` | Convex dev watch · deploy to prod |

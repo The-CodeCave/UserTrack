@@ -279,6 +279,6 @@ Goal: every meaningful growth event is one click from a designed, shareable asse
 
 ### Epic 71 — Platform (P1)
 - ☑ **71.1 API** — `/users/{username}` aggregates, `/users/{username}/history`, OpenAPI, DTOs. Done.
-- ☑ **71.2 MCP** — 6 tools, `profile:write`, share workflow, tests (35). Done.
+- ☑ **71.2 MCP** — 6 tools, `profile:write`, share workflow, tests (36). Done.
 - ☑ **71.3 Docs** — PROFILES, SHARING, SOCIAL, ARCHITECTURE, API, MCP, ASSUMPTIONS, ROADMAP, CHANGELOG, README, HUMAN_TODO. Done.
 - ☑ **71.4 QA + deploy** — lint / typecheck / tests / build, screenshots desktop + mobile, push main, Railway, production smoke. Done.
