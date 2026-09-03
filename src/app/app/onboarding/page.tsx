@@ -186,7 +186,7 @@ export default function OnboardingPage() {
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Connect a data source</h1>
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">Where your registered user count comes from. Read-only, synced every 4 hours. Verified sources get ranked.</p>
                 <Recommendation rec={rec} />
-                <ConnectSource saasId={saasId} platform={platform} recommended={rec.users ?? undefined} websiteUrl={saas?.websiteUrl} onConnected={() => setStep(5)} />
+                <ConnectSource saasId={saasId} platform={platform} recommended={rec.users ?? undefined} recommendedSource={rec.nativeSource} websiteUrl={saas?.websiteUrl} onConnected={() => setStep(5)} />
               </Panel>
             )}
             {!ai && step === 5 && saasId && (

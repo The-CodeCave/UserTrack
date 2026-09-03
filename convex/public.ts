@@ -10,7 +10,7 @@ import { stripPrivate, visibilityOf } from "./domain/visibility";
 import { publicTrustLabel } from "./lib/trust";
 import { explainTrending, trendingFactors } from "./lib/trending";
 import { trendingInputs } from "./leaderboard";
-import { getProvider } from "./providers";
+import { providerLabel } from "./providers";
 import { CATEGORIES } from "../src/lib/categories";
 
 const rangeArg = v.union(...RANGES.map((r) => v.literal(r)));
@@ -156,7 +156,7 @@ export const saasBySlug = query({
       ...publicSaas(s),
       owner: owner ? publicProfile(owner) : null,
       source: integrations.find((i) => (i.role ?? "users") === "users")?.provider ?? null,
-      sources: integrations.map((i) => ({ role: i.role ?? "users", provider: i.provider, label: getProvider(i.provider).label })),
+      sources: integrations.map((i) => ({ role: i.role ?? "users", provider: i.provider, label: providerLabel(i.provider, i.config) })),
       spark: await sparkline(ctx, s._id),
       milestones: milestones.map((m) => ({ _id: m._id, kind: m.kind, title: m.title, copy: m.copy, value: m.value, achievedAt: m.achievedAt })),
     };

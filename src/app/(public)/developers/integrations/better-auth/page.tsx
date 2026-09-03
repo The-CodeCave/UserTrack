@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { SnippetTabs } from "@/components/public/developers/snippet-tabs";
-import { CODE_MODIFICATION_RULES, ENV_EXAMPLE_SNIPPET, INSTALL_COMMANDS, PACKAGE_MANAGERS, PACKAGE_NAME, PLUGIN_MIN_BETTER_AUTH, PLUGIN_SNIPPET, WHAT_IS_SENT } from "@convex/lib/betterAuthSetup";
+import { CODE_MODIFICATION_RULES, ENV_EXAMPLE_SNIPPET, INSTALL_COMMANDS, PACKAGE_MANAGERS, PACKAGE_NAME, PLUGIN_MIN_BETTER_AUTH, PLUGIN_SNIPPET, WHAT_IS_SENT } from "@convex/lib/nativeSetup";
 import { BETTER_AUTH_AGENT_PROMPT, MCP_URL } from "@/lib/mcp/snippets";
 import { SITE_URL } from "@/lib/site";
 
@@ -18,14 +18,12 @@ const NAV = [["#overview", "Overview"], ["#install", "Install"], ["#verify", "Ve
 
 const RESPONSE = `{
   "protocolVersion": 1,
-  "pluginVersion": "0.1.0",
-  "provider": "better-auth",
+  "clientVersion": "0.2.0",
+  "source": "better-auth",
   "projectId": "<USERTRACK_PROJECT_ID>",
-  "generatedAt": "2026-09-02T08:00:00.000Z",
-  "totalUsers": 12481,
-  "newUsers": { "24h": 84, "7d": 491, "30d": 1832 },
-  "daily": [{ "day": "2026-08-04", "newUsers": 51 }, "…"],
-  "capabilities": { "exactCounts": true, "history": true, "anonymousExcluded": false }
+  "generatedAt": "2026-09-03T08:00:00.000Z",
+  "users": { "totalUsers": 12481, "newUsers": { "24h": 84, "7d": 491, "30d": 1832 }, "daily": [{ "day": "2026-08-04", "newUsers": 51 }, "…"] },
+  "capabilities": { "exactCounts": true, "history": true, "anonymousExcluded": false, "roles": ["users"] }
 }`;
 
 const TROUBLE = [
@@ -58,6 +56,7 @@ export default function BetterAuthDocsPage() {
       <p className="mt-3 max-w-2xl text-sm text-muted-foreground sm:text-base">
         <code className="font-mono text-foreground">{PACKAGE_NAME}</code> adds one signed, read-only endpoint to your Better Auth instance. UserTrack pulls aggregate user counts from it every 4 hours — verified, without emails, names or any user record leaving your app.
       </p>
+      <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Not on Better Auth? The same native protocol works for Prisma, Drizzle, Convex, Auth.js and custom apps with <Link href="/developers/integrations/native" className="underline-offset-2 hover:underline">@usertrack/node</Link>.</p>
 
       <nav aria-label="On this page" className="sticky top-14 z-30 -mx-4 mt-8 border-y border-line bg-background/90 px-4 backdrop-blur">
         <div className="flex gap-1 overflow-x-auto py-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -115,11 +114,11 @@ export default function BetterAuthDocsPage() {
           </Panel>
           <Panel className="p-4">
             <div className="text-sm font-medium">Push — freshness (optional)</div>
-            <p className="mt-1 text-sm text-muted-foreground">On <code className="font-mono">user.created</code> / <code className="font-mono">user.deleted</code> the plugin posts a signed event to <code className="font-mono">{SITE_URL}/api/integrations/better-auth/events</code> — after the database write, fire-and-forget, 3-second timeout, deduplicated by event id. The dashboard shows signups between syncs; the next pull always wins. Disable with <code className="font-mono">events: false</code>.</p>
+            <p className="mt-1 text-sm text-muted-foreground">On <code className="font-mono">user.created</code> / <code className="font-mono">user.deleted</code> the plugin posts a signed event to <code className="font-mono">{SITE_URL}/api/integrations/native/events</code> — after the database write, fire-and-forget, 3-second timeout, deduplicated by event id. The dashboard shows signups between syncs; the next pull always wins. Disable with <code className="font-mono">events: false</code>.</p>
           </Panel>
         </div>
         <div className="mt-4"><Code>{RESPONSE}</Code></div>
-        <p className="mt-2 font-mono text-[11px] text-muted-foreground">Compatibility: UserTrack checks <code>protocolVersion</code> (supported: 1) and <code>pluginVersion</code> (minimum 0.1.0) on every sync and shows an actionable error when the plugin is outdated.</p>
+        <p className="mt-2 font-mono text-[11px] text-muted-foreground">Compatibility: UserTrack checks <code>protocolVersion</code> (supported: 1) and <code>clientVersion</code> (minimum 0.1.0; 0.1.x plugins that still send the users-only shape keep working) on every sync and shows an actionable error when the plugin is outdated.</p>
       </section>
 
       <section className="mt-14">
@@ -134,7 +133,7 @@ export default function BetterAuthDocsPage() {
         <H2 id="mcp" label="AI setup">Let your coding agent do it</H2>
         <p className="mt-4 text-sm text-muted-foreground">Connect the UserTrack MCP server (<code className="font-mono">{MCP_URL}</code>, token from <Link href="/app/developer" className="underline-offset-2 hover:underline">your developer page</Link>) to Claude Code, Cursor, Codex or VS Code and send:</p>
         <div className="mt-3"><Code>{BETTER_AUTH_AGENT_PROMPT}</Code></div>
-        <p className="mt-3 text-sm text-muted-foreground">The agent calls <code className="font-mono">usertrack_create_integration</code> (receives the secret once), <code className="font-mono">usertrack_get_better_auth_setup</code> (install command for npm / pnpm / yarn / bun, code change, env vars) and <code className="font-mono">usertrack_verify_integration</code>. The instructions it receives include these safety rules:</p>
+        <p className="mt-3 text-sm text-muted-foreground">The agent calls <code className="font-mono">usertrack_create_integration</code> (receives the secret once), <code className="font-mono">usertrack_get_native_setup</code> with <code className="font-mono">source: &quot;better-auth&quot;</code> (install command for npm / pnpm / yarn / bun, code change, env vars) and <code className="font-mono">usertrack_verify_integration</code>. The instructions it receives include these safety rules:</p>
         <ol className="mt-3 space-y-1.5 text-sm text-muted-foreground">
           {CODE_MODIFICATION_RULES.map((r, i) => <li key={i} className="flex gap-2"><span className="font-mono text-pink">{String(i + 1).padStart(2, "0")}</span><span>{r}</span></li>)}
         </ol>

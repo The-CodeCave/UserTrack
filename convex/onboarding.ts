@@ -36,8 +36,8 @@ export const agentSetupStatus = query({
     const flags = [
       { key: "agent", label: "Agent connected", done: token.lastUsedAt !== undefined, at: token.lastUsedAt },
       { key: "project", label: "UserTrack project created", done: Boolean(saas), at: saas?._creationTime },
-      { key: "integration", label: users ? (users.provider === "better_auth" ? "Better Auth integration created" : `Connecting ${users.label}`) : "Configuring data source", done: Boolean(users), at: users?.connectedAt },
-      ...(users?.provider === "better_auth" ? [{ key: "deploy", label: "Plugin installed & deployed", done: !users.awaitingVerification, at: users.verifiedAt }] : []),
+      { key: "integration", label: users ? (users.provider === "native" ? `${users.label} integration created` : `Connecting ${users.label}`) : "Configuring data source", done: Boolean(users), at: users?.connectedAt },
+      ...(users?.provider === "native" ? [{ key: "deploy", label: "SDK installed & deployed", done: !users.awaitingVerification, at: users.verifiedAt }] : []),
       { key: "verified", label: "Verifying data", done: Boolean(users && !users.awaitingVerification && (users.status === "ok" || verified)), at: users?.lastSuccessAt ?? verified?.at },
       { key: "sync", label: "First sync complete", done: saas?.lastSyncedAt !== undefined, at: saas?.lastSyncedAt },
       { key: "published", label: "Published", done: Boolean(saas?.isPublic), at: undefined },

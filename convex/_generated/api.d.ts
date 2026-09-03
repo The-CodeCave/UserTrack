@@ -9,7 +9,6 @@
  */
 
 import type * as auth from "../auth.js";
-import type * as betterAuth from "../betterAuth.js";
 import type * as cohorts from "../cohorts.js";
 import type * as crons from "../crons.js";
 import type * as daily from "../daily.js";
@@ -41,14 +40,14 @@ import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
 import type * as leaderboard from "../leaderboard.js";
 import type * as lib_benchmarks from "../lib/benchmarks.js";
-import type * as lib_betterAuthProtocol from "../lib/betterAuthProtocol.js";
-import type * as lib_betterAuthSetup from "../lib/betterAuthSetup.js";
 import type * as lib_domain from "../lib/domain.js";
 import type * as lib_emailRules from "../lib/emailRules.js";
 import type * as lib_identity from "../lib/identity.js";
 import type * as lib_integrationSetup from "../lib/integrationSetup.js";
 import type * as lib_metrics from "../lib/metrics.js";
 import type * as lib_milestones from "../lib/milestones.js";
+import type * as lib_nativeProtocol from "../lib/nativeProtocol.js";
+import type * as lib_nativeSetup from "../lib/nativeSetup.js";
 import type * as lib_retention from "../lib/retention.js";
 import type * as lib_spikes from "../lib/spikes.js";
 import type * as lib_time from "../lib/time.js";
@@ -56,12 +55,12 @@ import type * as lib_tokens from "../lib/tokens.js";
 import type * as lib_trending from "../lib/trending.js";
 import type * as lib_trust from "../lib/trust.js";
 import type * as migrations from "../migrations.js";
+import type * as native from "../native.js";
 import type * as node_postgres from "../node/postgres.js";
 import type * as onboarding from "../onboarding.js";
 import type * as profiles from "../profiles.js";
 import type * as providerRun from "../providerRun.js";
 import type * as providers_auth0 from "../providers/auth0.js";
-import type * as providers_betterAuth from "../providers/betterAuth.js";
 import type * as providers_chargebee from "../providers/chargebee.js";
 import type * as providers_clerk from "../providers/clerk.js";
 import type * as providers_conversion from "../providers/conversion.js";
@@ -72,6 +71,7 @@ import type * as providers_google from "../providers/google.js";
 import type * as providers_index from "../providers/index.js";
 import type * as providers_lemonsqueezy from "../providers/lemonsqueezy.js";
 import type * as providers_manual from "../providers/manual.js";
+import type * as providers_native from "../providers/native.js";
 import type * as providers_paddle from "../providers/paddle.js";
 import type * as providers_plausible from "../providers/plausible.js";
 import type * as providers_postgres from "../providers/postgres.js";
@@ -95,7 +95,6 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
-  betterAuth: typeof betterAuth;
   cohorts: typeof cohorts;
   crons: typeof crons;
   daily: typeof daily;
@@ -127,14 +126,14 @@ declare const fullApi: ApiFromModules<{
   integrations: typeof integrations;
   leaderboard: typeof leaderboard;
   "lib/benchmarks": typeof lib_benchmarks;
-  "lib/betterAuthProtocol": typeof lib_betterAuthProtocol;
-  "lib/betterAuthSetup": typeof lib_betterAuthSetup;
   "lib/domain": typeof lib_domain;
   "lib/emailRules": typeof lib_emailRules;
   "lib/identity": typeof lib_identity;
   "lib/integrationSetup": typeof lib_integrationSetup;
   "lib/metrics": typeof lib_metrics;
   "lib/milestones": typeof lib_milestones;
+  "lib/nativeProtocol": typeof lib_nativeProtocol;
+  "lib/nativeSetup": typeof lib_nativeSetup;
   "lib/retention": typeof lib_retention;
   "lib/spikes": typeof lib_spikes;
   "lib/time": typeof lib_time;
@@ -142,12 +141,12 @@ declare const fullApi: ApiFromModules<{
   "lib/trending": typeof lib_trending;
   "lib/trust": typeof lib_trust;
   migrations: typeof migrations;
+  native: typeof native;
   "node/postgres": typeof node_postgres;
   onboarding: typeof onboarding;
   profiles: typeof profiles;
   providerRun: typeof providerRun;
   "providers/auth0": typeof providers_auth0;
-  "providers/betterAuth": typeof providers_betterAuth;
   "providers/chargebee": typeof providers_chargebee;
   "providers/clerk": typeof providers_clerk;
   "providers/conversion": typeof providers_conversion;
@@ -158,6 +157,7 @@ declare const fullApi: ApiFromModules<{
   "providers/index": typeof providers_index;
   "providers/lemonsqueezy": typeof providers_lemonsqueezy;
   "providers/manual": typeof providers_manual;
+  "providers/native": typeof providers_native;
   "providers/paddle": typeof providers_paddle;
   "providers/plausible": typeof providers_plausible;
   "providers/postgres": typeof providers_postgres;

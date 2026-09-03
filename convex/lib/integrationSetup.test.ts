@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { INTEGRATION_CATALOG, conversionSetup, detectAuthMethods, identityMappingGuidance, integrationSetup, normalizeDetected, rankActivationEvents, recommendIntegrations } from "./integrationSetup";
+import { INTEGRATION_CATALOG, conversionSetup, detectAuthMethods, detectNativeSource, identityMappingGuidance, integrationSetup, normalizeDetected, rankActivationEvents, recommendIntegrations } from "./integrationSetup";
 
 describe("integration catalog", () => {
   it("covers every provider with credentials and never-sent rules", () => {
-    expect(INTEGRATION_CATALOG.map((c) => c.provider).sort()).toEqual(["auth0", "better_auth", "chargebee", "clerk", "endpoint", "firebase", "ga4", "lemonsqueezy", "manual", "paddle", "plausible", "postgres", "posthog", "revenuecat", "stripe", "supabase"]);
+    expect(INTEGRATION_CATALOG.map((c) => c.provider).sort()).toEqual(["auth0", "chargebee", "clerk", "endpoint", "firebase", "ga4", "lemonsqueezy", "manual", "native", "paddle", "plausible", "postgres", "posthog", "revenuecat", "stripe", "supabase"]);
     for (const c of INTEGRATION_CATALOG) {
       expect(c.credentials.length, c.provider).toBeGreaterThan(0);
       expect(c.neverSent).toContain("emails");
@@ -26,10 +26,17 @@ describe("integration catalog", () => {
 describe("recommendIntegrations", () => {
   it("maps package names to providers", () => {
     expect(normalizeDetected(["@clerk/nextjs", "posthog-js", "stripe"]).map((d) => d.provider)).toEqual(["clerk", "posthog", "stripe"]);
-    expect(normalizeDetected(["better-auth", "drizzle-orm", "convex"]).map((d) => d.provider)).toEqual(["better_auth", "endpoint", "endpoint"]);
-    expect(normalizeDetected(["@better-auth/core", "BETTER_AUTH_SECRET", "@convex-dev/better-auth"]).map((d) => d.provider)).toEqual(["better_auth", "better_auth", "better_auth"]);
+    expect(normalizeDetected(["better-auth", "drizzle-orm", "convex", "next-auth", "@auth/core", "lucia", "mongoose"]).map((d) => d.provider)).toEqual(["native", "native", "native", "native", "native", "native", "native"]);
+    expect(normalizeDetected(["@better-auth/core", "BETTER_AUTH_SECRET", "@convex-dev/better-auth"]).map((d) => d.provider)).toEqual(["native", "native", "native"]);
     expect(normalizeDetected(["left-pad"])).toEqual([]);
-    expect(normalizeDetected(["pg", "DATABASE_URL", "@neondatabase/serverless", "prisma:postgresql"]).map((d) => d.provider)).toEqual(["postgres", "postgres", "postgres", "postgres"]);
+    expect(normalizeDetected(["pg", "DATABASE_URL", "@neondatabase/serverless", "prisma:postgresql"]).map((d) => d.provider)).toEqual(["postgres", "postgres", "postgres", "native"]);
+    expect(detectNativeSource(["@prisma/client", "better-auth"])).toBe("better-auth");
+    expect(detectNativeSource(["next-auth", "@auth/prisma-adapter", "@prisma/client"])).toBe("authjs");
+    expect(detectNativeSource(["convex", "drizzle-orm"])).toBe("convex");
+    expect(detectNativeSource(["@prisma/client", "drizzle-orm"])).toBe("prisma");
+    expect(detectNativeSource(["drizzle-orm"])).toBe("drizzle");
+    expect(detectNativeSource(["lucia", "kysely"])).toBe("custom");
+    expect(detectNativeSource(["@clerk/nextjs"])).toBeUndefined();
   });
 
   it("maps mobile SDKs and payment providers, and never treats sign-in methods as providers", () => {
@@ -47,14 +54,28 @@ describe("recommendIntegrations", () => {
     // Supabase → Clerk → Firebase → Auth0 → Postgres → endpoint: least setup first.
     expect(recommendIntegrations({ detectedProviders: ["@clerk/nextjs", "@supabase/supabase-js"] }).recommended.provider).toBe("supabase");
     expect(recommendIntegrations({ detectedProviders: ["@clerk/nextjs", "pg"] }).recommended.provider).toBe("clerk");
-    expect(recommendIntegrations({ detectedProviders: ["better-auth", "@prisma/client"] }).recommended.provider).toBe("better_auth");
-    expect(recommendIntegrations({ detectedProviders: ["next-auth", "@prisma/client"] }).recommended.provider).toBe("endpoint");
+    expect(recommendIntegrations({ detectedProviders: ["better-auth", "@prisma/client"] }).recommended.provider).toBe("native");
+    const authjs = recommendIntegrations({ detectedProviders: ["next-auth", "@prisma/client"] });
+    expect(authjs.recommended.provider).toBe("native");
+    expect(authjs.nativeSource).toBe("authjs");
+    expect(authjs.composition.users).toMatchObject({ provider: "native", source: "authjs" });
+    expect(authjs.reasoning[0]).toMatch(/@usertrack\/node.*authjs/);
     const ba = recommendIntegrations({ detectedProviders: ["better-auth", "pg"] });
-    expect(ba.recommended.provider).toBe("better_auth");
+    expect(ba.recommended.provider).toBe("native");
+    expect(ba.nativeSource).toBe("better-auth");
     expect(ba.reasoning.join(" ")).toMatch(/@usertrack\/better-auth/);
+    // Strong native signals (Better Auth / Auth.js / Convex) beat hosted auth providers; ORM-only signals do not.
+    expect(recommendIntegrations({ detectedProviders: ["convex", "@clerk/nextjs"] }).recommended.provider).toBe("native");
+    expect(recommendIntegrations({ detectedProviders: ["@prisma/client", "@clerk/nextjs"] }).recommended.provider).toBe("clerk");
+    const prisma = recommendIntegrations({ detectedProviders: ["@prisma/client", "pg"] });
+    expect(prisma.recommended.provider).toBe("native");
+    expect(prisma.nativeSource).toBe("prisma");
+    expect(prisma.optionalExtras.map((e) => `${e.role}:${e.provider}`)).toEqual(["activation:native", "conversion:native"]);
+    expect(recommendIntegrations({ detectedProviders: ["@prisma/client", "stripe"] }).optionalExtras.map((e) => `${e.role}:${e.provider}`)).toEqual(["activation:native", "conversion:stripe"]);
     const pg = recommendIntegrations({ detectedProviders: ["lucia", "pg"] });
-    expect(pg.recommended.provider).toBe("postgres");
-    expect(pg.optionalExtras.map((e) => `${e.role}:${e.provider}`)).toEqual(["activation:postgres"]);
+    expect(pg.recommended.provider).toBe("native");
+    expect(pg.nativeSource).toBe("custom");
+    expect(recommendIntegrations({ detectedProviders: ["pg"] }).recommended.provider).toBe("postgres");
     expect(recommendIntegrations({}).recommended.provider).toBe("endpoint");
     expect(recommendIntegrations({ detectedProviders: ["manual"] }).recommended.provider).toBe("endpoint");
   });
@@ -175,12 +196,36 @@ describe("integrationSetup", () => {
   });
 
   it("adds repo steps and a code template for the endpoint provider", () => {
-    const s = integrationSetup({ provider: "endpoint", framework: "nextjs", detectedProviders: ["better-auth", "@prisma/client"], websiteUrl: "https://acme.dev" })!;
+    const s = integrationSetup({ provider: "endpoint", framework: "nextjs", detectedProviders: ["mongoose"], websiteUrl: "https://acme.dev" })!;
     expect(s.steps.slice(0, 3).map((x) => x.action)).toEqual(["modify_repo", "modify_repo", "deploy"]);
     expect(s.codeTemplates[0].path).toBe("app/api/usertrack/route.ts");
-    expect(s.codeTemplates[0].code).toContain("prisma.user.count()");
     expect(s.codeTemplates[0].code).toContain("USERTRACK_ENDPOINT_TOKEN");
     expect(integrationSetup({ provider: "endpoint", framework: "express" })!.codeTemplates[0].framework).toBe("express");
+  });
+
+  it("native setup is source-aware: Better Auth plugin vs @usertrack/node route", () => {
+    const ba = integrationSetup({ provider: "native", framework: "pnpm", detectedProviders: ["better-auth", "@prisma/client"], projectId: "abc" })!;
+    expect(ba).toMatchObject({ source: "better-auth", package: "@usertrack/better-auth", nextTool: "usertrack_get_native_setup", trust: "verified" });
+    expect(ba.steps.map((x) => x.id)).toEqual(["native:create", "native:install", "native:config", "native:env", "native:check", "native:deploy", "native:verify", "native:sync", "native:publish"]);
+    expect(ba.steps[1].detail).toContain("pnpm add @usertrack/better-auth");
+    expect(ba.codeTemplates.map((t) => t.path)).toEqual(["lib/auth.ts (your Better Auth config)", ".env.example"]);
+    const prisma = integrationSetup({ provider: "native", framework: "bun", detectedProviders: ["@prisma/client"], projectId: "abc" })!;
+    expect(prisma).toMatchObject({ source: "prisma", package: "@usertrack/node" });
+    expect(prisma.steps.map((x) => x.id)).toContain("native:push");
+    expect(prisma.steps[1].detail).toContain("bun add @usertrack/node");
+    expect(prisma.codeTemplates[0].path).toBe("app/api/usertrack/metrics/route.ts");
+    expect(prisma.codeTemplates[0].code).toContain("prismaUsers(prisma.user)");
+    expect(prisma.codeTemplates[0].code).toContain("createUserTrackHandler");
+    expect(prisma.codeTemplates.map((t) => t.path)).toContain("lib/prisma.ts");
+    const convex = integrationSetup({ provider: "native", detectedProviders: ["convex"] })!;
+    expect(convex.codeTemplates[0].code).toContain("httpAction(convexHandler(");
+    expect(convex.codeTemplates[0].code).toContain("countWithCap");
+    expect(integrationSetup({ provider: "native", detectedProviders: ["next-auth"] })!.codeTemplates[0].code).toContain("createdAtField: null");
+    expect(integrationSetup({ provider: "native", role: "activation" })).toMatchObject({ role: "activation", source: "custom" });
+    expect(JSON.stringify(integrationSetup({ provider: "native" }))).not.toMatch(/ut_int_[A-Za-z0-9]{10}/);
+    const conv = conversionSetup({ provider: "native", projectId: "abc" })!;
+    expect(conv.steps[0].id).toBe("native:conversion");
+    expect(conv.nextTool).toBe("usertrack_get_native_setup");
   });
 
   it("postgres setup starts with a read-only role and a SQL template", () => {

@@ -33,15 +33,16 @@ const EXPECTED = [
   "usertrack_get_identity_mapping",
   "usertrack_get_funnel_history",
   "usertrack_get_cohorts",
+  "usertrack_get_native_setup",
   "usertrack_get_better_auth_setup",
   "usertrack_create_integration",
 ];
 
 describe("MCP tool set", () => {
-  it("exposes exactly the 29 expected tools with unique names", () => {
+  it("exposes exactly the 30 expected tools with unique names", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toEqual(EXPECTED);
-    expect(new Set(names).size).toBe(29);
+    expect(new Set(names).size).toBe(30);
   });
 
   it("gives every tool a title, description and a known scope", () => {
@@ -80,5 +81,13 @@ describe("MCP tool set", () => {
     expect(Object.keys(rec.input).sort()).toEqual(["detectedAnalytics", "detectedAuth", "detectedPayments", "detectedProviders", "framework", "projectType"]);
     expect(rec.description).toMatch(/RevenueCat/);
     expect(TOOLS.find((t) => t.name === "usertrack_get_conversion_setup")!.description).toMatch(/never amounts/);
+  });
+
+  it("native tools accept every SDK source and keep the Better Auth alias", () => {
+    const create = TOOLS.find((t) => t.name === "usertrack_create_integration")!;
+    expect((create.input.provider as unknown as { options: string[] }).options).toEqual(["native", "better_auth"]);
+    expect((create.input.source as unknown as { unwrap(): { options: string[] } }).unwrap().options).toEqual(["better-auth", "prisma", "drizzle", "convex", "authjs", "custom"]);
+    expect(TOOLS.find((t) => t.name === "usertrack_get_better_auth_setup")!.description).toMatch(/Deprecated alias of usertrack_get_native_setup/);
+    expect(SERVER_INSTRUCTIONS).toMatch(/Native SDK flow/);
   });
 });

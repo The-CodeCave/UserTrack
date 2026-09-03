@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { getProvider, normalizeRole, ProviderError, type History, type LifecycleStage, type ProviderMetrics, type Role, type StageIdentities } from "./providers";
+import { getProvider, normalizeRole, ProviderError, providerLabel, type History, type LifecycleStage, type ProviderMetrics, type Role, type StageIdentities } from "./providers";
+import { recordReported } from "./domain/integrations";
 import { identitySalt, subjectHash } from "./lib/identity";
 import { fetchHistory, fetchMetrics, hasHistory } from "./providerRun";
 import { DAY, HOUR, dayKey, dayStart } from "./lib/time";
@@ -46,6 +47,7 @@ const metricsValidator = v.object({
   payingUsers: v.optional(v.number()),
   sourceVersion: v.optional(v.string()),
   protocolVersion: v.optional(v.number()),
+  reported: v.optional(v.object({ roles: v.array(v.union(v.literal("users"), v.literal("activation"), v.literal("traffic"), v.literal("conversion"))), history: v.boolean(), identity: v.boolean(), exactCounts: v.boolean() })),
 });
 const IDENTITY_BATCH = 500;
 
@@ -207,6 +209,7 @@ export const recordSuccess = internalMutation({
       saasId, integrationId, role, provider: integration.provider, startedAt, finishedAt: now, durationMs: now - startedAt, attempt, status: "ok", totalUsers: metrics.totalUsers,
     });
     await ctx.db.patch(integrationId, { status: "ok", trust, lastError: undefined, lastSyncAt: now, lastSuccessAt: now, consecutiveFailures: 0, ...(metrics.sourceVersion ? { pluginVersion: metrics.sourceVersion, protocolVersion: metrics.protocolVersion } : {}) });
+    if (metrics.reported) await recordReported(ctx, integration, metrics.reported);
 
     if (role === "users" && metrics.totalUsers !== undefined) {
       const totalUsers = metrics.totalUsers;
@@ -223,7 +226,7 @@ export const recordSuccess = internalMutation({
       await recomputeDerived(ctx, saasId, metrics);
       if (trust === "verified" && saas.verifiedAt === undefined && !saas.isDemo) {
         await ctx.db.patch(saasId, { verifiedAt: now });
-        await addOnceEvent(ctx, saasId, "verified", now, "Verified on UserTrack", `${saas.name} now syncs verified user counts read-only from ${getProvider(integration.provider).label}.`);
+        await addOnceEvent(ctx, saasId, "verified", now, "Verified on UserTrack", `${saas.name} now syncs verified user counts read-only from ${providerLabel(integration.provider, integration.config)}.`);
       }
 
       // Milestones, spikes and anomaly checks only for real (non-demo) products.

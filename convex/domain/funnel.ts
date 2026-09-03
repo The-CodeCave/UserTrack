@@ -162,7 +162,7 @@ export async function funnelSources(ctx: QueryCtx, saasId: Doc<"saas">["_id"]): 
     const p = getProvider(i.provider);
     if (i.lastSuccessAt === undefined && i.status !== "ok") continue;
     const caps = describeProvider(p, i.config, role);
-    out[role] = { provider: i.provider, label: p.label, verification: verificationLevel(i.provider, i.trust, caps, role), updatedAt: i.lastSuccessAt, status: i.status, trial: caps.trial, identity: caps.identity };
+    out[role] = { provider: i.provider, label: p.labelFor?.(i.config) ?? p.label, verification: verificationLevel(i.provider, i.trust, caps, role), updatedAt: i.lastSuccessAt, status: i.status, trial: caps.trial, identity: caps.identity };
   }
   return out;
 }

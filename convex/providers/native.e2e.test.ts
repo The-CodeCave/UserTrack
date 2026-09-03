@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { betterAuth as createBetterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { userTrack } from "../../packages/better-auth/src/index";
-import { betterAuth as provider, type BetterAuthStoredConfig } from "./betterAuth";
+import { native as provider, type NativeStoredConfig } from "./native";
 
 const PROJECT = "j57e2eproject";
 const SECRET = "ut_int_e2e_secret_0123456789";
@@ -16,7 +16,7 @@ function app() {
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => auth.handler(new Request(url, init))));
   return { auth, db };
 }
-const cfg: BetterAuthStoredConfig = { url: `${BASE}/api/auth`, secret: SECRET, secretHash: "", secretPrefix: "ut_int_e2e_", projectId: PROJECT, createdAt: 0 };
+const cfg: NativeStoredConfig = { url: `${BASE}/api/auth`, source: "better-auth", secret: SECRET, secretHash: "", secretPrefix: "ut_int_e2e_", projectId: PROJECT, createdAt: 0 };
 afterEach(() => vi.unstubAllGlobals());
 
 describe("UserTrack ⇄ @usertrack/better-auth end to end", () => {
@@ -26,7 +26,7 @@ describe("UserTrack ⇄ @usertrack/better-auth end to end", () => {
     await auth.api.signUpEmail({ body: { email: "b@example.com", password: "password-1234", name: "B" } });
     db.user!.push({ id: "old", email: "old@example.com", emailVerified: false, name: "Old", createdAt: new Date(Date.now() - 60 * 86_400_000), updatedAt: new Date() });
     const m = await provider.fetch(cfg, "users");
-    expect(m).toMatchObject({ totalUsers: 3, newUsers24h: 2, newUsers7d: 2, newUsers30d: 2, protocolVersion: 1 });
+    expect(m).toMatchObject({ totalUsers: 3, newUsers24h: 2, newUsers7d: 2, newUsers30d: 2, protocolVersion: 1, reported: { roles: ["users"] } });
     expect(m.sourceVersion).toMatch(/^\d+\.\d+\.\d+/);
     const h = await provider.fetchHistory!(cfg, "users", 7);
     expect(h?.points).toHaveLength(7);

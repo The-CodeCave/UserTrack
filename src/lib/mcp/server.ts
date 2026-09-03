@@ -4,7 +4,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
 import { PLANS } from "@convex/lib/tokens";
-import { AGENT_PROMPT, BETTER_AUTH_AGENT_PROMPT, MOBILE_AGENT_PROMPT } from "./snippets";
+import { AGENT_PROMPT, BETTER_AUTH_AGENT_PROMPT, MOBILE_AGENT_PROMPT, NATIVE_AGENT_PROMPT } from "./snippets";
 import { SERVER_INSTRUCTIONS, TOOLS } from "./tools";
 import { authorize, gatewayAuth, toFailure, type GatewayFailure } from "@/lib/api/gateway";
 import { hashSecret } from "@/lib/api/gateway";
@@ -60,6 +60,9 @@ export function createMcpServer(secret: string) {
   }));
   server.registerPrompt("add_better_auth_project_to_usertrack", { title: "Add this Better Auth project to UserTrack", description: "Native plugin onboarding: create the integration, install @usertrack/better-auth, register the plugin safely, set env vars, deploy, verify, sync, return the URL." }, () => ({
     messages: [{ role: "user", content: { type: "text", text: BETTER_AUTH_AGENT_PROMPT } }],
+  }));
+  server.registerPrompt("add_native_sdk_project_to_usertrack", { title: "Add this project to UserTrack with the native SDK", description: "Native SDK onboarding for Prisma / Drizzle / Convex / Auth.js / custom apps: create the integration, install @usertrack/node, mount one signed count handler, set env vars, deploy, verify, sync, return the URL." }, () => ({
+    messages: [{ role: "user", content: { type: "text", text: NATIVE_AGENT_PROMPT } }],
   }));
   return server;
 }

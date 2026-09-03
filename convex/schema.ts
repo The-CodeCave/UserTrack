@@ -4,6 +4,8 @@ import { v } from "convex/values";
 export const trustLevel = v.union(v.literal("verified"), v.literal("unverified"), v.literal("pending"));
 export const providerKind = v.union(
   v.literal("clerk"),
+  v.literal("native"),
+  // v0.6 name of "native" (Better Auth plugin); rows are migrated by migrations:nativeV1, the literal stays for old documents.
   v.literal("better_auth"),
   v.literal("supabase"),
   v.literal("firebase"),
@@ -188,7 +190,7 @@ export default defineSchema({
     // Email health state machine: one failure mail per unhealthy episode, one recovery mail when it ends.
     healthState: v.optional(v.union(v.literal("healthy"), v.literal("unhealthy"))),
     unhealthySince: v.optional(v.number()),
-    // Native-plugin sources (Better Auth): created before the founder deploys; excluded from scheduled syncs until verified once.
+    // Native SDK sources: created before the founder deploys; excluded from scheduled syncs until verified once.
     awaitingVerification: v.optional(v.boolean()),
     verifiedAt: v.optional(v.number()),
     // Version reported by the source-side integration on the last successful sync (compatibility diagnostics).
@@ -199,12 +201,12 @@ export default defineSchema({
     .index("by_saas", ["saasId"])
     .index("by_saas_role", ["saasId", "role"]),
 
-  // Lifecycle events pushed by native plugins (user.created / user.deleted). Pseudonymous subject only, deduped by eventId.
+  // Lifecycle events pushed by native SDKs. Pseudonymous subject only, deduped by eventId.
   integrationEvents: defineTable({
     integrationId: v.id("integrations"),
     saasId: v.id("saas"),
     eventId: v.string(),
-    type: v.union(v.literal("user.created"), v.literal("user.deleted")),
+    type: v.union(v.literal("user.created"), v.literal("user.deleted"), v.literal("user.activated"), v.literal("trial.started"), v.literal("user.converted")),
     subject: v.optional(v.string()),
     occurredAt: v.number(),
     receivedAt: v.number(),

@@ -12,7 +12,7 @@ describe("stackQuestions", () => {
   it("asks web identity, analytics, monetization", () => {
     const q = stackQuestions("web");
     expect(q.map((x) => x.key)).toEqual(["identity", "analytics", "monetization"]);
-    expect(q[0].options.map((o) => o.value)).toEqual(["clerk", "supabase", "firebase", "better_auth", "auth0", "postgres", "other"]);
+    expect(q[0].options.map((o) => o.value)).toEqual(["clerk", "supabase", "firebase", "better_auth", "authjs", "convex", "auth0", "postgres", "custom", "other"]);
     expect(q[2].options.map((o) => o.value)).toEqual(["stripe", "paddle", "lemonsqueezy", "chargebee", "none"]);
   });
   it("hybrid merges RevenueCat into web monetization", () => {
@@ -36,9 +36,14 @@ describe("recommendStack", () => {
     expect(users("supabase")).toBe("supabase");
     expect(users("auth0")).toBe("auth0");
     expect(users("postgres")).toBe("postgres");
-    expect(users("better_auth")).toBe("better_auth");
-    expect(users("custom")).toBe("endpoint");
+    expect(users("better_auth")).toBe("native");
+    expect(users("authjs")).toBe("native");
+    expect(users("convex")).toBe("native");
+    expect(users("custom")).toBe("native");
     expect(users("other")).toBe("endpoint");
+    expect(recommendStack({ platform: "web", identity: "better_auth" }).nativeSource).toBe("better-auth");
+    expect(recommendStack({ platform: "web", identity: "custom" })).toMatchObject({ users: "native", nativeSource: "custom" });
+    expect(recommendStack({ platform: "web", identity: "clerk" }).nativeSource).toBeUndefined();
     expect(recommendStack({ platform: "web" }).users).toBeNull();
   });
   it("maps analytics with notes", () => {

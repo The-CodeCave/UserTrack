@@ -1,29 +1,32 @@
-// Screenshots of the Better Auth setup flow against the local dev server.
-// Usage: node scripts/shots-better-auth.mjs <phase> [tunnelUrl]
-//   phase "create": sign up, create project, open Better Auth wizard, create integration → writes /tmp/ut-ba/state.json
-//   phase "verify": reuse the session, verify (expects the sample app to be reachable) → success shots + mobile + docs
+// Screenshots of the native SDK setup flow against the local dev server.
+// Usage: node scripts/shots-native.mjs <phase> [tunnelUrl] [source]
+//   phase "create": sign up, create project, open the "My app (SDK)" wizard, pick the source, create integration → writes /tmp/ut-native/state.json
+//   phase "verify": reuse the session, verify (expects the sample app to be reachable) → success shots + mobile + docs (light + dark)
+//   Output: OUT_DIR (default docs/screenshots/v0.7) — set UT_BASE for a non-default dev server port.
 import { chromium } from "playwright-core";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-const [phase, tunnel = "https://shot.example.com"] = process.argv.slice(2);
+const [phase, tunnel = "https://shot.example.com", sourceLabel = "Better Auth"] = process.argv.slice(2);
 const base = process.env.UT_BASE ?? "http://localhost:3005";
-mkdirSync("/tmp/ut-ba", { recursive: true });
-const shot = async (page, name, full = true) => { await page.waitForTimeout(700); await page.screenshot({ path: `/tmp/ut-ba/${name}.png`, fullPage: full }); console.log("✓", name); };
+const out = process.env.OUT_DIR ?? "docs/screenshots/v0.7";
+mkdirSync(out, { recursive: true });
+mkdirSync("/tmp/ut-native", { recursive: true });
+const shot = async (page, name, full = true) => { await page.waitForTimeout(700); await page.screenshot({ path: `${out}/${name}.png`, fullPage: full }); console.log("✓", name); };
 const browser = await chromium.launch({ channel: "chrome", headless: true });
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2, colorScheme: "dark" });
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
 const page = await ctx.newPage();
-process.on("unhandledRejection", async (e) => { console.error(String(e).split("\n")[0]); await page.screenshot({ path: "/tmp/ut-ba/debug.png" }).catch(() => {}); process.exit(1); });
+process.on("unhandledRejection", async (e) => { console.error(String(e).split("\n")[0]); await page.screenshot({ path: "/tmp/ut-native/debug.png" }).catch(() => {}); process.exit(1); });
 
 try {
 if (phase === "create") {
   const tag = Date.now().toString(36);
   await page.goto(`${base}/sign-up`);
-  await page.fill("#name", "BA Tester"); await page.fill("#email", `ba-${tag}@example.com`); await page.fill("#password", "supersecret123");
+  await page.fill("#name", "SDK Tester"); await page.fill("#email", `sdk-${tag}@example.com`); await page.fill("#password", "supersecret123");
   await page.click("button[type=submit]"); await page.waitForURL("**/app/onboarding", { timeout: 60000 });
-  await page.waitForSelector("#username", { timeout: 60000 }); await page.fill("#username", `ba-${tag}`); await page.click("button[type=submit]");
+  await page.waitForSelector("#username", { timeout: 60000 }); await page.fill("#username", `sdk-${tag}`); await page.click("button[type=submit]");
   await page.waitForSelector("text=Set up with AI", { timeout: 60000 });
   await page.locator("button:has-text('Set up with AI')").locator("xpath=following-sibling::button[1]").click();
   await page.waitForSelector("#name", { timeout: 60000 });
-  await page.fill("#name", `BA SaaS ${tag}`); await page.fill("#websiteUrl", tunnel); await page.fill("#description", "Better Auth screenshot fixture."); await page.selectOption("#category", "developer-tools");
+  await page.fill("#name", `SDK SaaS ${tag}`); await page.fill("#websiteUrl", tunnel); await page.fill("#description", "Native SDK screenshot fixture."); await page.selectOption("#category", "developer-tools");
   await page.click("button[type=submit]");
   await page.waitForSelector("text=What are you tracking?", { timeout: 60000 });
   await page.click("button:has-text('Web SaaS')"); await page.click("button[type=submit]");
@@ -33,9 +36,12 @@ if (phase === "create") {
   await page.click("button:has-text('Not monetized')"); await page.click("button:has-text('Show recommendations')");
   await page.waitForSelector("text=Connect a data source", { timeout: 60000 });
   await shot(page, "01-onboarding-source-cards");
-  await page.click("button:has-text('Better Auth')");
+  await page.click("button:has-text('My app (SDK)')");
   await page.waitForSelector("text=Create integration", { timeout: 30000 });
-  await shot(page, "02-wizard-create");
+  await page.click(`button[role=radio]:has-text('${sourceLabel}')`);
+  await shot(page, "02-wizard-create-source-picker");
+  for (const other of ["Prisma", "Convex"]) { await page.click(`button[role=radio]:has-text('${other}')`); await page.waitForTimeout(300); }
+  await page.click(`button[role=radio]:has-text('${sourceLabel}')`);
   await page.click("button:has-text('Create integration')");
   await page.waitForSelector("text=Your integration secret", { timeout: 30000 });
   await shot(page, "03-wizard-install-secret");
@@ -46,10 +52,10 @@ if (phase === "create") {
   await page.waitForSelector("text=Could not read from this source", { timeout: 60000 });
   await shot(page, "04-verify-not-deployed-error");
   const cookies = await ctx.cookies();
-  writeFileSync("/tmp/ut-ba/state.json", JSON.stringify({ projectId, secret, cookies, url: page.url() }));
+  writeFileSync("/tmp/ut-native/state.json", JSON.stringify({ projectId, secret, cookies, url: page.url() }));
   console.log("STATE", projectId);
 } else {
-  const state = JSON.parse(readFileSync("/tmp/ut-ba/state.json", "utf8"));
+  const state = JSON.parse(readFileSync("/tmp/ut-native/state.json", "utf8"));
   await ctx.addCookies(state.cookies);
   await page.goto(`${base}/app/onboarding`, { waitUntil: "networkidle" });
   for (let i = 0; i < 20 && !(await page.locator("text=Connect a data source").count()); i++) {
@@ -58,14 +64,12 @@ if (phase === "create") {
     await page.waitForTimeout(900);
   }
   await page.waitForSelector("text=Connect a data source", { timeout: 60000 });
-  await page.click("button:has-text('Better Auth')");
-  await page.waitForSelector("text=Create integration", { timeout: 30000 });
-  await page.click("button:has-text('Create integration')");
+  await page.click("button:has-text('My app (SDK)')");
   await page.waitForSelector("text=Rotate secret", { timeout: 30000 });
   await shot(page, "05-wizard-existing-integration");
   await page.click("text=Deployed — verify now");
   await page.click("button:has-text('Verify integration')");
-  await page.waitForSelector("text=Verified via Better Auth", { timeout: 90000 });
+  await page.waitForSelector(`text=Verified via ${sourceLabel}`, { timeout: 90000 });
   await shot(page, "06-verify-success");
   await page.waitForTimeout(1500);
   for (const t of ["Skip for now", "Skip for now"]) { const b = page.locator(`button:has-text('${t}')`).first(); if (await b.count()) { await b.click(); await page.waitForTimeout(800); } }
@@ -79,10 +83,12 @@ if (phase === "create") {
   const m = await mob.newPage();
   await m.goto(`${base}/app/saas/${state.projectId}`, { waitUntil: "networkidle" }); await m.waitForTimeout(1200);
   await shot(m, "08-project-connected-mobile", false);
-  await m.goto(`${base}/developers/integrations/better-auth`, { waitUntil: "networkidle" }); await shot(m, "09-docs-mobile");
-  await page.goto(`${base}/developers/integrations/better-auth`, { waitUntil: "networkidle" }); await shot(page, "10-docs-desktop");
-  const light = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2, colorScheme: "light" });
-  const l = await light.newPage(); await l.goto(`${base}/developers/integrations/better-auth`, { waitUntil: "networkidle" }); await shot(l, "11-docs-light", false);
+  await m.goto(`${base}/developers/integrations/native#prisma`, { waitUntil: "networkidle" }); await shot(m, "09-docs-native-mobile", false);
+  await page.goto(`${base}/developers/integrations/native#prisma`, { waitUntil: "networkidle" }); await shot(page, "10-docs-native-desktop");
+  const light = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, colorScheme: "light" });
+  await light.addCookies(state.cookies);
+  const l = await light.newPage(); await l.goto(`${base}/developers/integrations/native#convex`, { waitUntil: "networkidle" }); await shot(l, "11-docs-native-light", false);
+  await l.goto(`${base}/app/saas/${state.projectId}`, { waitUntil: "networkidle" }); await l.waitForTimeout(1200); await shot(l, "12-project-connected-light", false);
 }
-} catch (e) { console.error("FAILED:", String(e.stack ?? e).split("\n").slice(0, 3).join(" / ")); await page.screenshot({ path: "/tmp/ut-ba/debug.png" }).catch(() => {}); await browser.close(); process.exit(1); }
+} catch (e) { console.error("FAILED:", String(e.stack ?? e).split("\n").slice(0, 3).join(" / ")); await page.screenshot({ path: "/tmp/ut-native/debug.png" }).catch(() => {}); await browser.close(); process.exit(1); }
 await browser.close();

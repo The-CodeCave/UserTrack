@@ -16,9 +16,10 @@ import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, proje
 import { connectIntegration, integrationView, listIntegrations, requestSync } from "./domain/integrations";
 import { TIMEFRAMES, metricsSummary, milestonesFor, seriesFor, shareData } from "./domain/metrics";
 import { INTEGRATION_CATALOG, conversionSetup as conversionPlan, identityMappingGuidance, integrationSetup, rankActivationEvents, recommendIntegrations } from "./lib/integrationSetup";
-import { betterAuthSetup, ENV_PROJECT_ID, ENV_SECRET, envSnippet } from "./lib/betterAuthSetup";
-import { createBetterAuthIntegration } from "./betterAuth";
-import { metricsUrl } from "./providers/betterAuth";
+import { ENV_PROJECT_ID, ENV_SECRET, envSnippet, NATIVE_PACKAGE, nativeSetup } from "./lib/nativeSetup";
+import { createNativeIntegration, nativeSourceArg } from "./native";
+import { metricsUrl } from "./providers/native";
+import { normalizeSource, type NativeSource } from "./lib/nativeProtocol";
 import { publicProfile, publicSaas, sortBoard, trendingRankFor, HIDDEN_GEM_RULES } from "./public";
 import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, STAGE_ORDER, funnelFor, funnelHistoryFor, funnelSources } from "./domain/funnel";
 import { cohortView } from "./cohorts";
@@ -260,35 +261,40 @@ export const configureIntegration = mutation({
     }),
 });
 
-// Native-plugin integrations: UserTrack generates the credential. The secret is returned exactly once (creation / rotation).
+// Native SDK integrations: UserTrack generates the credential. The secret is returned exactly once (creation / rotation).
+// `provider: "better_auth"` is the v0.6 alias of `{ provider: "native", source: "better-auth" }`.
 export const createIntegrationTool = mutation({
-  args: { auth: authArg, ...refArg, provider: v.literal("better_auth"), url: v.optional(v.string()), rotate: v.optional(v.boolean()) },
-  handler: async (ctx, { auth, projectId, slug, url, rotate }) =>
+  args: { auth: authArg, ...refArg, provider: v.union(v.literal("native"), v.literal("better_auth")), source: v.optional(nativeSourceArg), url: v.optional(v.string()), rotate: v.optional(v.boolean()) },
+  handler: async (ctx, { auth, projectId, slug, provider, source: rawSource, url, rotate }) =>
     run(async () => {
       const { token, profile } = await authenticate(ctx, auth, "mcp", "integrations:write");
       const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
-      const c = await createBetterAuthIntegration(ctx, saas, { url, rotate });
-      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "create_integration", saasId: saas._id, ok: true, detail: `better_auth/users ${c.created ? "created" : c.rotated ? "rotated" : "existing"} ${c.secretPrefix}…` });
+      const source = normalizeSource(rawSource ?? (provider === "better_auth" ? "better-auth" : "custom"));
+      const c = await createNativeIntegration(ctx, saas, { url, source, rotate });
+      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "create_integration", saasId: saas._id, ok: true, detail: `native/${source}/users ${c.created ? "created" : c.rotated ? "rotated" : "existing"} ${c.secretPrefix}…` });
       const integration = integrationView((await ctx.db.get(c.integrationId))!);
-      const base = { provider: "better_auth" as const, created: c.created, rotated: c.rotated, projectId: c.projectId, url: c.url, metricsUrl: metricsUrl(c.url), integration, secretPrefix: c.secretPrefix, environmentVariables: [ENV_PROJECT_ID, ENV_SECRET] };
-      if (!c.secret) return { ...base, secret: null, message: `A Better Auth integration already exists (secret ${c.secretPrefix}…). The secret is never returned again; if the app does not have it, call usertrack_create_integration with rotate: true and update ${ENV_SECRET} everywhere.`, nextTool: integration.awaitingVerification ? "usertrack_verify_integration" : "usertrack_sync_project" };
-      return { ...base, secret: c.secret, env: envSnippet(c.projectId, c.secret), message: `${c.rotated ? "Secret rotated" : "Integration created"}. Set ${ENV_PROJECT_ID}=${c.projectId} and ${ENV_SECRET}=<secret> in the app's environment (never commit the secret; it is shown only now), install @usertrack/better-auth, deploy, then call usertrack_verify_integration.`, nextTool: "usertrack_get_better_auth_setup" };
+      const pkg = NATIVE_PACKAGE[source];
+      const base = { provider: "native" as const, source, package: pkg, created: c.created, rotated: c.rotated, projectId: c.projectId, url: c.url, metricsUrl: metricsUrl(c.url, source), integration, secretPrefix: c.secretPrefix, environmentVariables: [ENV_PROJECT_ID, ENV_SECRET] };
+      if (!c.secret) return { ...base, secret: null, message: `A native integration already exists (secret ${c.secretPrefix}…). The secret is never returned again; if the app does not have it, call usertrack_create_integration with rotate: true and update ${ENV_SECRET} everywhere.`, nextTool: integration.awaitingVerification ? "usertrack_verify_integration" : "usertrack_sync_project" };
+      return { ...base, secret: c.secret, env: envSnippet(c.projectId, c.secret), message: `${c.rotated ? "Secret rotated" : "Integration created"}. Set ${ENV_PROJECT_ID}=${c.projectId} and ${ENV_SECRET}=<secret> in the app's environment (never commit the secret; it is shown only now), install ${pkg}, deploy, then call usertrack_verify_integration.`, nextTool: "usertrack_get_native_setup" };
     }),
 });
 
-// Structured install plan for the official Better Auth plugin. Never contains the secret.
-export const betterAuthSetupPlan = query({
-  args: { auth: authArg, ...refArg, packageManager: v.optional(v.string()), betterAuthVersion: v.optional(v.string()), framework: v.optional(v.string()), authConfigPath: v.optional(v.string()) },
-  handler: async (ctx, { auth, projectId, slug, ...input }) =>
+// Structured install plan for a native source (Better Auth plugin or @usertrack/node adapter). Never contains the secret.
+export const nativeSetupPlan = query({
+  args: { auth: authArg, ...refArg, source: v.optional(nativeSourceArg), packageManager: v.optional(v.string()), betterAuthVersion: v.optional(v.string()), framework: v.optional(v.string()), authConfigPath: v.optional(v.string()) },
+  handler: async (ctx, { auth, projectId, slug, source, ...input }) =>
     run(async () => {
       const { profile } = await authenticate(ctx, auth, "mcp", "integrations:read");
       const saas = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
       const users = saas ? (await listIntegrations(ctx, saas._id)).find((i) => normalizeRole(i.role) === "users") : null;
-      const cfg = users?.provider === "better_auth" ? (users.config as { url: string }) : null;
+      const view = users ? integrationView(users) : null;
+      const cfg = view?.provider === "native" ? (users!.config as { url: string; source?: NativeSource }) : null;
+      const resolved = normalizeSource(source ?? cfg?.source ?? "better-auth");
       return {
         project: saas ? { id: saas._id, slug: saas.slug, websiteUrl: saas.websiteUrl } : null,
-        integration: users ? integrationView(users) : null,
-        ...betterAuthSetup({ ...input, projectId: saas?._id, projectSlug: saas?.slug, metricsUrl: cfg ? metricsUrl(cfg.url) : undefined, integrationExists: users?.provider === "better_auth", awaitingVerification: users?.awaitingVerification ?? false }),
+        integration: view,
+        ...nativeSetup({ ...input, source: resolved, projectId: saas?._id, projectSlug: saas?.slug, metricsUrl: cfg ? metricsUrl(cfg.url, resolved) : undefined, integrationExists: view?.provider === "native", awaitingVerification: users?.awaitingVerification ?? false }),
       };
     }),
 });
@@ -385,8 +391,8 @@ export const verifyIntegration = action({
       const err = e as Error;
       const retryable = err instanceof ProviderError ? err.retryable : true;
       await ctx.runMutation(internal.gateway.auditWrite, { profileId: target.profileId, tokenId: target.tokenId, action: "verify_integration", saasId: target.saasId, ok: false, detail: `${kind}/${role}: ${err.message.slice(0, 160)}` });
-      const native = kind === "better_auth";
-      return { connected: false, status: "failed" as const, provider: kind, role, mode, error: err.message, retryable, missingRequirements: retryable ? [] : [native ? "Confirm @usertrack/better-auth is installed, userTrack() is in the plugins array, USERTRACK_PROJECT_ID / USERTRACK_SECRET are set in the deployed environment and the deploy is live (usertrack_get_better_auth_setup)" : "Check the credential value and permissions listed by usertrack_get_integration_setup"], nextTool: retryable ? "usertrack_verify_integration" : native ? "usertrack_get_better_auth_setup" : "usertrack_configure_integration" };
+      const native = kind === "native" || kind === "better_auth";
+      return { connected: false, status: "failed" as const, provider: kind, role, mode, error: err.message, retryable, missingRequirements: retryable ? [] : [native ? "Confirm the UserTrack SDK (@usertrack/node handler or @usertrack/better-auth plugin) is installed and mounted, USERTRACK_PROJECT_ID / USERTRACK_SECRET are set in the deployed environment and the deploy is live (usertrack_get_native_setup)" : "Check the credential value and permissions listed by usertrack_get_integration_setup"], nextTool: retryable ? "usertrack_verify_integration" : native ? "usertrack_get_native_setup" : "usertrack_configure_integration" };
     }
   },
 });
@@ -481,10 +487,10 @@ export const providerRecommendation = query({
     const rec = recommendIntegrations(detected);
     return {
       ...rec,
-      priority: ["better_auth", "supabase", "clerk", "firebase", "auth0", "postgres", "endpoint"],
-      nativePlugins: { better_auth: { package: "@usertrack/better-auth", setupTool: "usertrack_get_better_auth_setup", createTool: "usertrack_create_integration" } },
+      priority: ["native", "supabase", "clerk", "firebase", "auth0", "postgres", "endpoint"],
+      nativeSources: { packages: NATIVE_PACKAGE, setupTool: "usertrack_get_native_setup", createTool: "usertrack_create_integration", note: "native = the app itself answers signed aggregate requests (verified, no credentials shared): Better Auth plugin, or @usertrack/node with a Prisma / Drizzle / Convex / Auth.js / custom count source. Better Auth, Auth.js and Convex rank first; Prisma / Drizzle rank after hosted auth providers." },
       conversionPriority: ["revenuecat", "stripe", "paddle", "lemonsqueezy", "chargebee", "endpoint"],
-      signals: { better_auth: ["better-auth", "@better-auth/core", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL"], supabase: ["@supabase/supabase-js", "SUPABASE_URL", "SUPABASE_DB_URL"], clerk: ["@clerk/nextjs", "CLERK_SECRET_KEY"], firebase: ["firebase-admin", "@react-native-firebase/auth", "firebase_auth", "GOOGLE_APPLICATION_CREDENTIALS"], postgres: ["DATABASE_URL", "pg", "prisma:postgresql", "drizzle-pg"], posthog: ["posthog-js", "posthog-react-native", "posthog-ios", "posthog-flutter"], revenuecat: ["react-native-purchases", "purchases_flutter", "RevenueCat"], stripe: ["stripe", "STRIPE_SECRET_KEY"] },
+      signals: { native: ["better-auth", "@better-auth/core", "BETTER_AUTH_SECRET", "next-auth", "@auth/core", "convex", "@prisma/client", "drizzle-orm"], supabase: ["@supabase/supabase-js", "SUPABASE_URL", "SUPABASE_DB_URL"], clerk: ["@clerk/nextjs", "CLERK_SECRET_KEY"], firebase: ["firebase-admin", "@react-native-firebase/auth", "firebase_auth", "GOOGLE_APPLICATION_CREDENTIALS"], postgres: ["DATABASE_URL", "pg", "prisma:postgresql", "drizzle-pg"], posthog: ["posthog-js", "posthog-react-native", "posthog-ios", "posthog-flutter"], revenuecat: ["react-native-purchases", "purchases_flutter", "RevenueCat"], stripe: ["stripe", "STRIPE_SECRET_KEY"] },
       nextTool: rec.composition.conversion ? "usertrack_get_integration_setup (then usertrack_get_conversion_setup)" : "usertrack_get_integration_setup",
     };
   },

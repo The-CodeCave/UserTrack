@@ -12,18 +12,23 @@ import { lemonsqueezy } from "./lemonsqueezy";
 import { chargebee } from "./chargebee";
 import { postgres } from "./postgres";
 import { endpoint } from "./endpoint";
-import { betterAuth } from "./betterAuth";
+import { native } from "./native";
 import { manual } from "./manual";
-import type { Provider, ProviderKind, Role } from "./types";
+import { normalizeProviderKind, type Provider, type ProviderKind, type Role } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const providers: Record<ProviderKind, Provider<any>> = { clerk, supabase, firebase, auth0, posthog, plausible, ga4, stripe, revenuecat, paddle, lemonsqueezy, chargebee, postgres, better_auth: betterAuth, endpoint, manual };
+export const providers: Record<ProviderKind, Provider<any>> = { clerk, supabase, firebase, auth0, posthog, plausible, ga4, stripe, revenuecat, paddle, lemonsqueezy, chargebee, postgres, native, endpoint, manual };
 
 export function getProvider(kind: string) {
-  const p = providers[kind as ProviderKind];
+  const p = providers[normalizeProviderKind(kind)];
   if (!p) throw new Error(`Unknown provider: ${kind}`);
   return p;
 }
+
+export const providerLabel = (kind: string, config: unknown) => {
+  const p = getProvider(kind);
+  return p.labelFor?.(config) ?? p.label;
+};
 
 export function providersForRole(role: Role) {
   return Object.values(providers).filter((p) => p.roles.includes(role));

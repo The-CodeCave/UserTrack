@@ -2,7 +2,7 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { describeProvider, getProvider, normalizeRole, verificationLevel, ROLE_STAGE, type Role } from "../providers";
+import { describeProvider, getProvider, normalizeProviderKind, normalizeRole, providerLabel, verificationLevel, ROLE_STAGE, type ProviderMetrics, type Role } from "../providers";
 import { dayKey } from "../lib/time";
 import { DomainError } from "./projects";
 
@@ -20,8 +20,8 @@ export function integrationView(i: Doc<"integrations">) {
   return {
     id: i._id,
     role,
-    provider: i.provider,
-    label: p.label,
+    provider: normalizeProviderKind(i.provider),
+    label: providerLabel(i.provider, i.config),
     status: i.status,
     trust: i.trust,
     verification: verificationLevel(i.provider, i.trust, capabilities, role),
@@ -79,6 +79,19 @@ export async function connectIntegration(ctx: MutationCtx, saas: Doc<"saas">, ro
   if (current && current.provider !== p.kind) for (const stage of stagesOf(role)) await ctx.scheduler.runAfter(0, internal.cohorts.purgeStage, { saasId, stage });
   await ctx.scheduler.runAfter(0, internal.sync.runOne, { integrationId: id, attempt: 1 });
   return id;
+}
+
+// What a native client reported on its last pull: stored on the config (describe() reads it) and, when the users source also
+// serves activation / conversion with the same credential, those roles get sibling rows — never replacing an existing source.
+export async function recordReported(ctx: MutationCtx, integration: Doc<"integrations">, reported: NonNullable<ProviderMetrics["reported"]>) {
+  await ctx.db.patch(integration._id, { config: { ...(integration.config as Record<string, unknown>), reported } });
+  if (normalizeProviderKind(integration.provider) !== "native" || normalizeRole(integration.role) !== "users") return;
+  const all = await listIntegrations(ctx, integration.saasId);
+  for (const role of reported.roles) {
+    if (role === "users" || all.some((i) => normalizeRole(i.role) === role)) continue;
+    const id = await ctx.db.insert("integrations", { saasId: integration.saasId, provider: "native", role, config: integration.config, status: "running", trust: "verified", consecutiveFailures: 0, connectedAt: Date.now() });
+    await ctx.scheduler.runAfter(0, internal.sync.runOne, { integrationId: id, attempt: 1 });
+  }
 }
 
 // Immediate sync with a per-integration cooldown so agents and buttons cannot hammer provider APIs.

@@ -1,11 +1,21 @@
-// UserTrack ↔ @usertrack/better-auth wire protocol (v1). Intentionally a byte-for-byte twin of
-// packages/better-auth/src/protocol.ts (the package must not depend on the app and vice versa);
-// both sides are pinned to the same frozen fixtures in packages/better-auth/tests/fixtures/signatures.json.
+// UserTrack ↔ native SDK wire protocol (v1). Intentionally a self-contained twin of packages/protocol/src/index.ts
+// (the Convex bundle must not depend on a workspace package build); nativeProtocol.test.ts pins both to the same
+// frozen fixtures and cross-checks random inputs against the package source.
 export const PROTOCOL_VERSION = 1;
 export const SUPPORTED_PROTOCOL_VERSIONS = [1];
-export const MIN_PLUGIN_VERSION = "0.1.0";
+export const NATIVE_SOURCES = ["better-auth", "prisma", "drizzle", "convex", "authjs", "custom"] as const;
+export type NativeSource = (typeof NATIVE_SOURCES)[number];
+export const NATIVE_SOURCE_LABEL: Record<NativeSource, string> = { "better-auth": "Better Auth", prisma: "Prisma", drizzle: "Drizzle", convex: "Convex", authjs: "Auth.js", custom: "Custom app" };
+export const NATIVE_PACKAGE: Record<NativeSource, string> = { "better-auth": "@usertrack/better-auth", prisma: "@usertrack/node", drizzle: "@usertrack/node", convex: "@usertrack/node", authjs: "@usertrack/node", custom: "@usertrack/node" };
+// Oldest client version per source that speaks a shape this server parses.
+export const MIN_CLIENT_VERSION: Record<NativeSource, string> = { "better-auth": "0.1.0", prisma: "0.1.0", drizzle: "0.1.0", convex: "0.1.0", authjs: "0.1.0", custom: "0.1.0" };
+export const normalizeSource = (s: unknown): NativeSource => (NATIVE_SOURCES.includes(s as NativeSource) ? (s as NativeSource) : "custom");
 export const METRICS_PATH = "/usertrack/metrics";
-export const EVENTS_PATH = "/api/integrations/better-auth/events";
+export const EVENTS_PATH = "/api/integrations/native/events";
+// Path the 0.1.x Better Auth plugin signs events with; still accepted.
+export const LEGACY_EVENTS_PATH = "/api/integrations/better-auth/events";
+export const EVENT_TYPES = ["user.created", "user.deleted", "user.activated", "trial.started", "user.converted"] as const;
+export type EventType = (typeof EVENT_TYPES)[number];
 export const HEADER_PROJECT = "x-usertrack-project";
 export const HEADER_TIMESTAMP = "x-usertrack-timestamp";
 export const HEADER_NONCE = "x-usertrack-nonce";

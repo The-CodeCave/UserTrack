@@ -1,4 +1,4 @@
-export type ProviderKind = "clerk" | "supabase" | "firebase" | "better_auth" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "revenuecat" | "paddle" | "lemonsqueezy" | "chargebee" | "postgres" | "endpoint" | "manual";
+export type ProviderKind = "clerk" | "supabase" | "firebase" | "native" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "revenuecat" | "paddle" | "lemonsqueezy" | "chargebee" | "postgres" | "endpoint" | "manual";
 // Lifecycle roles: users → Signed up, activation → Activated, traffic → Reached, conversion → Trial + Converted.
 export type Role = "users" | "activation" | "traffic" | "conversion";
 export const ROLES: Role[] = ["users", "activation", "traffic", "conversion"];
@@ -48,16 +48,16 @@ export const NO_REVENUE_NOTE = "UserTrack never needs your revenue numbers. Paym
 
 export const PROVIDERS: ProviderMeta[] = [
   {
-    kind: "better_auth",
-    label: "Better Auth",
-    tagline: "Native plugin · ~2 min setup — signed aggregate metrics straight from your Better Auth database",
+    kind: "native",
+    label: "My app (SDK)",
+    tagline: "Native SDK · ~2 min setup — your app answers signed aggregate requests: Better Auth plugin, or @usertrack/node for Prisma, Drizzle, Convex, Auth.js and custom apps",
     trust: "verified",
-    roles: ["users"],
-    stages: ["signed_up"],
+    roles: ["users", "activation", "conversion"],
+    stages: ["signed_up", "activated", "trial", "converted"],
     platforms: ["web"],
-    fields: [{ name: "url", label: "Better Auth base URL", placeholder: "https://app.example.com/api/auth", type: "url", hint: "baseURL + basePath of your Better Auth instance" }],
-    reads: "POST /usertrack/metrics on your app, signed with the integration secret: total users, signups 24h / 7d / 30d and a daily series. No emails, names or user records — ever.",
-    steps: ["Create the integration — UserTrack generates a project id and a secret (shown once)", "npm install @usertrack/better-auth and add userTrack({ projectId, secret }) to your Better Auth plugins", "Set USERTRACK_PROJECT_ID / USERTRACK_SECRET, deploy, click Verify"],
+    fields: [{ name: "url", label: "Base URL", placeholder: "https://app.example.com/api/usertrack", type: "url", hint: "Where the handler is mounted (Better Auth: baseURL + basePath)" }],
+    reads: "POST …/metrics on your app, signed with the integration secret: total users, signups 24h / 7d / 30d, a daily series and — if you wire them — activated and converted users. No emails, names or user records — ever.",
+    steps: ["Create the integration — UserTrack generates a project id and a secret (shown once)", "Install @usertrack/better-auth (plugin) or @usertrack/node (one route + a count function)", "Set USERTRACK_PROJECT_ID / USERTRACK_SECRET, deploy, click Verify"],
   },
   {
     kind: "clerk",

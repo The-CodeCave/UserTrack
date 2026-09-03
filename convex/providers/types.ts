@@ -1,4 +1,4 @@
-export type ProviderKind = "clerk" | "supabase" | "firebase" | "better_auth" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "revenuecat" | "paddle" | "lemonsqueezy" | "chargebee" | "postgres" | "endpoint" | "manual";
+export type ProviderKind = "clerk" | "supabase" | "firebase" | "native" | "auth0" | "posthog" | "plausible" | "ga4" | "stripe" | "revenuecat" | "paddle" | "lemonsqueezy" | "chargebee" | "postgres" | "endpoint" | "manual";
 // Provider roles = lifecycle sources. users → signed_up, activation → activated, traffic → reached, conversion → trial + converted.
 // "revenue" is the legacy name of "conversion" (stored rows are migrated; normalizeRole() maps it for safety).
 export type Role = "users" | "activation" | "traffic" | "conversion";
@@ -9,6 +9,8 @@ export type Trust = "verified" | "unverified" | "pending";
 export type Capability = "totalUsers" | "usersInRange" | "activeUsers" | "history" | "activation" | "traffic" | "trial" | "converted" | "identity";
 
 export const ROLES: Role[] = ["users", "activation", "traffic", "conversion"];
+// "better_auth" is the v0.6 name of the native SDK provider (rows are migrated by migrations:nativeV1; the literal stays for old documents).
+export const normalizeProviderKind = (kind: string): ProviderKind => (kind === "better_auth" ? "native" : (kind as ProviderKind));
 export const normalizeRole = (r: StoredRole | undefined): Role => (r === "revenue" ? "conversion" : (r ?? "users"));
 export const ROLE_STAGE: Record<Role, LifecycleStage> = { users: "signed_up", activation: "activated", traffic: "reached", conversion: "converted" };
 export const DEFAULT_CONVERSION_MODE: ConversionMode = "active_paid";
@@ -47,9 +49,11 @@ export interface ProviderMetrics {
   newConverted30d?: number;
   conversionMode?: ConversionMode;
   identities?: StageIdentities[];
-  // Version of the source-side integration (e.g. the @usertrack/better-auth plugin) for compatibility diagnostics.
+  // Version of the source-side integration (e.g. @usertrack/node) for compatibility diagnostics.
   sourceVersion?: string;
   protocolVersion?: number;
+  // What a native client reported in this pull (roles it serves with the same credential, history / identity support).
+  reported?: { roles: Role[]; history: boolean; identity: boolean; exactCounts: boolean };
   /** @deprecated v0.4 endpoint field; mapped to convertedUsers by the endpoint provider. */
   payingUsers?: number;
 }
@@ -103,6 +107,8 @@ export interface Provider<Config> {
   fetchHistory?(config: Config, role: Role, days: number): Promise<History | null>;
   // Secret-free view of the config for the UI.
   publicConfig(config: Config): Record<string, string>;
+  // Display label for one configuration (native sources show the SDK adapter, e.g. "Better Auth").
+  labelFor?(config: Config): string;
   // Capabilities for one concrete configuration (defaults to the static list).
   describe?(config: Config, role: Role): ProviderCapabilities;
   // "node" = needs a TCP database connection; the engine dispatches to internal.node.postgres with `toPostgres(config)`.
@@ -130,7 +136,7 @@ export function describeProvider<C>(p: Provider<C>, config: C, role: Role): Prov
 }
 
 // Public wording for one source. Snapshot-based providers are still "verified" for totals; only self-reported sources drop.
-export function verificationLevel(kind: ProviderKind, trust: Trust, caps: ProviderCapabilities, role: Role): VerificationLevel {
+export function verificationLevel(kind: string, trust: Trust, caps: ProviderCapabilities, role: Role): VerificationLevel {
   if (trust !== "verified") return "self_reported";
   if (kind === "manual") return "self_reported";
   if (role === "users" && !caps.createdUsers && !caps.totalUsers) return "partially_verified";

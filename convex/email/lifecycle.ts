@@ -4,7 +4,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { findAuthUser } from "./users";
 import { enqueue } from "./send";
-import { getProvider } from "../providers";
+import { providerLabel } from "../providers";
 import { DAY } from "../lib/time";
 import { evaluateNoGrowth, isUnhealthy, NO_GROWTH } from "../lib/emailRules";
 
@@ -49,7 +49,7 @@ export const missingSourceReminder = internalMutation({
 export async function onSourceSuccess(ctx: MutationCtx, integration: Doc<"integrations">, saas: Doc<"saas">, totalUsers: number | undefined, firstEver: boolean) {
   const owner = await ctx.db.get(saas.ownerId);
   if (!owner || saas.isDemo) return;
-  const provider = getProvider(integration.provider).label;
+  const provider = providerLabel(integration.provider, integration.config);
   if (integration.healthState === "unhealthy") {
     const since = integration.unhealthySince ?? Date.now();
     await ctx.db.patch(integration._id, { healthState: "healthy", unhealthySince: undefined });
@@ -71,7 +71,7 @@ export async function onSourceFailure(ctx: MutationCtx, integration: Doc<"integr
   const owner = await ctx.db.get(saas.ownerId);
   if (!owner) return;
   await ctx.db.patch(integration._id, { healthState: "unhealthy", unhealthySince: now });
-  await enqueue(ctx, { userId: owner.userId, type: "source-failed", dedupeKey: `source-failed:${integration._id}:${now}`, saasId: saas._id, data: { saasName: saas.name, saasId: saas._id, provider: getProvider(integration.provider).label, error, lastSuccessAt: integration.lastSuccessAt, failures } });
+  await enqueue(ctx, { userId: owner.userId, type: "source-failed", dedupeKey: `source-failed:${integration._id}:${now}`, saasId: saas._id, data: { saasName: saas.name, saasId: saas._id, provider: providerLabel(integration.provider, integration.config), error, lastSuccessAt: integration.lastSuccessAt, failures } });
 }
 
 // Daily: products with traction that went quiet for a week while the source stayed healthy.
