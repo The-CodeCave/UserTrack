@@ -22,6 +22,7 @@ const samples = {
   welcome: { name: "Ada", verifyUrl: "https://usertrack.dev/api/auth/verify-email?token=demo" },
   "verify-email": { name: "Ada", verifyUrl: "https://usertrack.dev/api/auth/verify-email?token=demo" },
   "reset-password": { name: "Ada", resetUrl: "https://usertrack.dev/api/auth/reset-password/demo" },
+  "account-deleted": { name: "Ada" },
   "profile-reminder": { name: "Ada" },
   "missing-source": { name: "Ada", saasName: "Project A", saasId: "s1" },
   "source-connected": { saasName: "Project A", slug: "project-a", saasId: "s1", totalUsers: 10_042, trust: "verified", provider: "Clerk", isPublic: true },

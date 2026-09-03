@@ -385,6 +385,15 @@ const TOOLS_SHARE: Tool[] = [
     run: (auth) => fetchQuery(api.gateway.profileTool, { auth }),
   }),
   tool({
+    name: "usertrack_export_account",
+    title: "Export account data",
+    description: "GDPR Art. 20 export of everything UserTrack stores about this account as one JSON document: account, founder profile, projects with settings, integrations (public configuration only — never credentials), milestones, follows, webhook endpoints (secrets masked), developer tokens (masked), email preferences, X connection summary. Same document as the 'Download my data' button in Settings. Deleting the account is deliberately not available through MCP.",
+    scope: "profile:read",
+    readOnly: true,
+    input: {},
+    run: (auth) => fetchQuery(api.gateway.exportAccountTool, { auth }),
+  }),
+  tool({
     name: "usertrack_update_profile",
     title: "Update founder profile",
     description: "Edit the founder profile: displayName, bio (≤160), website (https), x (accepts '@name', 'name' or an x.com URL — stored canonically as 'name'), github, linkedin, location, avatarUrl (https), profilePublic. Only the fields you pass change. Never touches tokens or the username.",

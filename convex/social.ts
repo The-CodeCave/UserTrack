@@ -137,17 +137,21 @@ export const removeConnection = internalMutation({
   },
 });
 
+// Best-effort revocation at X; a failure never blocks forgetting the token on our side.
+export async function revokeXToken(accessToken: string) {
+  const clientId = process.env.X_CLIENT_ID;
+  const clientSecret = process.env.X_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return;
+  await fetch(X_REVOKE_URL, { method: "POST", headers: { Authorization: basicAuth(clientId, clientSecret), "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: accessToken, token_type_hint: "access_token", client_id: clientId }) }).catch(() => undefined);
+}
+
 // Revoke at X best-effort, then forget the tokens. The typed handle stays (it is the founder's, not X's).
 export const disconnect = action({
   args: {},
   handler: async (ctx): Promise<void> => {
     const c = await ctx.runQuery(internal.social.connectionForOwner, {});
     if (!c) return;
-    const clientId = process.env.X_CLIENT_ID;
-    const clientSecret = process.env.X_CLIENT_SECRET;
-    if (clientId && clientSecret) {
-      await fetch(X_REVOKE_URL, { method: "POST", headers: { Authorization: basicAuth(clientId, clientSecret), "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: c.accessToken, token_type_hint: "access_token", client_id: clientId }) }).catch(() => undefined);
-    }
+    await revokeXToken(c.accessToken);
     await ctx.runMutation(internal.social.removeConnection, { id: c._id });
   },
 });

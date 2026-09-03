@@ -1,6 +1,6 @@
 // Project (SaaS listing) rules shared by the dashboard, the public API and the MCP server.
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { slugify, RESERVED } from "../../src/lib/slug";
 import { CATEGORY_SLUGS } from "../../src/lib/categories";
@@ -211,4 +211,58 @@ export function projectSummary(s: Doc<"saas">) {
     createdAt: new Date(s._creationTime).toISOString(),
     urls: projectUrls(s),
   };
+}
+
+// ---- Deletion ---------------------------------------------------------------------------------------------------------
+
+type Drainable = { take(n: number): Promise<{ _id: Id<TableNames> }[]> };
+
+// Deletes up to `budget` rows of one query; returns how many went. `< budget` means the query is exhausted.
+export async function drain(ctx: MutationCtx, budget: number, q: Drainable) {
+  if (budget <= 0) return 0;
+  const rows = await q.take(budget);
+  for (const r of rows) await ctx.db.delete(r._id);
+  return rows.length;
+}
+
+// Every row that belongs to one project, in dependency order. Returns the number deleted (≤ budget); when the result is
+// below the budget nothing is left and the caller may delete the `saas` row itself.
+export async function removeProjectRows(ctx: MutationCtx, id: Id<"saas">, budget: number) {
+  let n = 0;
+  for (const i of await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", id)).collect()) {
+    n += await drain(ctx, budget - n, ctx.db.query("integrationEvents").withIndex("by_integration_time", (q) => q.eq("integrationId", i._id)));
+    if (n >= budget) return n;
+    await ctx.db.delete(i._id);
+    n++;
+  }
+  const children: Drainable[] = [
+    ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", id)),
+    ctx.db.query("stageSnapshots").withIndex("by_saas_stage_time", (q) => q.eq("saasId", id)),
+    ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", id)),
+    ctx.db.query("identityLinks").withIndex("by_saas_subject", (q) => q.eq("saasId", id)),
+    ctx.db.query("cohortMetrics").withIndex("by_saas_cohort", (q) => q.eq("saasId", id)),
+    ctx.db.query("syncRuns").withIndex("by_saas_time", (q) => q.eq("saasId", id)),
+    ctx.db.query("backfills").withIndex("by_saas_time", (q) => q.eq("saasId", id)),
+    ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", id)),
+    ctx.db.query("events").withIndex("by_saas_time", (q) => q.eq("saasId", id)),
+    ctx.db.query("shareEvents").withIndex("by_saas_key", (q) => q.eq("saasId", id)),
+    ctx.db.query("embedSites").withIndex("by_saas_host", (q) => q.eq("saasId", id)),
+    ctx.db.query("follows").withIndex("by_target", (q) => q.eq("targetType", "saas").eq("targetId", id)),
+    ctx.db.query("fraudFlags").withIndex("by_saas", (q) => q.eq("saasId", id)),
+    ctx.db.query("rankHistory").withIndex("by_saas_kind_window_day", (q) => q.eq("saasId", id)),
+    ctx.db.query("benchmarkHistory").withIndex("by_saas_week", (q) => q.eq("saasId", id)),
+    ctx.db.query("emailEvents").withIndex("by_saas_type_time", (q) => q.eq("saasId", id)),
+  ];
+  for (const q of children) {
+    n += await drain(ctx, budget - n, q);
+    if (n >= budget) return n;
+  }
+  return n;
+}
+
+// Whole project in one transaction (dashboard delete, seed cleanup). Account deletion pages the same helper instead.
+export async function removeSaas(ctx: MutationCtx, id: Id<"saas">) {
+  const STEP = 500;
+  while ((await removeProjectRows(ctx, id, STEP)) >= STEP);
+  await ctx.db.delete(id);
 }

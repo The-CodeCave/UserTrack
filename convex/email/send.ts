@@ -157,7 +157,7 @@ export const reserveTransactional = internalMutation({
 });
 
 export const deliverTransactional = internalAction({
-  args: { userId: v.optional(v.string()), to: v.string(), type: v.union(v.literal("welcome"), v.literal("verify-email"), v.literal("reset-password")), data: v.any(), dedupeKey: v.string() },
+  args: { userId: v.optional(v.string()), to: v.string(), type: v.union(v.literal("welcome"), v.literal("verify-email"), v.literal("reset-password"), v.literal("account-deleted")), data: v.any(), dedupeKey: v.string() },
   handler: async (ctx, { userId, to, type, data, dedupeKey }) => {
     const eventId = await ctx.runMutation(internal.email.send.reserveTransactional, { userId, to, type, dedupeKey });
     const cfg = emailConfig();

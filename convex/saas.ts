@@ -3,7 +3,7 @@ import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from 
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { getProfileForUser, requireProfile } from "./profiles";
-import { createProject, requireVerifiedToPublish, updateProject } from "./domain/projects";
+import { createProject, removeSaas, requireVerifiedToPublish, updateProject } from "./domain/projects";
 import { integrationView } from "./domain/integrations";
 import { markLaunched } from "./domain/events";
 import { MIN_SAMPLE } from "./lib/benchmarks";
@@ -90,21 +90,7 @@ export const remove = mutation({
   args: { id: v.id("saas") },
   handler: async (ctx, { id }) => {
     await requireOwnedSaas(ctx, id);
-    const rows = [
-      ...(await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", id)).collect()),
-      ...(await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()),
-      ...(await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", id)).collect()),
-      ...(await ctx.db.query("syncRuns").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()),
-      ...(await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()),
-      ...(await ctx.db.query("events").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()),
-      ...(await ctx.db.query("fraudFlags").withIndex("by_saas", (q) => q.eq("saasId", id)).collect()),
-      ...(await ctx.db.query("follows").withIndex("by_target", (q) => q.eq("targetType", "saas").eq("targetId", id)).collect()),
-      ...(await ctx.db.query("stageSnapshots").withIndex("by_saas_stage_time", (q) => q.eq("saasId", id)).collect()),
-      ...(await ctx.db.query("cohortMetrics").withIndex("by_saas_cohort", (q) => q.eq("saasId", id)).collect()),
-      ...(await ctx.db.query("identityLinks").withIndex("by_saas_subject", (q) => q.eq("saasId", id)).take(4000)),
-    ];
-    for (const r of rows) await ctx.db.delete(r._id);
-    await ctx.db.delete(id);
+    await removeSaas(ctx, id);
     await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
   },
 });

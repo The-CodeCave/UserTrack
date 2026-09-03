@@ -29,6 +29,7 @@ export interface TemplateData {
   welcome: { name: string; verifyUrl?: string };
   "verify-email": { name: string; verifyUrl: string };
   "reset-password": { name: string; resetUrl: string };
+  "account-deleted": { name: string };
   "profile-reminder": { name: string };
   "missing-source": { name: string; saasName: string; saasId: string };
   "source-connected": { saasName: string; slug: string; saasId: string; totalUsers?: number; trust: "verified" | "unverified" | "pending"; provider: string; isPublic: boolean };
@@ -85,6 +86,13 @@ const resetPassword: Builder<"reset-password"> = (d, c) => ({
   preheader: "This link expires in one hour.",
   html: layout({ siteUrl: c.siteUrl, eyebrow: "SECURITY", title: "Reset your password", intro: `Hi ${esc(d.name)}, someone requested a password reset for this account. The link expires in one hour and can be used once.`, cta: { label: "Choose a new password", url: d.resetUrl }, body: muted("If this was not you, no action is needed — your password stays the same."), footerNote: TRANSACTIONAL_FOOTER }),
   text: text([`Hi ${d.name}, reset your UserTrack password (valid for one hour):`, d.resetUrl, "If this was not you, no action is needed."]),
+});
+
+const accountDeleted: Builder<"account-deleted"> = (d, c) => ({
+  subject: "Your UserTrack account was deleted",
+  preheader: "Profile, products, sources, tokens and preferences are gone.",
+  html: layout({ siteUrl: c.siteUrl, eyebrow: "ACCOUNT", title: "Your account has been deleted", intro: `Hi ${esc(d.name)}, as requested we deleted your UserTrack account: profile, products and their growth history, connected-source credentials, API and MCP tokens, webhooks, follows, the X connection and your email preferences. Public pages are already gone. This cannot be undone.`, body: muted("If you did not request this, reply to this email right away. You are welcome back any time — a new account starts from zero."), footerNote: TRANSACTIONAL_FOOTER + " It is the last email you will receive from UserTrack." }),
+  text: text([`Hi ${d.name}, your UserTrack account has been deleted as requested: profile, products, growth history, source credentials, tokens, webhooks, follows, X connection and email preferences.`, "Public pages are already gone. This cannot be undone.", "If you did not request this, reply to this email right away."]),
 });
 
 const profileReminder: Builder<"profile-reminder"> = (d, c) => ({
@@ -235,6 +243,7 @@ const BUILDERS: { [T in EmailType]: Builder<T> } = {
   welcome,
   "verify-email": verifyEmail,
   "reset-password": resetPassword,
+  "account-deleted": accountDeleted,
   "profile-reminder": profileReminder,
   "missing-source": missingSource,
   "source-connected": sourceConnected,

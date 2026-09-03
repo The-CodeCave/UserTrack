@@ -11,6 +11,7 @@ import { authClient } from "@/lib/auth-client";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { Button } from "@/components/ui/button";
+import { DataPrivacyPanel } from "@/components/app/settings/data-privacy";
 
 export default function SettingsPage() {
   const me = useQuery(api.profiles.me);
@@ -71,6 +72,7 @@ export default function SettingsPage() {
           </Panel>
         </Link>
       </div>
+      <DataPrivacyPanel />
     </div>
   );
 }

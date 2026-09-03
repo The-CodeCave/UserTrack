@@ -6,6 +6,7 @@ import { DAY, HOUR, dayKey } from "./lib/time";
 import { recomputeDerived } from "./sync";
 import { addMilestones } from "./trust";
 import { thresholdMilestones } from "./lib/milestones";
+import { removeSaas } from "./domain/projects";
 
 interface Demo {
   name: string; slug: string; description: string; category: string; tags: string[]; start: number; growth: number; site: string; activation?: number;
@@ -143,21 +144,6 @@ export const refresh = internalMutation({
     return `refreshed ${n}`;
   },
 });
-
-async function removeSaas(ctx: MutationCtx, id: Id<"saas">) {
-  for (const r of await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
-  for (const r of await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
-  for (const r of await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
-  for (const r of await ctx.db.query("stageSnapshots").withIndex("by_saas_stage_time", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
-  for (const r of await ctx.db.query("identityLinks").withIndex("by_saas_subject", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
-  for (const r of await ctx.db.query("cohortMetrics").withIndex("by_saas_cohort", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
-  for (const r of await ctx.db.query("syncRuns").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
-  for (const r of await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
-  for (const r of await ctx.db.query("events").withIndex("by_saas_time", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
-  for (const r of await ctx.db.query("fraudFlags").withIndex("by_saas", (q) => q.eq("saasId", id)).collect()) await ctx.db.delete(r._id);
-  for (const r of await ctx.db.query("follows").withIndex("by_target", (q) => q.eq("targetType", "saas").eq("targetId", id)).collect()) await ctx.db.delete(r._id);
-  await ctx.db.delete(id);
-}
 
 export const clear = internalMutation({
   args: {},

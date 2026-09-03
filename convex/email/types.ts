@@ -4,6 +4,7 @@ export type EmailType =
   | "welcome"
   | "verify-email"
   | "reset-password"
+  | "account-deleted"
   | "profile-reminder"
   | "missing-source"
   | "source-connected"
@@ -53,6 +54,7 @@ export const EMAIL_META: Record<EmailType, { category: EmailCategory; pref: Pref
   welcome: { category: "transactional", pref: null },
   "verify-email": { category: "transactional", pref: null },
   "reset-password": { category: "transactional", pref: null },
+  "account-deleted": { category: "transactional", pref: null },
   "source-failed": { category: "transactional", pref: null },
   "source-recovered": { category: "transactional", pref: null },
   "profile-reminder": { category: "product", pref: "productNudges" },

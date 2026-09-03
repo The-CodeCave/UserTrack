@@ -37,6 +37,7 @@ const EXPECTED = [
   "usertrack_get_better_auth_setup",
   "usertrack_create_integration",
   "usertrack_get_profile",
+  "usertrack_export_account",
   "usertrack_update_profile",
   "usertrack_get_share_events",
   "usertrack_create_share_card",
@@ -59,10 +60,10 @@ const EXPECTED = [
 ];
 
 describe("MCP tool set", () => {
-  it("exposes exactly the 50 expected tools with unique names", () => {
+  it("exposes exactly the 51 expected tools with unique names", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toEqual(EXPECTED);
-    expect(new Set(names).size).toBe(50);
+    expect(new Set(names).size).toBe(51);
   });
 
   it("gives every tool a title, description and a known scope", () => {

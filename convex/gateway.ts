@@ -28,6 +28,7 @@ import { MAX_ENDPOINTS, WEBHOOK_EVENTS } from "./lib/webhooks";
 import { rankMovement } from "./lib/history";
 import { DATASETS, DATASET_NAMES, datasetRow, type DatasetName } from "../src/lib/api/datasets";
 import { canonicalX } from "./profiles";
+import { buildExport } from "./account";
 import { founderAggregates } from "./lib/founder";
 import { normalizePrefs } from "./lib/shareRules";
 import { xConnectionState, xIntentUrl } from "../src/lib/social";
@@ -775,6 +776,17 @@ export const profileTool = query({
   handler: async (ctx, { auth }) => {
     const { profile } = await authenticate(ctx, auth, "mcp", "profile:read");
     return founderProfile(ctx, profile);
+  },
+});
+
+// Art. 20 export for agents: same document as /api/account/export, never a secret.
+export const exportAccountTool = query({
+  args: { auth: authArg },
+  handler: async (ctx, { auth }) => {
+    const { profile } = await authenticate(ctx, auth, "mcp", "profile:read");
+    const user = await authComponent.getAnyUserById(ctx, profile.userId);
+    if (!user) return fail("unauthorized", "Token owner not found");
+    return buildExport(ctx, user, profile);
   },
 });
 

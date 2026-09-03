@@ -16,6 +16,7 @@ const samples: { [T in EmailType]: TemplateData[T] } = {
   welcome: { name: "Ada", verifyUrl: "https://usertrack.dev/api/auth/verify-email?token=x" },
   "verify-email": { name: "Ada", verifyUrl: "https://usertrack.dev/api/auth/verify-email?token=x" },
   "reset-password": { name: "Ada", resetUrl: "https://usertrack.dev/api/auth/reset-password/x" },
+  "account-deleted": { name: "Ada" },
   "profile-reminder": { name: "Ada" },
   "missing-source": { name: "Ada", saasName: "Acme", saasId: "s1" },
   "source-connected": { saasName: "Acme", slug: "acme", saasId: "s1", totalUsers: 1234, trust: "verified", provider: "Clerk", isPublic: true },
