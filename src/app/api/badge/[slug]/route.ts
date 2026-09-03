@@ -1,12 +1,11 @@
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
 import { BADGE_TYPES, renderBadge, renderNotFoundBadge, type BadgeTheme, type BadgeType, type BadgeWindow } from "@/lib/badge";
-import { take } from "@/lib/api/rate-limit";
+import { limit, tooMany } from "@/lib/api/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-// Public metrics only; cached at the edge for an hour, plus a per-IP burst bucket against scrapers hammering uncached variants.
-const BADGE_BURST_PER_MINUTE = 120;
+// Public metrics only; cached at the edge for an hour, plus a per-IP limit (`badge`) against scrapers hammering uncached variants.
 const HEADERS = {
   "Content-Type": "image/svg+xml; charset=utf-8",
   "Cache-Control": "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
@@ -15,9 +14,8 @@ const HEADERS = {
 };
 
 export async function GET(req: Request, { params }: { params: Promise<{ slug: string }> }) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
-  const rl = take(`badge:${ip}`, Date.now(), BADGE_BURST_PER_MINUTE);
-  if (!rl.allowed) return new Response("Too many requests", { status: 429, headers: { "Retry-After": String(rl.retryAfterSec), "Cache-Control": "no-store" } });
+  const rl = await limit(req, "badge");
+  if (!rl.allowed) return tooMany(rl);
   const slug = (await params).slug.replace(/\.svg$/i, "");
   const q = new URL(req.url).searchParams;
   const type = (BADGE_TYPES as string[]).includes(q.get("type") ?? "") ? (q.get("type") as BadgeType) : "users";

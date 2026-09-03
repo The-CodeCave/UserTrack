@@ -290,7 +290,7 @@ Reads are generous, writes are conservative.
 | Limit | Value | Error |
 | --- | --- | --- |
 | Daily quota | 5,000 tool calls per token per UTC day (counted per tool name) | `rate_limited`, `retryAfterSec` until midnight UTC |
-| Burst | 60 tool calls per minute per token (in-process bucket) | `rate_limited` |
+| Burst | 120 tool calls per minute per token (durable Convex bucket keyed by token hash, see `docs/API.md` → Rate limits) | `rate_limited` |
 | Create project | ≤ 10 new projects per hour per token (duplicates returned via idempotency do not count) | `rate_limited`, `retryAfterSec: 3600` |
 | Verify | 20 s cooldown per project | `rate_limited`, remaining seconds |
 | Sync now | 60 s cooldown per data source | `rate_limited`, remaining seconds |

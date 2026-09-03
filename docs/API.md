@@ -40,7 +40,7 @@ One endpoint **requires** a key: `GET /following` returns the key owner's own wa
 | Caching | `public, s-maxage=300, stale-while-revalidate=600` | `private, no-store` |
 | `X-RateLimit-Window` | `minute` | `day` |
 
-Anonymous limits are a token bucket that refills at 1 request/second. Keyed requests are counted per UTC day in the backend and additionally pass an in-process burst bucket.
+Every limit is a durable token bucket in Convex (`@convex-dev/rate-limiter`, shared by every replica, survives deploys) behind a cheap in-process bucket that absorbs floods first. Anonymous buckets are keyed on the client IP — the **last** `x-forwarded-for` hop, which is the one Railway's edge appends; client-supplied entries are ignored. Keyed requests are additionally counted per UTC day in the backend (`X-RateLimit-Window: day`).
 
 Every response carries:
 
@@ -782,7 +782,7 @@ A 28px-high shields.io-style SVG, or a 320×120 mini growth chart. The `.svg` su
 | `window` | `7d`, `30d` | `30d` | affects `growth` and `chart` only |
 | `compact` | `1` | off | badges drop the word "UserTrack" (the mark stays); `chart` becomes 320×96 |
 
-Rate limit: 120 requests per minute per client IP; beyond that `429` with `Retry-After` and `Cache-Control: no-store`. Unknown or private slugs return **`404`** whose body is still a neutral "not found" SVG, so a broken embed shows a labelled badge rather than a broken image. Draft (unpublished) products render that badge until they are published.
+Rate limit: 120 requests per minute per client IP (durable, see *Rate limits*); beyond that `429` with `Retry-After` and `Cache-Control: no-store`. Unknown or private slugs return **`404`** whose body is still a neutral "not found" SVG, so a broken embed shows a labelled badge rather than a broken image. Draft (unpublished) products render that badge until they are published.
 
 The dashboard has a configurator with live preview and copyable HTML / Markdown / image URL at `/app/saas/[id]/embed`; MCP clients get the same snippets from `usertrack_get_embed_code`.
 
@@ -834,7 +834,7 @@ curl https://usertrack.dev/api/embed/acme.json
 { "data": { "slug": "acme", "name": "Acme", "totalUsers": 12481, "newUsers7d": 300, "newUsers30d": 1900, "growth7dPct": 2.5, "growth30dPct": 18.2, "trust": "verified", "trustLabel": "Verified", "trendingRank": 4, "lastSyncedAt": 1756800000000, "spark": [10200, 10310, "…"] }, "meta": { "version": "v1", "generatedAt": "…" } }
 ```
 
-Cached 60 s, CORS `*`, 120 requests/minute per IP (own bucket, like badges); `404 not_found` for unknown or private projects (the iframe renders a neutral “not found” pill). `/embed/{slug}` is `no-store` + `noindex`. **Distribution signal:** the embedding page's host (from the `Referer`, origin only — never paths, IPs or visitors) is stored once per project and host with a load counter (max one write per host per minute); the founder sees the hosts in the configurator, the public page shows “Embedded on N sites”. Own host and `localhost` are ignored.
+Cached 60 s, CORS `*`, 60 requests/minute per IP (the `embed` bucket, shared with the `/embed/{slug}` iframe); `404 not_found` for unknown or private projects (the iframe renders a neutral “not found” pill). `/embed/{slug}` is `no-store` + `noindex`. **Distribution signal:** the embedding page's host (from the `Referer`, origin only — never paths, IPs or visitors) is stored once per project and host with a load counter (max one write per host per minute); the founder sees the hosts in the configurator, the public page shows “Embedded on N sites”. Own host and `localhost` are ignored.
 
 ## Share-card images
 
@@ -892,4 +892,4 @@ curl "https://usertrack.dev/api/v1/users/jane/history?range=90d"
 
 ## Share cards
 
-Share cards are public URLs, not API endpoints: `/s/{slug}/share/{kind}/card?style=blueprint|aurora|minimal&size=og|square&range=7d|30d|90d|1y|all&chart=1&logo=1&founder=1&verified=1&dates=1&title=…` and `/u/{username}/card?…` (see `docs/SHARING.md`). They render only the public projection of a project (visibility applied), 404 for drafts, are cached for 5 minutes and limited to 40 renders per minute per IP. Private share events, drafts and social preferences are never exposed by the API.
+Share cards are public URLs, not API endpoints: `/s/{slug}/share/{kind}/card?style=blueprint|aurora|minimal&size=og|square&range=7d|30d|90d|1y|all&chart=1&logo=1&founder=1&verified=1&dates=1&title=…` and `/u/{username}/card?…` (see `docs/SHARING.md`). They render only the public projection of a project (visibility applied), 404 for drafts, are cached for 5 minutes and limited to 40 renders per minute per IP (durable `card` bucket). Private share events, drafts and social preferences are never exposed by the API.

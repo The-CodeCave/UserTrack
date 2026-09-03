@@ -1,5 +1,5 @@
 import { PLANS } from "@convex/lib/tokens";
-import { LIMIT, take } from "./rate-limit";
+import { limit } from "./rate-limit";
 import { authorize, bearer, hashSecret, STATUS, toFailure, type GatewayCode } from "./gateway";
 
 export type ErrorCode = GatewayCode | "internal";
@@ -32,9 +32,8 @@ export function withApi<C>(category: string, handler: (req: Request, ctx: C) => 
     let res: Response;
     let limits: Limits;
     if (key) {
-      const burst = PLANS.free.api.burstPerMinute;
-      const b = take(`key:${hashSecret(key)}`, Date.now(), burst);
-      if (!b.allowed) return finish(fail("rate_limited", `Burst limit of ${burst} requests per minute exceeded`, 429, { "Retry-After": String(b.retryAfterSec) }), { limit: burst, remaining: 0, window: "minute" });
+      const b = await limit(req, "apiKey", hashSecret(key));
+      if (!b.allowed) return finish(fail("rate_limited", `Burst limit of ${b.limit} requests per minute exceeded`, 429, { "Retry-After": String(b.retryAfterSec) }), { limit: b.limit, remaining: 0, window: "minute" });
       try {
         const a = await authorize(key, "api", category);
         limits = { limit: a.limit.perDay, remaining: a.limit.remaining, window: "day", resetAt: a.limit.resetAt };
@@ -44,10 +43,9 @@ export function withApi<C>(category: string, handler: (req: Request, ctx: C) => 
         return finish(fail(f.code, f.message, STATUS[f.code], f.retryAfterSec ? { "Retry-After": String(f.retryAfterSec) } : {}), { limit: f.limit ?? PLANS.free.api.perDay, remaining: 0, window: "day", resetAt: f.resetAt });
       }
     } else {
-      const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
-      const rl = take(`ip:${ip}`);
-      limits = { limit: LIMIT, remaining: rl.remaining, window: "minute" };
-      if (!rl.allowed) return finish(fail("rate_limited", `Rate limit of ${LIMIT} requests per minute exceeded. Use an API key for 1,000 requests per day.`, 429, { "Retry-After": String(rl.retryAfterSec) }), limits);
+      const rl = await limit(req, "anonApi");
+      limits = { limit: rl.limit, remaining: rl.remaining, window: "minute" };
+      if (!rl.allowed) return finish(fail("rate_limited", `Rate limit of ${rl.limit} requests per minute exceeded. Use an API key for ${PLANS.free.api.perDay.toLocaleString("en")} requests per day.`, 429, { "Retry-After": String(rl.retryAfterSec) }), limits);
     }
     try {
       res = await handler(req, ctx);

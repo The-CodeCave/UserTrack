@@ -3,7 +3,7 @@
 import { fetchAction } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
 import { EVENTS_PATH, HEADER_NONCE, HEADER_PROJECT, HEADER_SIGNATURE, HEADER_TIMESTAMP } from "@convex/lib/nativeProtocol";
-import { take } from "@/lib/api/rate-limit";
+import { limit } from "@/lib/api/rate-limit";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY = 4_096;
@@ -12,8 +12,8 @@ export function eventsHandler(path: string) {
   return async function POST(req: Request) {
     const projectId = req.headers.get(HEADER_PROJECT) ?? "";
     if (!projectId || projectId.length > 64) return Response.json({ error: "missing project header" }, { status: 400 });
-    const rl = take(`native-events:${projectId}`, Date.now(), 600);
-    if (!rl.allowed) return Response.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+    const rl = await limit(req, "nativeEvents", projectId);
+    if (!rl.allowed) return Response.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec), "Cache-Control": "no-store" } });
     const body = await req.text();
     if (body.length > MAX_BODY) return Response.json({ error: "body too large" }, { status: 413 });
     const r = await fetchAction(api.native.ingestEvent, {

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { api } from "@convex/_generated/api";
 import { fetchAuthAction, isAuthenticated } from "@/lib/auth-server";
 import { SITE_URL } from "@/lib/site";
-import { take } from "@/lib/api/rate-limit";
+import { limit, tooMany } from "@/lib/api/rate-limit";
 import { safeInternalPath } from "@/lib/safe-redirect";
 
 export const dynamic = "force-dynamic";
@@ -11,8 +11,8 @@ const back = (q: string) => NextResponse.redirect(new URL(`/app/settings/social?
 
 // X redirects here with ?code&state (or ?error). The signed-in session must own the state (CSRF binding in Convex).
 export async function GET(req: NextRequest) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
-  if (!take(`x-callback:${ip}`, Date.now(), 10).allowed) return new Response("Too many attempts", { status: 429 });
+  const rl = await limit(req, "xCallback");
+  if (!rl.allowed) return tooMany(rl, "Too many attempts");
   const p = req.nextUrl.searchParams;
   if (p.get("error")) return back(`x=error&reason=${encodeURIComponent(p.get("error_description") ?? p.get("error") ?? "denied")}`);
   const code = p.get("code");

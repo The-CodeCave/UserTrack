@@ -374,7 +374,7 @@ Today Convex production is deployed from a logged-in laptop (`npx convex deploy`
 
 ### Edge rate limiting for the public API and MCP
 
-Per-key / per-token daily quotas live in Convex (`apiUsage`, survive deploys). The burst buckets (60 req/min per IP anonymous, 120/min per API key, 60 tool calls/min per MCP token) are in-process and reset on deploy, which is fine for one Railway replica. If you scale to multiple replicas or get abused, put Cloudflare (or Railway's proxy rules) in front of `/api/v1/*` and `/mcp`. No code change needed. **Status** [ ] Optional
+Since SEC-2 every per-minute limit is durable in Convex (`@convex-dev/rate-limiter`, installed by the normal `npx convex deploy` — no dashboard step, no new env var) and keyed on the trusted client IP (last `x-forwarded-for` hop). Per-key / per-token daily quotas stay in `apiUsage`. Application-level limiting is not DDoS protection: if the app is flooded at the network layer, put Cloudflare (or Railway's proxy rules) in front of `/api/v1/*`, `/mcp`, `/api/badge/*` and `/embed/*`. No code change needed. **Status** [ ] Optional
 
 ### Stripe sandbox key — live end-to-end test of the conversion adapter
 

@@ -27,7 +27,7 @@ export const API_SCOPES: Scope[] = ["metrics:read"];
 export const PLANS = {
   free: {
     api: { perDay: 1_000, burstPerMinute: 120 },
-    mcp: { perDay: 5_000, burstPerMinute: 60, createProjectPerHour: 10, verifyCooldownSec: 20, syncCooldownSec: 60 },
+    mcp: { perDay: 5_000, burstPerMinute: 120, createProjectPerHour: 10, verifyCooldownSec: 20, syncCooldownSec: 60 },
     anonymous: { burstPerMinute: 60 },
   },
 } as const;

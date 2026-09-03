@@ -53,6 +53,7 @@ import type * as lib_metrics from "../lib/metrics.js";
 import type * as lib_milestones from "../lib/milestones.js";
 import type * as lib_nativeProtocol from "../lib/nativeProtocol.js";
 import type * as lib_nativeSetup from "../lib/nativeSetup.js";
+import type * as lib_rateLimits from "../lib/rateLimits.js";
 import type * as lib_retention from "../lib/retention.js";
 import type * as lib_shareRules from "../lib/shareRules.js";
 import type * as lib_spikes from "../lib/spikes.js";
@@ -89,6 +90,7 @@ import type * as providers_stripe from "../providers/stripe.js";
 import type * as providers_supabase from "../providers/supabase.js";
 import type * as providers_types from "../providers/types.js";
 import type * as public_ from "../public.js";
+import type * as rateLimits from "../rateLimits.js";
 import type * as saas from "../saas.js";
 import type * as seed from "../seed.js";
 import type * as share from "../share.js";
@@ -150,6 +152,7 @@ declare const fullApi: ApiFromModules<{
   "lib/milestones": typeof lib_milestones;
   "lib/nativeProtocol": typeof lib_nativeProtocol;
   "lib/nativeSetup": typeof lib_nativeSetup;
+  "lib/rateLimits": typeof lib_rateLimits;
   "lib/retention": typeof lib_retention;
   "lib/shareRules": typeof lib_shareRules;
   "lib/spikes": typeof lib_spikes;
@@ -186,6 +189,7 @@ declare const fullApi: ApiFromModules<{
   "providers/supabase": typeof providers_supabase;
   "providers/types": typeof providers_types;
   public: typeof public_;
+  rateLimits: typeof rateLimits;
   saas: typeof saas;
   seed: typeof seed;
   share: typeof share;
@@ -224,4 +228,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   betterAuth: import("@convex-dev/better-auth/_generated/component.js").ComponentApi<"betterAuth">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

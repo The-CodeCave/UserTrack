@@ -3,12 +3,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
-import { PLANS } from "@convex/lib/tokens";
 import { AGENT_PROMPT, BETTER_AUTH_AGENT_PROMPT, MOBILE_AGENT_PROMPT, NATIVE_AGENT_PROMPT } from "./snippets";
 import { SERVER_INSTRUCTIONS, TOOLS } from "./tools";
 import { authorize, gatewayAuth, toFailure, type GatewayFailure } from "@/lib/api/gateway";
 import { hashSecret } from "@/lib/api/gateway";
-import { take } from "@/lib/api/rate-limit";
+import { limit } from "@/lib/api/rate-limit";
 
 export const MCP_VERSION = "1.0.0";
 
@@ -27,7 +26,7 @@ function errorResult(f: GatewayFailure) {
   return textResult({ error: { ...f, hint } }, true);
 }
 
-export function createMcpServer(secret: string) {
+export function createMcpServer(req: Request, secret: string) {
   const server = new McpServer({ name: "usertrack", version: MCP_VERSION }, { instructions: SERVER_INSTRUCTIONS });
   const auth = gatewayAuth(secret);
   for (const t of TOOLS) {
@@ -35,8 +34,8 @@ export function createMcpServer(secret: string) {
       t.name,
       { title: t.title, description: `${t.description} Requires scope ${t.scope}.`, inputSchema: t.input, annotations: { readOnlyHint: t.readOnly, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
       async (args: Record<string, unknown>) => {
-        const burst = take(`mcp:${hashSecret(secret)}`, Date.now(), PLANS.free.mcp.burstPerMinute);
-        if (!burst.allowed) return errorResult({ code: "rate_limited", message: `Burst limit of ${PLANS.free.mcp.burstPerMinute} tool calls per minute exceeded`, retryAfterSec: burst.retryAfterSec });
+        const burst = await limit(req, "mcp", hashSecret(secret));
+        if (!burst.allowed) return errorResult({ code: "rate_limited", message: `Burst limit of ${burst.limit} tool calls per minute exceeded`, retryAfterSec: burst.retryAfterSec });
         try {
           await authorize(secret, "mcp", t.name, t.scope);
           return textResult(await t.run(auth, args));
@@ -68,7 +67,7 @@ export function createMcpServer(secret: string) {
 }
 
 export async function handleMcpRequest(req: Request, secret: string) {
-  const server = createMcpServer(secret);
+  const server = createMcpServer(req, secret);
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   try {
     await server.connect(transport);

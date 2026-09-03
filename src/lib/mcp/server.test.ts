@@ -4,6 +4,8 @@ import { getFunctionName } from "convex/server";
 
 const { fetchQuery, fetchMutation, fetchAction } = vi.hoisted(() => ({ fetchQuery: vi.fn(), fetchMutation: vi.fn(), fetchAction: vi.fn() }));
 vi.mock("convex/nextjs", () => ({ fetchQuery, fetchMutation, fetchAction }));
+const { limit } = vi.hoisted(() => ({ limit: vi.fn() }));
+vi.mock("@/lib/api/rate-limit", () => ({ limit }));
 
 import { hashSecret } from "@/lib/api/gateway";
 import { handleMcpRequest, MCP_VERSION } from "./server";
@@ -33,6 +35,8 @@ beforeEach(() => {
   fetchQuery.mockReset();
   fetchMutation.mockReset();
   fetchAction.mockReset();
+  limit.mockReset();
+  limit.mockResolvedValue({ allowed: true, limit: 60, remaining: 59, retryAfterSec: 0 });
 });
 
 describe("handleMcpRequest", () => {

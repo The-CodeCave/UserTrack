@@ -1,0 +1,30 @@
+# SEC-2 smoke — 2026-09-03T22:47:38Z — PORT=3100 pnpm start (production build), badge limit 120/min per IP (durable, Convex)
+# 260 requests, 4 in parallel, spoofed first hop: x-forwarded-for: 'evil, 203.0.113.101' → keyed on the LAST hop (203.0.113.101)
+
+$ seq 260 | xargs -P 4 -I{} curl -s -o /dev/null -w '%{http_code}
+' -H 'x-forwarded-for: evil, 203.0.113.101' http://localhost:3100/api/badge/demo-northwind.svg | sort | uniq -c
+ 133 200
+ 127 429
+
+$ curl -i -H 'x-forwarded-for: evil, 203.0.113.101' http://localhost:3100/api/badge/demo-northwind.svg
+HTTP/1.1 429 Too Many Requests
+cache-control: no-store
+retry-after: 1
+Too many requests
+
+# same spoofed first hop, different last hop → unaffected:
+$ curl -s -o /dev/null -w '%{http_code}' -H 'x-forwarded-for: evil, 203.0.113.102' http://localhost:3100/api/badge/demo-northwind.svg
+200
+
+# --- restart the Next.js process: a fresh in-memory bucket would allow 30 requests; the Convex bucket (refilling 2/s) denies most ---
+$ seq 30 | xargs -P 4 -I{} curl -s -o /dev/null -w '%{http_code}
+' -H 'x-forwarded-for: evil, 203.0.113.101' http://localhost:3100/api/badge/demo-northwind.svg | sort | uniq -c   # fresh process, ~5 s after the flood
+  12 200
+  18 429
+
+# --- browser proof (playwright while a 4-wide fetch flood keeps running; key 'unknown' shared by node fetch and Chrome — no proxy in front of `next start`) ---
+flood so far: {"200":62,"429":278}
+1440 → 429 Retry-After: 1 Cache-Control: no-store
+768 → 429 Retry-After: 1 Cache-Control: no-store
+375 → 429 Retry-After: 1 Cache-Control: no-store
+flood total: {"200":64,"429":1924}
