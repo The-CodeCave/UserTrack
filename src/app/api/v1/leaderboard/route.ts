@@ -7,8 +7,9 @@ import { CATEGORY_SLUGS } from "@/lib/categories";
 export const dynamic = "force-dynamic";
 export const OPTIONS = options;
 
-const BOARDS = ["trending", "fastest", "most-users", "most-new", "most-activated", "activation-rate", "new-rising", "best-conversion", "best-trial-conversion", "converted-growth"] as const;
+const BOARDS = ["trending", "fastest", "most-users", "most-new", "most-activated", "activation-rate", "new-rising", "hidden-gems", "movers", "best-conversion", "best-trial-conversion", "converted-growth"] as const;
 const WINDOWS = ["24h", "7d", "30d"] as const;
+const PLATFORMS = ["web", "mobile", "hybrid"] as const;
 const SIZES = ["0-100", "100-1k", "1k-10k", "10k-100k", "100k+"] as const;
 const BOOLS = ["true", "false"] as const;
 
@@ -25,6 +26,8 @@ export const GET = withApi("leaderboard", async (req: Request) => {
   if (size === null) return bad("size", SIZES);
   const verified = oneOf(q.get("verified"), BOOLS);
   if (verified === null) return bad("verified", BOOLS);
+  const platform = oneOf(q.get("platform"), PLATFORMS);
+  if (platform === null) return bad("platform", PLATFORMS);
   const category = q.get("category") ?? undefined;
   if (category !== undefined && !CATEGORY_SLUGS.has(category)) return bad("category", [...CATEGORY_SLUGS]);
   const limit = q.get("limit") === null ? 50 : Number(q.get("limit"));
@@ -32,10 +35,12 @@ export const GET = withApi("leaderboard", async (req: Request) => {
 
   const b = board ?? "most-new";
   const w = window ?? (b === "trending" ? "7d" : "30d");
-  const rows = await fetchQuery(api.public.board, { board: b, window: w, verifiedOnly: verified !== "false", category, size, limit });
+  const rows = await fetchQuery(api.public.board, { board: b, window: w, verifiedOnly: verified !== "false", category, size, platform, limit });
   return ok({
     board: b,
     window: w,
-    rows: rows.map((row, i) => ({ position: i + 1, movement: row.movement ?? null, ...(b === "trending" ? { explain: row.explain } : {}), ...saasDto(row) })),
+    platform,
+    // movers: movement is the stored 7-day leaderboard move (rank7dAgo → rank), so the two inputs ride along.
+    rows: rows.map((row, i) => ({ position: i + 1, movement: row.movement ?? null, ...(b === "trending" ? { explain: row.explain } : {}), ...(b === "movers" ? { rank7dAgo: row.rank7dAgo, rankDelta7d: row.rankDelta7d } : {}), ...saasDto(row) })),
   });
 });

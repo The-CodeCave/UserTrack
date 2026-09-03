@@ -47,9 +47,15 @@ export interface SaasRow {
   playStoreUrl?: string;
   rank?: number;
   prevRank?: number;
+  rank7dAgo?: number;
+  rankDelta7d?: number;
   trendingRank?: number;
   prevTrendingRank?: number;
+  trendingRank7dAgo?: number;
+  trendingRankDelta7d?: number;
+  bestTrendingRank?: number;
   trendingScore7d?: number;
+  foundedAt?: number;
   followerCount?: number;
   owner?: { username: string; displayName: string } | null;
   firstSnapshotAt?: number;
@@ -86,9 +92,11 @@ export function saasDto(r: SaasRow) {
       revenue: r.convertedUsers === undefined ? undefined : { payingUsers: r.convertedUsers },
     },
     identityQuality: r.identityQuality,
-    ranks: { leaderboard: r.rank, previousLeaderboard: r.prevRank, trending: r.trendingRank, previousTrending: r.prevTrendingRank, trendingScore7d: r.trendingScore7d },
+    // 7dAgo / delta7d come from stored daily rank history (7 UTC days), previous* from the last rerank.
+    ranks: { leaderboard: r.rank, previousLeaderboard: r.prevRank, leaderboard7dAgo: r.rank7dAgo, leaderboardDelta7d: r.rankDelta7d, trending: r.trendingRank, previousTrending: r.prevTrendingRank, trending7dAgo: r.trendingRank7dAgo, trendingDelta7d: r.trendingRankDelta7d, bestTrending: r.bestTrendingRank, trendingScore7d: r.trendingScore7d },
     followers: r.followerCount ?? 0,
     owner: r.owner ? { username: r.owner.username, displayName: r.owner.displayName } : undefined,
+    foundedAt: iso(r.foundedAt),
     timestamps: { firstSnapshotAt: iso(r.firstSnapshotAt), lastSyncedAt: iso(r.lastSyncedAt) },
     urls: { page: `${SITE_URL}/s/${r.slug}`, badge: `${SITE_URL}/api/badge/${r.slug}.svg` },
   };
@@ -98,8 +106,21 @@ export function milestoneDto(m: { _id: string; kind: string; title: string; copy
   return { id: m._id, kind: m.kind, title: m.title, copy: m.copy, value: m.value, achievedAt: new Date(m.achievedAt).toISOString() };
 }
 
-export function historyDto(points: { t: number; total: number; delta: number; activated?: number }[]) {
-  return points.map((p) => ({ t: new Date(p.t).toISOString(), totalUsers: p.total, newUsers: p.delta, activatedUsers: p.activated }));
+export function historyDto(points: { t: number; total: number; delta: number; activated?: number; visitors?: number; converted?: number }[]) {
+  return points.map((p) => ({ t: new Date(p.t).toISOString(), totalUsers: p.total, newUsers: p.delta, activatedUsers: p.activated, visitors: p.visitors, convertedUsers: p.converted }));
+}
+
+// Storage-aware history (docs/HISTORY.md): resolution says what one point is; gaps are stretches without stored rows.
+export function historySeriesDto(h: { range: string; resolution: string; points: Parameters<typeof historyDto>[0]; gaps: { from: number; to: number; days: number }[] }) {
+  return { range: h.range, resolution: h.resolution, points: historyDto(h.points), gaps: h.gaps.map((g) => ({ from: new Date(g.from).toISOString(), to: new Date(g.to).toISOString(), days: g.days })) };
+}
+
+export function rankHistoryDto(r: { slug: string; kind: string; window: string; current?: number; best?: number; rank7dAgo?: number; movement7d: { kind: string; delta: number } | null; points: { day: string; rank: number; score?: number }[] }) {
+  return { slug: r.slug, kind: r.kind, window: r.window, current: r.current, best: r.best, rank7dAgo: r.rank7dAgo, movement7d: r.movement7d, points: r.points.map((p) => ({ day: p.day, rank: p.rank, score: p.score })) };
+}
+
+export function benchmarkHistoryDto(b: { slug: string; weeks: { week: string; day: string; computedAt: number; standings: { cohort: string; metric: string; metricLabel: string; percentile: number; band: string | null; sampleSize: number }[] }[] }) {
+  return { slug: b.slug, weeks: b.weeks.map((w) => ({ week: w.week, day: w.day, computedAt: new Date(w.computedAt).toISOString(), standings: w.standings.map((s) => ({ cohort: s.cohort, metric: s.metric, metricLabel: s.metricLabel, percentile: s.percentile, band: s.band, sampleSize: s.sampleSize })) })) };
 }
 
 // Compact metrics view: the numbers a badge, widget or newsletter needs, nothing else.

@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NotificationPreferences, type PrefKey, type Prefs } from "@/components/app/notification-preferences";
 
-const ALL_OFF: Prefs = { productNudges: false, growthMilestones: false, rankingMilestones: false, growthAlerts: false, monthlyReport: false, weeklyDigest: false, followedSaasUpdates: false };
+const ALL_OFF: Prefs = { productNudges: false, growthMilestones: false, rankingMilestones: false, growthAlerts: false, monthlyReport: false, weeklyDigest: false, followedSaasUpdates: false, followedMilestones: false, followedRanking: false, followedSpikes: false };
 
 export default function EmailPreferencesPage() {
   return (

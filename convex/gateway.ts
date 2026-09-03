@@ -20,7 +20,12 @@ import { ENV_PROJECT_ID, ENV_SECRET, envSnippet, NATIVE_PACKAGE, nativeSetup } f
 import { createNativeIntegration, nativeSourceArg } from "./native";
 import { metricsUrl } from "./providers/native";
 import { normalizeSource, type NativeSource } from "./lib/nativeProtocol";
-import { founderRows, publicProfile, publicSaas, sortBoard, trendingRankFor, HIDDEN_GEM_RULES } from "./public";
+import { founderRows, publicProfile, publicSaas, sortBoard, trendingRankFor, feedItems, HIDDEN_GEM_RULES, NEW_RISING_RULES, PLATFORMS, type Board } from "./public";
+import { followTarget, unfollowTarget, watchlistFeed } from "./follows";
+import { createEndpoint, deleteEndpoint, listEndpoints, recentDeliveries, rotateEndpointSecret, sendTestEvent, updateEndpoint } from "./webhooks";
+import { MAX_ENDPOINTS, WEBHOOK_EVENTS } from "./lib/webhooks";
+import { rankMovement } from "./lib/history";
+import { DATASETS, DATASET_NAMES, datasetRow, type DatasetName } from "../src/lib/api/datasets";
 import { canonicalX } from "./profiles";
 import { founderAggregates } from "./lib/founder";
 import { normalizePrefs } from "./lib/shareRules";
@@ -878,4 +883,313 @@ export const founderUrlTool = query({
     const base = siteUrl();
     return { username: profile.username, public: profile.profilePublic !== false, urls: { profile: `${base}/u/${profile.username}`, card: `${base}/u/${profile.username}/card`, ogImage: `${base}/u/${profile.username}/opengraph-image`, api: `${base}/api/v1/users/${profile.username}`, history: `${base}/api/v1/users/${profile.username}/history` } };
   },
+});
+
+// ---- v0.9: discovery, watchlist, rank + benchmark history, datasets, webhooks ----------------------------------------
+
+// follows.ts / webhooks.ts raise plain Errors with user-facing messages; surface them as structured failures.
+async function lift<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof ConvexError || e instanceof DomainError) throw e;
+    const message = (e as Error).message ?? "Request failed";
+    return fail(/not found/i.test(message) ? "not_found" : "bad_request", message);
+  }
+}
+
+type Window = "24h" | "7d" | "30d";
+const windowArg = v.union(v.literal("24h"), v.literal("7d"), v.literal("30d"));
+const platformArg = v.union(...PLATFORMS.map((p) => v.literal(p)));
+const publicRows = (ctx: QueryCtx | MutationCtx) => ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).collect();
+
+// Compact public row for discovery / dataset answers: public projection only, never owner or visibility internals.
+function discoverRow(s: Doc<"saas">, w: Window) {
+  const p = publicSaas(s);
+  return {
+    slug: p.slug, name: p.name, category: p.category, projectType: p.projectType ?? "web", verification: p.trust,
+    totalUsers: p.totalUsers, newUsers: w === "24h" ? p.newUsers24h : w === "7d" ? p.newUsers7d : p.newUsers30d, growth7dPct: p.growth7dPct, growth30dPct: p.growth30dPct, activationRatePct: p.activationRatePct,
+    rank: p.rank, rank7dAgo: p.rank7dAgo, rankDelta7d: p.rankDelta7d, movement: rankMovement(p.rank7dAgo, p.rank),
+    trendingRank: p.trendingRank, trendingMovement: rankMovement(p.trendingRank7dAgo, p.trendingRank), trendingScore7d: p.trendingScore7d,
+    url: projectUrls(s).page,
+  };
+}
+
+// Public discovery sections (same rules as /discover), trimmed for agents.
+export const discover = query({
+  args: { auth: authArg, category: v.optional(v.string()), window: v.optional(windowArg) },
+  handler: async (ctx, { auth, category, window = "7d" }) =>
+    run(async () => {
+      await authenticate(ctx, auth, "mcp", "metrics:read");
+      if (category && !CATEGORIES.some((c) => c.slug === category)) fail("bad_request", `category must be one of ${CATEGORIES.map((c) => c.slug).join(", ")}`);
+      const all = await publicRows(ctx);
+      const pick = (board: Board, w: Window, extra: { platform?: string } = {}) => sortBoard(all, { board, window: w, verifiedOnly: true, category, limit: 10, ...extra }).map((s) => discoverRow(s, w));
+      const base = siteUrlOf();
+      return {
+        category: category ?? null,
+        window,
+        sections: { trending: pick("trending", window), fastestGrowing: pick("fastest", window), newAndRising: pick("new-rising", "7d"), hiddenGems: pick("hidden-gems", "7d"), movers: pick("movers", "30d"), mobile: pick("most-new", "30d", { platform: "mobile" }) },
+        feed: (await feedItems(ctx, all, 12, category)).map((i) => ({ id: i.id, kind: i.kind, at: new Date(i.at).toISOString(), title: i.title, detail: i.detail, value: i.value, project: { slug: i.saas.slug, name: i.saas.name, category: i.saas.category, totalUsers: i.saas.totalUsers, verification: i.saas.trust }, url: `${base}/s/${i.saas.slug}` })),
+        hiddenGemRules: HIDDEN_GEM_RULES,
+        newRisingRules: NEW_RISING_RULES,
+        urls: { discover: `${base}/discover${category ? `?category=${category}` : ""}`, hiddenGems: `${base}/hidden-gems`, trending: `${base}/trending` },
+      };
+    }),
+});
+
+// ---- Watchlist ------------------------------------------------------------------------------------------------------
+
+const targetTypeArg = v.union(v.literal("saas"), v.literal("profile"));
+const targetRefArg = { targetType: targetTypeArg, targetId: v.optional(v.string()), slug: v.optional(v.string()), username: v.optional(v.string()) };
+
+async function resolveTarget(ctx: QueryCtx | MutationCtx, ref: { targetType: "saas" | "profile"; targetId?: string; slug?: string; username?: string }) {
+  if (ref.targetType === "saas") {
+    const s = ref.slug ? await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", ref.slug!)).unique() : ref.targetId ? await ctx.db.get(ref.targetId as Id<"saas">).catch(() => null) : null;
+    if (!s || !s.isPublic) fail("not_found", "No public project matches that slug or id");
+    return { type: "saas" as const, id: s!._id, slug: s!.slug, name: s!.name, url: projectUrls(s!).page };
+  }
+  const p = ref.username ? await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", ref.username!.toLowerCase().replace(/^@/, ""))).unique() : ref.targetId ? await ctx.db.get(ref.targetId as Id<"profiles">).catch(() => null) : null;
+  if (!p || p.profilePublic === false) fail("not_found", "No public founder matches that username or id");
+  return { type: "profile" as const, id: p!._id, username: p!.username, name: p!.displayName, url: `${siteUrlOf()}/u/${p!.username}` };
+}
+
+export const followTool = mutation({
+  args: { auth: authArg, ...targetRefArg },
+  handler: async (ctx, { auth, ...ref }) =>
+    run(async () => {
+      const { token, profile } = await authenticate(ctx, auth, "mcp", "follows:write");
+      const target = await resolveTarget(ctx, ref);
+      const r = await lift(() => followTarget(ctx, profile, target.type, target.id));
+      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "follow", saasId: target.type === "saas" ? (target.id as Id<"saas">) : undefined, ok: true, detail: `${target.type}:${"slug" in target ? target.slug : target.username} ${r.created ? "created" : "existing"}` });
+      return { ...r, target, watchlistUrl: `${siteUrlOf()}/app/following` };
+    }),
+});
+
+export const unfollowTool = mutation({
+  args: { auth: authArg, ...targetRefArg },
+  handler: async (ctx, { auth, ...ref }) =>
+    run(async () => {
+      const { token, profile } = await authenticate(ctx, auth, "mcp", "follows:write");
+      const target = await resolveTarget(ctx, ref);
+      const r = await lift(() => unfollowTarget(ctx, profile, target.type, target.id));
+      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "unfollow", saasId: target.type === "saas" ? (target.id as Id<"saas">) : undefined, ok: true, detail: `${target.type}:${"slug" in target ? target.slug : target.username} ${r.removed ? "removed" : "not_following"}` });
+      return { ...r, target };
+    }),
+});
+
+const clampDays = (d?: number) => Math.min(Math.max(d ?? 30, 1), 90);
+const clampLimit = (l?: number) => Math.min(Math.max(l ?? 60, 1), 200);
+
+// Agent view of the watchlist: compact rows with 7-day movement plus the personal feed.
+export const watchlist = query({
+  args: { auth: authArg, days: v.optional(v.number()), limit: v.optional(v.number()) },
+  handler: async (ctx, { auth, days, limit }) => {
+    const { profile } = await authenticate(ctx, auth, "mcp", "follows:read");
+    const w = await watchlistFeed(ctx, profile._id, clampDays(days), clampLimit(limit));
+    const base = siteUrlOf();
+    return {
+      days: clampDays(days),
+      saas: w.saas.map((s) => ({ id: s._id, slug: s.slug, name: s.name, category: s.category, verification: s.trust, totalUsers: s.totalUsers, newUsers7d: s.newUsers7d, newUsers30d: s.newUsers30d, growth7dPct: s.growth7dPct, growth30dPct: s.growth30dPct, rank: s.rank, rank7dAgo: s.rank7dAgo, rankMovement7d: s.rankMovement7d, trendingRank: s.trendingRank, trendingMovement7d: s.trendingMovement7d, via: s.via, followed: s.followed, url: `${base}/s/${s.slug}` })),
+      founders: w.founders.map((p) => ({ id: p._id, username: p.username, displayName: p.displayName, followerCount: p.followerCount, url: `${base}/u/${p.username}` })),
+      feed: w.feed.map(({ saas, share, ...i }) => ({ ...i, at: new Date(i.at).toISOString(), project: { slug: saas.slug, name: saas.name, category: saas.category, totalUsers: saas.totalUsers, verification: saas.trust }, url: `${base}/s/${saas.slug}${share ? `/${share}` : ""}` })),
+      urls: { watchlist: `${base}/app/following` },
+      note: w.saas.length || w.founders.length ? undefined : "Nothing followed yet. usertrack_follow_project / usertrack_follow_founder add products and founders to the watchlist.",
+    };
+  },
+});
+
+// REST /following: the API key owner's watchlist with full public projections (private to the key owner, never public).
+export const following = query({
+  args: { auth: authArg, days: v.optional(v.number()), limit: v.optional(v.number()) },
+  handler: async (ctx, { auth, days, limit }) => {
+    const { profile } = await authenticate(ctx, auth, "api", "metrics:read");
+    const w = await watchlistFeed(ctx, profile._id, clampDays(days), clampLimit(limit));
+    const saas = [];
+    for (const row of w.saas) {
+      const s = await ctx.db.get(row._id);
+      if (!s || !s.isPublic) continue;
+      const owner = await ctx.db.get(s.ownerId);
+      saas.push({ ...publicSaas(s), owner: owner ? { username: owner.username, displayName: owner.displayName } : null, via: row.via, followed: row.followed, rankMovement7d: row.rankMovement7d, trendingMovement7d: row.trendingMovement7d });
+    }
+    return { days: clampDays(days), saas, founders: w.founders.map((p) => ({ username: p.username, displayName: p.displayName, avatarUrl: p.avatarUrl, followerCount: p.followerCount })), feed: w.feed.map(({ via, founder, ...i }) => ({ ...i, via, founder })) };
+  },
+});
+
+// ---- Rank + benchmark history (owner view; private projects allowed) --------------------------------------------------
+
+const rankKindArg = v.union(v.literal("leaderboard"), v.literal("trending"));
+
+export const rankHistoryTool = query({
+  args: { auth: authArg, ...refArg, kind: v.optional(rankKindArg), window: v.optional(windowArg), days: v.optional(v.number()) },
+  handler: async (ctx, { auth, projectId, slug, kind = "leaderboard", window, days }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const w = window ?? (kind === "trending" ? "7d" : "30d");
+      const d = Math.min(Math.max(days ?? 90, 7), 730);
+      const since = dayKey(Date.now() - d * DAY);
+      const rows = await ctx.db.query("rankHistory").withIndex("by_saas_kind_window_day", (q) => q.eq("saasId", saas._id).eq("kind", kind).eq("window", w).gte("day", since)).collect();
+      const current = kind === "trending" ? trendingRankFor(saas, w).rank : saas.rank;
+      const ago = kind === "trending" ? saas.trendingRank7dAgo : saas.rank7dAgo;
+      return {
+        project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic },
+        kind, window: w, days: d,
+        points: rows.map((r) => ({ day: r.day, rank: r.rank, score: r.score })),
+        current, best: kind === "trending" ? saas.bestTrendingRank : saas.bestRank, rank7dAgo: ago, movement7d: rankMovement(ago, current),
+        note: rows.length ? undefined : saas.isPublic ? "No stored positions yet: ranks are recorded once per UTC day after each rerank." : "The project is not published, so it is not ranked; publish it with usertrack_update_project { isPublic: true }.",
+        publicUrl: saas.isPublic ? `${projectUrls(saas).api}/rank-history?kind=${kind}&window=${w}` : undefined,
+      };
+    }),
+});
+
+export const benchmarkHistoryTool = query({
+  args: { auth: authArg, ...refArg, weeks: v.optional(v.number()) },
+  handler: async (ctx, { auth, projectId, slug, weeks }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const n = Math.min(Math.max(weeks ?? 26, 4), 52);
+      const history = await benchmarkHistoryFor(ctx, saas, n, false);
+      const changes = (await benchmarkCards(ctx, saas)).filter((c) => c.changeInsight).map((c) => ({ cohort: c.groupLabel, cohortKey: c.group, metric: c.metric, metricLabel: c.metricLabel, percentile: c.percentile, previousPercentile: c.previousPercentile, previousWeek: c.previousWeek, band: c.band, changeInsight: c.changeInsight }));
+      return {
+        project: { id: saas._id, slug: saas.slug, name: saas.name },
+        weeks: n,
+        history: history.map((h) => ({ ...h, computedAt: new Date(h.computedAt).toISOString() })),
+        changes,
+        publicView: visibilityOf(saas).benchmarks ? "Top-quarter standings are public on the growth page and /benchmark-history." : "Benchmarks are hidden on the public page (visibility.benchmarks is off); this is the owner's private view.",
+        note: history.length ? undefined : "No weekly standings yet: benchmarks refresh daily and need at least " + MIN_SAMPLE + " verified products per cohort.",
+      };
+    }),
+});
+
+// ---- Datasets ---------------------------------------------------------------------------------------------------------
+
+const datasetArg = v.union(...DATASET_NAMES.map((d) => v.literal(d)), v.literal("rankings"));
+
+export const dataset = query({
+  args: { auth: authArg, dataset: datasetArg, category: v.optional(v.string()), window: v.optional(windowArg), platform: v.optional(platformArg), limit: v.optional(v.number()), period: v.optional(v.string()), board: v.optional(v.string()) },
+  handler: async (ctx, { auth, dataset, category, window, platform, limit, period, board }) =>
+    run(async () => {
+      await authenticate(ctx, auth, "mcp", "metrics:read");
+      if (category && !CATEGORIES.some((c) => c.slug === category)) fail("bad_request", `category must be one of ${CATEGORIES.map((c) => c.slug).join(", ")}`);
+      const base = siteUrlOf();
+      if (dataset === "rankings") {
+        if (!period) {
+          const periods = (await ctx.db.query("rankingSnapshots").withIndex("by_period").order("desc").take(200)).map((r) => ({ period: r.period, board: r.board, category: r.category ?? null, sampleSize: r.sampleSize, computedAt: new Date(r.computedAt).toISOString() }));
+          return { dataset, periods, hint: "Pass period (YYYY-MM) plus optional board / category for the frozen ranking.", url: `${base}/api/v1/datasets/rankings/history` };
+        }
+        if (!/^\d{4}-\d{2}$/.test(period)) fail("bad_request", "period must look like YYYY-MM");
+        const b = board ?? "most-new";
+        const snap = await ctx.db.query("rankingSnapshots").withIndex("by_period_board_category", (q) => q.eq("period", period).eq("board", b).eq("category", category)).unique();
+        if (!snap) fail("not_found", `No frozen ranking for ${period} / ${b}${category ? ` / ${category}` : ""}`);
+        return { dataset, period, board: b, category: category ?? null, sampleSize: snap!.sampleSize, computedAt: new Date(snap!.computedAt).toISOString(), rows: snap!.rows.map((r) => ({ ...r, url: `${base}/s/${r.slug}` })), url: `${base}/rankings/${period.replace("-", "/")}${category ? `/${category}` : ""}` };
+      }
+      if (dataset === "category" && !category) fail("bad_request", "The category dataset needs a category slug");
+      const def = DATASETS[dataset as DatasetName];
+      const w = window ?? def.window;
+      const b = (dataset === "category" && board ? board : def.board) as Board;
+      const all = await publicRows(ctx);
+      const rows = sortBoard(all, { board: b, window: w, verifiedOnly: true, category, platform, limit: Math.min(limit ?? 50, 100) }).map((s, i) => datasetRow(publicSaas(s), i + 1, base));
+      const qs = new URLSearchParams({ window: w, ...(category ? { category } : {}), ...(platform ? { platform } : {}) });
+      const path = dataset === "category" ? `/api/v1/datasets/categories/${category}` : `/api/v1/datasets/${dataset}`;
+      return { dataset, board: b, window: w, category: category ?? null, platform: platform ?? null, rows, updatedAt: all.reduce((a, s) => Math.max(a, s.lastSyncedAt ?? 0), 0) || null, methodology: `${base}${def.methodology}`, urls: { json: `${base}${path}?${qs}`, csv: `${base}${path}?${qs}&format=csv` } };
+    }),
+});
+
+// ---- Webhooks ---------------------------------------------------------------------------------------------------------
+
+async function requireOwnedEndpoint(ctx: QueryCtx | MutationCtx, profileId: Id<"profiles">, endpointId: string) {
+  const ep = await ctx.db.get(endpointId as Id<"webhookEndpoints">).catch(() => null);
+  if (!ep || ep.profileId !== profileId) fail("not_found", "Webhook endpoint not found");
+  return ep!;
+}
+
+const webhookCatalog = () => ({ events: WEBHOOK_EVENTS.map((e) => ({ type: e.type, label: e.label, blurb: e.blurb })), maxEndpoints: MAX_ENDPOINTS, docs: `${siteUrlOf()}/developers/webhooks` });
+
+export const webhooksList = query({
+  args: { auth: authArg },
+  handler: async (ctx, { auth }) => {
+    const { profile } = await authenticate(ctx, auth, "mcp", "webhooks:read");
+    const endpoints = await listEndpoints(ctx, profile._id);
+    const projects = (await listOwnedProjects(ctx, profile._id)).map((s) => ({ id: s._id, slug: s.slug, name: s.name }));
+    return { endpoints: endpoints.map(endpointOut), projects, ...webhookCatalog(), note: endpoints.length ? undefined : "No webhook endpoints yet. usertrack_create_webhook returns the signing secret once." };
+  },
+});
+
+const endpointOut = <T extends { createdAt: number; updatedAt: number; lastDeliveryAt?: number }>(e: T) => ({ ...e, createdAt: new Date(e.createdAt).toISOString(), updatedAt: new Date(e.updatedAt).toISOString(), lastDeliveryAt: e.lastDeliveryAt === undefined ? undefined : new Date(e.lastDeliveryAt).toISOString() });
+
+export const createWebhookTool = mutation({
+  args: { auth: authArg, ...refArg, url: v.string(), events: v.array(v.string()), description: v.optional(v.string()) },
+  handler: async (ctx, { auth, projectId, slug, url, events, description }) =>
+    run(async () => {
+      const { token, profile } = await authenticate(ctx, auth, "mcp", "webhooks:write");
+      const saas = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
+      const r = await lift(() => createEndpoint(ctx, profile._id, { url, events, description, saasId: saas?._id }));
+      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "create_webhook", saasId: saas?._id, ok: true, detail: `${new URL(r.endpoint.url).host} ${r.endpoint.events.join(",")}` });
+      return { endpoint: endpointOut(r.endpoint), secret: r.secret, message: "Endpoint created. The signing secret is returned only now — hand it to the founder for their environment; never print or log it. Send a signed test with usertrack_test_webhook.", nextTool: "usertrack_test_webhook", ...webhookCatalog() };
+    }),
+});
+
+export const updateWebhookTool = mutation({
+  args: { auth: authArg, endpointId: v.string(), url: v.optional(v.string()), events: v.optional(v.array(v.string())), description: v.optional(v.string()), status: v.optional(v.union(v.literal("active"), v.literal("disabled"))), projectId: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, { auth, endpointId, projectId, ...patch }) =>
+    run(async () => {
+      const { token, profile } = await authenticate(ctx, auth, "mcp", "webhooks:write");
+      const ep = await requireOwnedEndpoint(ctx, profile._id, endpointId);
+      const saasId = projectId === undefined ? undefined : projectId === null ? null : (await requireOwnedProject(ctx, profile._id, { id: projectId }))._id;
+      const changed = Object.keys(patch).filter((k) => (patch as Record<string, unknown>)[k] !== undefined);
+      if (projectId !== undefined) changed.push("project");
+      if (!changed.length) fail("bad_request", "Nothing to update");
+      const endpoint = await lift(() => updateEndpoint(ctx, profile._id, ep._id, { ...patch, saasId }));
+      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "update_webhook", saasId: endpoint.saasId, ok: true, detail: changed.join(",") });
+      return { updated: changed, endpoint: endpointOut(endpoint) };
+    }),
+});
+
+export const rotateWebhookSecretTool = mutation({
+  args: { auth: authArg, endpointId: v.string() },
+  handler: async (ctx, { auth, endpointId }) =>
+    run(async () => {
+      const { token, profile } = await authenticate(ctx, auth, "mcp", "webhooks:write");
+      const ep = await requireOwnedEndpoint(ctx, profile._id, endpointId);
+      const r = await lift(() => rotateEndpointSecret(ctx, profile._id, ep._id));
+      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "rotate_webhook_secret", saasId: ep.saasId, ok: true, detail: new URL(ep.url).host });
+      return { endpoint: endpointOut(r.endpoint), secret: r.secret, message: "Secret rotated; the previous secret stops verifying immediately. Returned only now — never print or log it." };
+    }),
+});
+
+export const deleteWebhookTool = mutation({
+  args: { auth: authArg, endpointId: v.string() },
+  handler: async (ctx, { auth, endpointId }) =>
+    run(async () => {
+      const { token, profile } = await authenticate(ctx, auth, "mcp", "webhooks:write");
+      const ep = await requireOwnedEndpoint(ctx, profile._id, endpointId);
+      await lift(() => deleteEndpoint(ctx, profile._id, ep._id));
+      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "delete_webhook", saasId: ep.saasId, ok: true, detail: new URL(ep.url).host });
+      return { deleted: true, endpointId: ep._id };
+    }),
+});
+
+export const testWebhookTool = mutation({
+  args: { auth: authArg, endpointId: v.string() },
+  handler: async (ctx, { auth, endpointId }) =>
+    run(async () => {
+      const { token, profile } = await authenticate(ctx, auth, "mcp", "webhooks:write");
+      const ep = await requireOwnedEndpoint(ctx, profile._id, endpointId);
+      const r = await lift(() => sendTestEvent(ctx, profile._id, ep._id));
+      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "test_webhook", saasId: ep.saasId, ok: true, detail: new URL(ep.url).host });
+      return { ...r, endpointId: ep._id, message: "Signed webhook.test event queued. Check the outcome with usertrack_get_webhook_deliveries in a few seconds.", nextTool: "usertrack_get_webhook_deliveries" };
+    }),
+});
+
+export const webhookDeliveriesTool = query({
+  args: { auth: authArg, endpointId: v.string(), limit: v.optional(v.number()), failedOnly: v.optional(v.boolean()) },
+  handler: async (ctx, { auth, endpointId, limit, failedOnly }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "webhooks:read");
+      const ep = await requireOwnedEndpoint(ctx, profile._id, endpointId);
+      const rows = await recentDeliveries(ctx, profile._id, ep._id, limit ?? 25, failedOnly ?? false);
+      const iso = (t?: number) => (t === undefined ? undefined : new Date(t).toISOString());
+      return { endpoint: { id: ep._id, url: ep.url, status: ep.status, consecutiveFailures: ep.consecutiveFailures }, deliveries: rows.map((d) => ({ ...d, nextAttemptAt: iso(d.nextAttemptAt), createdAt: iso(d.createdAt), lastAttemptAt: iso(d.lastAttemptAt), deliveredAt: iso(d.deliveredAt) })), note: rows.length ? undefined : failedOnly ? "No failed deliveries." : "No deliveries yet; usertrack_test_webhook sends a signed test event." };
+    }),
 });

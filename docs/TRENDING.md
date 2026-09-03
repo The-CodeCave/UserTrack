@@ -62,6 +62,10 @@ Reading: the large product keeps the lead through volume; the small product with
 
 `prev*` is the position at the previous rerank (rewritten on every run), so a product that holds its place reads `same` rather than `new` forever; movement is `up` / `down` / `same` / `new` with `delta = prev − rank`. The 30-day leaderboard rank (`rank`, by `newUsers30d`) is computed in the same job, and its `prevRank` is only rewritten when that rank changes.
 
+## History (v0.9)
+
+Every rerank upserts one `rankHistory` row per rankable product per window and UTC day (`kind: "trending"`, `rank`, `score`), so trending positions and scores are queryable over time (`public.rankHistory { kind: "trending", window }`, `GET /api/v1/saas/{slug}/rank-history?kind=trending`, MCP `usertrack_get_rank_history`). `trendingRank7dAgo` / `trendingRankDelta7d` and `bestTrendingRank` are materialized on the `saas` row from those rows. Movement chips still compare with the previous 4-hour refresh; "Biggest movers" and the watchlist use the stored 7-day positions (`docs/HISTORY.md`, `docs/DISCOVERY.md`).
+
 ## Determinism
 
 Ordering is a total order: `score desc → newUsers30d desc → totalUsers desc → slug asc`. Two products with identical inputs get stable, reproducible ranks across reruns, and a rerun with unchanged data writes no rank changes. Scores are rounded to one decimal before sorting.

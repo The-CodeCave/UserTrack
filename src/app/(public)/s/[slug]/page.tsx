@@ -10,8 +10,9 @@ import { Panel } from "@/components/blueprint/panel";
 import { MetricCard } from "@/components/blueprint/metric-card";
 import { TrustBadge, trustTitle } from "@/components/blueprint/trust-badge";
 import { MovementTag } from "@/components/blueprint/movement";
-import { SaasLogo, DemoTag } from "@/components/public/saas-card";
+import { SaasLogo, DemoTag, MiniSaasCard } from "@/components/public/saas-card";
 import { SaasGrowth } from "@/components/public/saas-growth";
+import { RankHistoryChart } from "@/components/charts/rank-history-chart";
 import { ShareButtons } from "@/components/public/share-buttons";
 import { ShareButton } from "@/components/share/share-button";
 import { shareCopy, type ShareKind } from "@/lib/share";
@@ -43,7 +44,10 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const s = await fetchQuery(api.public.saasBySlug, { slug });
   if (!s) notFound();
-  const [bench, cohorts] = await Promise.all([fetchQuery(api.public.benchmarkHighlight, { slug }), fetchQuery(api.cohorts.publicCohorts, { slug })]);
+  const [bench, cohorts, related] = await Promise.all([fetchQuery(api.public.benchmarkHighlight, { slug }), fetchQuery(api.cohorts.publicCohorts, { slug }), fetchQuery(api.public.related, { slug, limit: 4 })]);
+  const ranked = Boolean(s.rank || s.trendingRank);
+  // "up from Top 25% last month" only when the previous standing exists and differs.
+  const benchChange = bench?.previousPercentile !== undefined && bench.previousPercentile !== bench.percentile ? `${bench.percentile > bench.previousPercentile ? "up" : "down"} from ${bench.previousBand ?? `top ${100 - bench.previousPercentile}%`} last month` : null;
   const url = saasUrl(slug);
   const mobile = s.projectType === "mobile";
   const storeLinks = s.projectType === "mobile" || s.projectType === "hybrid";
@@ -118,7 +122,11 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
           </MetricCard>
         </div>
         {bench && (
-          <div className="mt-3 flex flex-wrap items-center gap-2"><span title={`Compared with ${formatCompact(bench.sampleSize)} verified products. Refreshed daily.`} className="inline-flex max-w-full items-center gap-1.5 border border-pink/60 px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-pink"><Award className="size-3 shrink-0" /><span className="truncate">{bench.statement}</span></span><ShareButton variant="chip" target={share("benchmark", bench.statement)}>Share</ShareButton></div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span title={`Compared with ${formatCompact(bench.sampleSize)} verified products. Refreshed daily.`} className="inline-flex max-w-full items-center gap-1.5 border border-pink/60 px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-pink"><Award className="size-3 shrink-0" /><span className="truncate">{bench.statement}</span></span>
+            <span className="border border-line px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{bench.band}{benchChange ? ` · ${benchChange}` : ""}</span>
+            <ShareButton variant="chip" target={share("benchmark", bench.statement)}>Share</ShareButton>
+          </div>
         )}
         <Panel className="mt-3 p-4 sm:p-5">
           <div className="mb-3 flex items-center justify-between gap-2">
@@ -127,6 +135,19 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
           </div>
           <SaasGrowth slug={slug} />
         </Panel>
+        {ranked && (
+          <Panel className="mt-3 p-4 sm:p-5">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <SectionLabel>Rank history</SectionLabel>
+              <div className="flex items-center gap-3 font-mono text-[11px] text-muted-foreground">
+                {s.rank && <Link href="/leaderboard" className="hover:text-foreground">Leaderboard</Link>}
+                {s.trendingRank && <Link href="/trending" className="hover:text-foreground">Trending</Link>}
+                <Link href="/rankings" className="hover:text-foreground">Monthly archive</Link>
+              </div>
+            </div>
+            <RankHistoryChart slug={slug} hasLeaderboard={Boolean(s.rank)} hasTrending={Boolean(s.trendingRank)} />
+          </Panel>
+        )}
         {hasTraffic && (
           <Panel className="mt-3 p-4 sm:p-5">
             <div className="flex items-center justify-between"><SectionLabel>Visitors · 30d</SectionLabel><Globe className="size-4 text-pink" /></div>
@@ -239,6 +260,21 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
           <div className="mt-2 font-mono text-[11px] text-muted-foreground">Snapshots every 4h · immutable history{s.firstSnapshotAt ? ` · tracking since ${new Date(s.firstSnapshotAt).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" })}` : ""}</div>
         </Panel>
       </div>
+
+      {related.length > 0 && (
+        <section className="mt-8">
+          <div className="flex items-end justify-between gap-3">
+            <SectionLabel>Similar products</SectionLabel>
+            <div className="flex items-center gap-3 font-mono text-[11px] text-muted-foreground">
+              {s.category && <Link href={`/categories/${s.category}`} className="hover:text-foreground">All {categoryLabel(s.category)}</Link>}
+              <Link href="/compare" className="hover:text-foreground">Compare</Link>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {related.map((r) => <MiniSaasCard key={r._id} s={r} metric={{ label: "30d", value: formatDelta(r.newUsers30d) }} />)}
+          </div>
+        </section>
+      )}
 
       <section className="mt-8">
         <SectionLabel>Share &amp; embed</SectionLabel>

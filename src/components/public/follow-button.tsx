@@ -11,23 +11,30 @@ import { cn } from "@/lib/utils";
 
 export function FollowButton({ targetType, targetId, count, size = "sm", className }: { targetType: "saas" | "profile"; targetId: string; count?: number; size?: "sm" | "default"; className?: string }) {
   const status = useQuery(api.follows.status, { targetType, targetId });
-  const toggle = useMutation(api.follows.toggle);
+  const follow = useMutation(api.follows.follow);
+  const unfollow = useMutation(api.follows.unfollow);
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const following = status?.following ?? false;
+  // Optimistic override until the status subscription catches up.
+  const [optimistic, setOptimistic] = useState<boolean | null>(null);
+  const following = optimistic ?? status?.following ?? false;
   async function onClick() {
     if (!status?.signedIn) {
       router.push(`/sign-in?next=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
+    const next = !following;
+    setOptimistic(next);
     setBusy(true);
     try {
-      const now = await toggle({ targetType, targetId });
-      toast.success(now ? "Following — updates land in your weekly digest" : "Unfollowed");
+      await (next ? follow({ targetType, targetId }) : unfollow({ targetType, targetId }));
+      toast.success(next ? "Following — major milestones, rank moves and spikes show up in your feed" : "Unfollowed");
     } catch (e) {
+      setOptimistic(null);
       toast.error((e as Error).message.replace(/^.*Uncaught Error: /, "").split("\n")[0]);
     } finally {
       setBusy(false);
+      setOptimistic(null);
     }
   }
   return (

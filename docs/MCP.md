@@ -29,7 +29,7 @@ Authorization: Bearer ut_mcp_…
 ### Creating a token
 
 1. Sign in and open `https://usertrack.dev/app/developer`.
-2. **Create MCP token**, give it a name, pick scopes (all six by default), optionally an expiry (max 365 days).
+2. **Create MCP token**, give it a name, pick scopes (all eleven by default), optionally an expiry (max 365 days).
 3. Copy the secret; it is shown once. Only its SHA-256 hash is stored, plus the first 4 characters after the prefix (`ut_mcp_a8f3`) for identification.
 
 Tokens created from the onboarding "Set up with AI" flow get the default scopes and expire after 7 days; the dashboard shows live setup progress derived from that token's audit trail. Up to 25 active tokens/keys per account. Revoke any time from the same page.
@@ -44,13 +44,17 @@ Tokens created from the onboarding "Set up with AI" flow get the default scopes 
 | `projects:write` | Create projects, edit metadata, publish. Never deletes. | `usertrack_create_project`, `usertrack_update_project` |
 | `integrations:read` | Provider catalog, recommendations and setup instructions | `usertrack_get_supported_integrations`, `usertrack_get_integration_setup`, `usertrack_get_provider_recommendation`, `usertrack_get_activation_setup`, `usertrack_get_conversion_setup`, `usertrack_get_identity_mapping`, `usertrack_get_native_setup`, `usertrack_get_better_auth_setup` (deprecated alias) |
 | `integrations:write` | Connect data sources, verify, trigger syncs | `usertrack_configure_integration`, `usertrack_verify_integration`, `usertrack_sync_project`, `usertrack_create_integration` |
-| `metrics:read` | Metrics, history, ranks, milestones, funnel, trending, benchmarks, compare, share cards, embeds, share events, X drafts | `usertrack_get_metrics`, `usertrack_get_growth_history`, `usertrack_get_rank`, `usertrack_get_milestones`, `usertrack_get_share_url`, `usertrack_get_funnel`, `usertrack_get_trending`, `usertrack_get_benchmark`, `usertrack_compare_projects`, `usertrack_get_share_card`, `usertrack_get_embed_code`, `usertrack_get_funnel_history`, `usertrack_get_cohorts`, `usertrack_get_share_events`, `usertrack_get_x_draft` |
+| `metrics:read` | Metrics, history, ranks, milestones, funnel, trending, benchmarks, compare, share cards, embeds, share events, X drafts, discovery, datasets, rank + benchmark history | `usertrack_get_metrics`, `usertrack_get_growth_history`, `usertrack_get_rank`, `usertrack_get_milestones`, `usertrack_get_share_url`, `usertrack_get_funnel`, `usertrack_get_trending`, `usertrack_get_benchmark`, `usertrack_compare_projects`, `usertrack_get_share_card`, `usertrack_get_embed_code`, `usertrack_get_funnel_history`, `usertrack_get_cohorts`, `usertrack_get_share_events`, `usertrack_get_x_draft`, `usertrack_discover`, `usertrack_get_dataset`, `usertrack_get_rank_history`, `usertrack_get_benchmark_history` |
+| `follows:read` **v0.9** | The founder's watchlist and personal feed | `usertrack_get_watchlist` |
+| `follows:write` **v0.9** | Follow / unfollow products and founders | `usertrack_follow_project`, `usertrack_unfollow_project`, `usertrack_follow_founder`, `usertrack_unfollow_founder` |
+| `webhooks:read` **v0.9** | Webhook endpoints (secrets masked), event catalog, delivery log | `usertrack_get_webhooks`, `usertrack_get_webhook_deliveries` |
+| `webhooks:write` **v0.9** | Create, update, test and rotate webhook endpoints (new secrets returned once) | `usertrack_create_webhook`, `usertrack_update_webhook`, `usertrack_test_webhook` |
 
-Recommendation: all seven scopes for onboarding (the default). A reporting-only agent (weekly summaries, launch posts) needs `projects:read` + `metrics:read`.
+Recommendation: all eleven scopes for onboarding (the default). A reporting-only agent (weekly summaries, launch posts) needs `projects:read` + `metrics:read`; add `follows:*` for the watchlist and `webhooks:*` for notification setup. Public API keys (`ut_api_`) keep `metrics:read` only.
 
 ## Tools
 
-36 tools: the 15 from v0.3, 8 added in v0.4 (marked **v0.4**), 4 added in v0.5 (marked **v0.5**: conversion setup, identity mapping, funnel history, cohorts), 2 added in v0.6 (marked **v0.6**: native credential creation + the Better Auth setup alias), 1 added in v0.7 (marked **v0.7**: `usertrack_get_native_setup` for every SDK source) and 6 added in v0.8 (marked **v0.8**: founder profile, share events, share cards, X drafts, founder URL). Every tool takes a project reference `{ projectId?: string, slug?: string }` where noted (`ref`); either is accepted and ownership is enforced on both. All tools are annotated `idempotentHint: true`, `destructiveHint: false`, `readOnlyHint` per tool. Results are returned as JSON text plus `structuredContent`.
+50 tools: the 15 from v0.3, 8 added in v0.4 (marked **v0.4**), 4 added in v0.5 (marked **v0.5**: conversion setup, identity mapping, funnel history, cohorts), 2 added in v0.6 (marked **v0.6**: native credential creation + the Better Auth setup alias), 1 added in v0.7 (marked **v0.7**: `usertrack_get_native_setup` for every SDK source), 6 added in v0.8 (marked **v0.8**: founder profile, share events, share cards, X drafts, founder URL) and 14 added in v0.9 (marked **v0.9**: discovery, watchlist, rank + benchmark history, datasets, webhooks). Every tool takes a project reference `{ projectId?: string, slug?: string }` where noted (`ref`); either is accepted and ownership is enforced on both. All tools are annotated `idempotentHint: true`, `destructiveHint: false`, `readOnlyHint` per tool. Results are returned as JSON text plus `structuredContent`.
 
 | Tool | Scope | Mode | Input | Output (summary) |
 | --- | --- | --- | --- | --- |
@@ -92,6 +96,30 @@ Recommendation: all seven scopes for onboarding (the default). A reporting-only 
 | `usertrack_create_share_card` **v0.8** | `profile:write` | write | `ref` or `shareEventId`, `kind?` (`users` · `growth` · `week` · `rank` · `trending` · `activation` · `conversion` (published only) · `benchmark` · `milestone-<id>` · `spike-<id>`), `style?` (`blueprint` · `aurora` · `minimal`), `size?` (`og` · `square`), `range?` (`7d` · `30d` · `90d` · `1y` · `all`), `chart?`, `logo?`, `founder?`, `verified?`, `dates?`, `title?` (≤60) | `config`, `card {page, image (PNG), square}`, `draft {text, xIntent}`, `verificationLine`, `styles`, `ranges`. Referencing a share event marks it `shared`. Drafts 404 until published. |
 | `usertrack_get_x_draft` **v0.8** | `metrics:read` | read | `ref` + `kind?`, or `shareEventId` | `text` (≤280 incl. URL; says "verified" only for verified sources), `url`, `xIntent`. The agent hands the intent link back — it never posts on its own. |
 | `usertrack_get_founder_url` **v0.8** | `profile:read` | read | — | `urls {profile, card, ogImage, api, history}`, `public`. |
+| `usertrack_discover` **v0.9** | `metrics:read` | read | `category?`, `window?` (`24h` / `7d` default / `30d`) | Public discovery in one call: `sections {trending, fastestGrowing, newAndRising, hiddenGems, movers, mobile}` (compact rows: slug, name, category, verification, totalUsers, newUsers for the window, growth, rank + 7-day `movement`, trending rank + `trendingMovement`, url), `feed[]` (12 newest milestones / spikes / launches / verifications / rank jumps), `hiddenGemRules`, `newRisingRules`, `urls`. Not owner-scoped. |
+| `usertrack_follow_project` **v0.9** | `follows:write` | write | `slug?` or `projectId?` | `{ following: true, created }` (idempotent — `created: false` when already followed), `target {type, id, slug, name, url}`, `watchlistUrl`. Only public projects can be followed (`not_found` otherwise). Audit `follow`. |
+| `usertrack_unfollow_project` **v0.9** | `follows:write` | write | `slug?` or `projectId?` | `{ following: false, removed }`, `target`. Safe to repeat. Audit `unfollow`. |
+| `usertrack_follow_founder` **v0.9** | `follows:write` | write | `username` (`jane` or `@jane`) | Same shape as `usertrack_follow_project` with `target.type: "profile"`. Every public project of the founder joins the watchlist (`via: "founder"`); `bad_request` when trying to follow yourself. |
+| `usertrack_unfollow_founder` **v0.9** | `follows:write` | write | `username` | `{ following: false, removed }`. |
+| `usertrack_get_watchlist` **v0.9** | `follows:read` | read | `days?` (1–90, default 30), `limit?` (1–200, default 60) | `saas[]` (followed products + public projects of followed founders: totals, 7d / 30d new users, growth, `rank`, `rank7dAgo`, `rankMovement7d`, `trendingRank`, `trendingMovement7d`, `via: direct \| founder`, `followed`, url), `founders[]`, `feed[]` (milestones, spikes, launches, verifications, rank jumps, `rank_change` ±5 places, `new_project` from followed founders), `urls.watchlist`, `note` when empty. |
+| `usertrack_get_rank_history` **v0.9** | `metrics:read` | read | `ref`, `kind?` (`leaderboard` default / `trending`), `window?` (default `30d` / `7d`), `days?` (7–730, default 90) | Owner view (private projects allowed): `points[] {day, rank, score?}` one per UTC day from the append-only rank history, `current`, `best`, `rank7dAgo`, `movement7d`, `publicUrl` when published, `note` when unranked. |
+| `usertrack_get_benchmark_history` **v0.9** | `metrics:read` | read | `ref`, `weeks?` (4–52, default 26) | Owner view: `history[] {week, day, computedAt, standings[] {cohort, metric, metricLabel, percentile, band, sampleSize, value, median}}` for every cohort / metric (not only top quarter), `changes[]` (the current cards' `changeInsight`, e.g. "Top 12% now, up from Top 27% last month"), `publicView` (whether standings are public), `note` when empty. |
+| `usertrack_get_dataset` **v0.9** | `metrics:read` | read | `dataset` (`trending` / `fastest-growing` / `new-and-rising` / `hidden-gems` / `movers` / `category` / `rankings`), `category?`, `window?`, `platform?` (`web` / `mobile` / `hybrid`), `limit?` (≤100), `period?` (`YYYY-MM`, rankings), `board?` (rankings / category) | Board datasets: `rows[]` (position, slug, name, category, projectType, users, new users, growth, activation, ranks incl. `rank7dAgo` / `rankDelta7d`, trust, `verified`, lastSyncedAt, url), `board`, `window`, `updatedAt`, `methodology`, `urls {json, csv}` (the same dataset on the public API). `rankings` without `period`: `periods[]`; with `period`: the frozen ranking `rows[]`, `sampleSize`, `computedAt`, `url`. Public data only. |
+| `usertrack_get_webhooks` **v0.9** | `webhooks:read` | read | — | `endpoints[] {id, url, description, events, saasId, status, disabledReason, secretMasked, consecutiveFailures, lastDeliveryAt, lastStatus, lastError, createdAt, updatedAt}`, `events[] {type, label, blurb}` (the catalog), `maxEndpoints` (10), `projects[]` (owned projects an endpoint can be scoped to), `docs`. Secrets are never returned. |
+| `usertrack_create_webhook` **v0.9** | `webhooks:write` | write | `url` (public https), `events[]` (`milestone.reached`, `rank.changed`, `trending.rank_changed`, `growth.spike`, `integration.failed`, `integration.recovered`, `project.verified`), `description?`, `ref?` (scope to one project) | `endpoint`, **`secret`** (`whsec_…`, returned only here), `message`, `nextTool: usertrack_test_webhook`, catalog. Localhost / private / internal hosts, non-https URLs and empty event lists are `bad_request`; more than 10 endpoints is `bad_request`. Audit `create_webhook` (host + events, never the secret). |
+| `usertrack_update_webhook` **v0.9** | `webhooks:write` | write | `endpointId`, `url?`, `events?`, `description?`, `status?` (`active` / `disabled` — re-enabling resets the failure counter), `projectId?` (id / slug, or `null` for all projects) | `updated[]`, `endpoint`. `bad_request` when nothing would change. Audit `update_webhook`. |
+| `usertrack_test_webhook` **v0.9** | `webhooks:write` | write | `endpointId` | `deliveryId`, `eventId`, `nextTool: usertrack_get_webhook_deliveries`. Sends a signed `webhook.test` payload through the normal pipeline regardless of subscriptions. Audit `test_webhook`. |
+| `usertrack_get_webhook_deliveries` **v0.9** | `webhooks:read` | read | `endpointId`, `limit?` (1–100, default 25), `failedOnly?` | `endpoint {id, url, status, consecutiveFailures}`, `deliveries[] {id, deliveryId, eventId, type, attempt, status: pending \| success \| failed \| exhausted, httpStatus, latencyMs, error, nextAttemptAt, createdAt, lastAttemptAt, deliveredAt}`. Response bodies are never stored. |
+
+Rotation and deletion of endpoints are available through the gateway (`rotateWebhookSecretTool`, `deleteWebhookTool`, audit `rotate_webhook_secret` / `delete_webhook`) and the dashboard; they are deliberately not exposed as MCP tools so an agent cannot invalidate a secret or remove an endpoint without the founder.
+
+### Discovery & watchlist flow
+
+"What is trending in developer tools?" / "Follow the products I compete with": `usertrack_discover { category: "developer-tools" }` (or `usertrack_get_dataset { dataset: "hidden-gems" }` for full rows) → `usertrack_follow_project { slug }` / `usertrack_follow_founder { username }` (idempotent) → `usertrack_get_watchlist { days: 7 }` for movement and the personal feed. For the founder's own projects over time: `usertrack_get_rank_history` (daily positions, private projects included) and `usertrack_get_benchmark_history` (weekly standings + change insights).
+
+### Webhook flow
+
+"Notify my Slack when we hit a milestone": `usertrack_get_webhooks` (existing endpoints + the event catalog) → `usertrack_create_webhook { url, events, projectId? }` — the **secret is returned once**: hand it to the founder for their environment, never print or log it → `usertrack_test_webhook { endpointId }` → `usertrack_get_webhook_deliveries { endpointId }` to confirm `status: "success"` (or read `error` and fix the receiver). Endpoints must be public https URLs; every payload is signed (`UserTrack-Signature: v1=hex(HMAC-SHA256(secret, "<timestamp>.<body>"))`, see `docs/WEBHOOKS.md`) and retried five times over 14 hours.
 
 ### Share flow
 
@@ -111,7 +139,7 @@ Recommendation: all seven scopes for onboarding (the default). A reporting-only 
 
 ### Server instructions
 
-The server sends instructions on `initialize` that describe UserTrack, the ordered 10-step setup workflow below, and four rules: never print or log credentials; prefer verified providers over manual numbers; only aggregate counts are ever sent to UserTrack; ask the founder for any credential not found in the repo's env files.
+The server sends instructions on `initialize` that describe UserTrack, the ordered 10-step setup workflow below, the mobile, native SDK, share, discovery & watchlist and webhook flows, and four rules: never print or log credentials; prefer verified providers over manual numbers; only aggregate counts are ever sent to UserTrack; ask the founder for any credential not found in the repo's env files.
 
 ## The agent-native setup flow
 
@@ -229,7 +257,19 @@ Agent: `get_embed_code { slug: "acme", type: "chart", theme: "light" }` → past
 
 > How do we compare with similar products?
 
-Agent: `get_benchmark { slug: "acme" }` → reads `cards[].insight` ("Your 30-day growth is ahead of 80% of products with 1K – 10K users. Top 20%.") → optionally `compare_projects { slugs: ["acme", "rival"], days: 90 }` for a shareable `/compare` link.
+Agent: `get_benchmark { slug: "acme" }` → reads `cards[].insight` ("Your 30-day growth is ahead of 80% of products with 1K – 10K users. Top 20%.") → optionally `compare_projects { slugs: ["acme", "rival"], days: 90 }` for a shareable `/compare` link → `get_benchmark_history { slug: "acme", weeks: 12 }` for "Top 12% now, up from Top 27% last month".
+
+**Watchlist**
+
+> Follow the fastest-growing AI products and tell me what moved this week.
+
+Agent: `discover { category: "ai", window: "7d" }` → `follow_project { slug }` for each of the top rows (idempotent) → `get_watchlist { days: 7 }` → "You follow 6 products; Promptly climbed 13 places (#51 → #38), Globex entered the trending top 10, one new project from Jane."
+
+**Webhook**
+
+> Ping Slack when we hit a milestone.
+
+Agent: `get_webhooks` → `create_webhook { url: "https://hooks.example.com/usertrack", events: ["milestone.reached", "rank.changed"], slug: "acme" }` → gives the founder the secret for their receiver (never logs it) → `test_webhook { endpointId }` → `get_webhook_deliveries { endpointId }` → "Endpoint active, test delivered (HTTP 200, 142 ms)."
 
 ## Idempotency
 
@@ -239,6 +279,8 @@ Agent: `get_benchmark { slug: "acme" }` → reads `cards[].insight` ("Your 30-da
 | `usertrack_configure_integration` | Replaces the source for that role. Historical snapshots are kept. |
 | `usertrack_update_project` | Partial patch; unchanged fields are not touched. `bad_request` if nothing would change. |
 | `usertrack_verify_integration` | Read-only against the provider; safe to repeat after the cooldown. |
+| `usertrack_follow_*` / `usertrack_unfollow_*` | Already followed → `created: false`; not followed → `removed: false`. Never duplicates a follow. |
+| `usertrack_create_webhook` | Creates a new endpoint every time (up to 10); check `usertrack_get_webhooks` first. `usertrack_test_webhook` queues one delivery per call. |
 | Read tools | Pure reads. |
 
 ## Rate limits
@@ -295,7 +337,7 @@ Tool failures are returned as tool results with `isError: true`, so the agent ca
 
 ## Audit logging
 
-Every token-authenticated write (`create_project`, `update_project`, `configure_integration`, `verify_integration`, `sync_project`) and every token lifecycle event (`mcp_token_created`, `api_key_created`, `token_revoked`) is recorded with the token, project, outcome and a short detail string. The developer page shows the last 50 entries; the onboarding page uses the same trail to render live setup progress ("Agent connected → Project created → Connecting clerk → Verifying data → First sync complete → Published"). Reads are counted in per-day usage buckets but not logged individually.
+Every token-authenticated write (`create_project`, `update_project`, `configure_integration`, `verify_integration`, `sync_project`, `create_integration`, `update_profile`, `follow`, `unfollow`, `create_webhook`, `update_webhook`, `rotate_webhook_secret`, `delete_webhook`, `test_webhook`) and every token lifecycle event (`mcp_token_created`, `api_key_created`, `token_revoked`) is recorded with the token, project, outcome and a short detail string. The developer page shows the last 50 entries; the onboarding page uses the same trail to render live setup progress ("Agent connected → Project created → Connecting clerk → Verifying data → First sync complete → Published"). Reads are counted in per-day usage buckets but not logged individually.
 
 ## Troubleshooting
 
@@ -326,7 +368,7 @@ Every token-authenticated write (`create_project`, `update_project`, `configure_
 
 **Can I use the same token in several agents?** Yes, but one token per agent or machine makes revocation and the audit trail cleaner.
 
-**Does the MCP server return public data for other products?** No. All tools are scoped to projects owned by the token. Use the public API (`docs/API.md`) for other products.
+**Does the MCP server return public data for other products?** Only what the website shows to everyone: `usertrack_get_trending`, `usertrack_compare_projects`, `usertrack_discover` and `usertrack_get_dataset` read the public projection (visibility applied). Every owner-scoped tool (metrics, history, rank / benchmark history, funnel, webhooks…) is limited to projects owned by the token. Use the public API (`docs/API.md`) for bulk reads and CSV downloads.
 
 **Is there OAuth?** Not yet; bearer tokens created in the dashboard are the only auth method today. OAuth for MCP clients is on the roadmap.
 

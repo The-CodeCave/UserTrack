@@ -16,7 +16,10 @@ const betterAuthModules = import.meta.glob("../node_modules/@convex-dev/better-a
 
 const SECRET = "ut_mcp_" + "a".repeat(40);
 const API_SECRET = "ut_api_" + "b".repeat(40);
+const BOB_SECRET = "ut_mcp_" + "c".repeat(40);
 const auth = { hash: sha256Hex(SECRET) };
+const apiAuth = { hash: sha256Hex(API_SECRET) };
+const bobAuth = { hash: sha256Hex(BOB_SECRET) };
 
 type Failure = { code: string; message: string; retryAfterSec?: number; requiredScope?: string };
 async function failure(p: Promise<unknown>): Promise<Failure> {
@@ -45,6 +48,7 @@ async function seed(opts: { scopes?: string[]; revokedAt?: number; expiresAt?: n
     const bob = await ctx.db.insert("profiles", { userId: "user_bob", username: "bob", displayName: "Bob", onboardingCompleted: true });
     const tokenId = await ctx.db.insert("developerTokens", { profileId: jane, type: "mcp", name: "agent", prefix: displayPrefix(SECRET), hash: sha256Hex(SECRET), scopes: opts.scopes ?? [...DEFAULT_MCP_SCOPES], createdAt: now, revokedAt: opts.revokedAt, expiresAt: opts.expiresAt });
     const apiTokenId = await ctx.db.insert("developerTokens", { profileId: jane, type: "api", name: "key", prefix: displayPrefix(API_SECRET), hash: sha256Hex(API_SECRET), scopes: ["metrics:read"], createdAt: now });
+    await ctx.db.insert("developerTokens", { profileId: bob, type: "mcp", name: "bob-agent", prefix: displayPrefix(BOB_SECRET), hash: sha256Hex(BOB_SECRET), scopes: [...DEFAULT_MCP_SCOPES], createdAt: now });
     const acme = await ctx.db.insert("saas", project(jane, "Acme", "acme", "https://acme.dev"));
     const other = await ctx.db.insert("saas", project(bob, "Other", "other-app", "https://other.app"));
     return { jane, bob, tokenId, apiTokenId, acme, other };
@@ -342,5 +346,176 @@ describe("gateway metrics", () => {
     for (const p of [t.query(api.gateway.metrics, { auth, projectId: other }), t.query(api.gateway.history, { auth, projectId: other }), t.query(api.gateway.rank, { auth, projectId: other }), t.query(api.gateway.milestones, { auth, projectId: other }), t.query(api.gateway.shareUrls, { auth, projectId: other })]) {
       expect((await failure(p)).code).toBe("not_found");
     }
+  });
+});
+
+// ---- v0.9 -------------------------------------------------------------------------------------------------------------
+
+describe("gateway v0.9 scopes", () => {
+  it("rejects watchlist, follow and webhook tools without the new scopes", async () => {
+    const { t, acme } = await seed({ scopes: ["metrics:read", "projects:read"] });
+    expect((await failure(t.query(api.gateway.watchlist, { auth }))).requiredScope).toBe("follows:read");
+    expect((await failure(t.mutation(api.gateway.followTool, { auth, targetType: "saas", slug: "other-app" }))).requiredScope).toBe("follows:write");
+    expect((await failure(t.query(api.gateway.webhooksList, { auth }))).requiredScope).toBe("webhooks:read");
+    expect((await failure(t.mutation(api.gateway.createWebhookTool, { auth, url: "https://example.com/hook", events: ["milestone.reached"] }))).requiredScope).toBe("webhooks:write");
+    expect((await failure(t.query(api.gateway.webhookDeliveriesTool, { auth, endpointId: "x" }))).code).toBe("forbidden");
+    // metrics:read still covers the new read tools.
+    expect((await t.query(api.gateway.rankHistoryTool, { auth, projectId: acme })).kind).toBe("leaderboard");
+    expect((await t.query(api.gateway.discover, { auth })).sections).toBeDefined();
+  });
+
+  it("only API keys can read /following and only MCP tokens can read the watchlist", async () => {
+    const { t } = await seed();
+    expect((await failure(t.query(api.gateway.following, { auth }))).code).toBe("unauthorized");
+    expect((await failure(t.query(api.gateway.watchlist, { auth: apiAuth }))).code).toBe("unauthorized");
+    const r = await t.query(api.gateway.following, { auth: apiAuth });
+    expect(r).toMatchObject({ saas: [], founders: [], feed: [] });
+  });
+});
+
+describe("gateway follows", () => {
+  it("follows a public project idempotently, unfollows, and refuses private targets", async () => {
+    const { t, other, tokenId } = await seed();
+    expect((await failure(t.mutation(api.gateway.followTool, { auth, targetType: "saas", slug: "other-app" }))).code).toBe("not_found");
+    await t.run(async (ctx) => ctx.db.patch(other, { isPublic: true }));
+    const first = await t.mutation(api.gateway.followTool, { auth, targetType: "saas", slug: "other-app" });
+    expect(first).toMatchObject({ following: true, created: true, target: { type: "saas", id: other, slug: "other-app" } });
+    const second = await t.mutation(api.gateway.followTool, { auth, targetType: "saas", targetId: other });
+    expect(second).toMatchObject({ following: true, created: false });
+    expect((await t.run(async (ctx) => ctx.db.get(other)))?.followerCount).toBe(1);
+    const list = await t.query(api.gateway.watchlist, { auth });
+    expect(list.saas.map((s) => s.slug)).toEqual(["other-app"]);
+    expect(list.saas[0]).toMatchObject({ via: "direct", followed: true });
+    const rest = await t.query(api.gateway.following, { auth: apiAuth });
+    expect(rest.saas[0]).toMatchObject({ slug: "other-app", via: "direct", followed: true, owner: { username: "bob" } });
+    expect(rest.saas[0]).not.toHaveProperty("ownerId");
+    const un = await t.mutation(api.gateway.unfollowTool, { auth, targetType: "saas", slug: "other-app" });
+    expect(un).toMatchObject({ following: false, removed: true });
+    expect((await t.mutation(api.gateway.unfollowTool, { auth, targetType: "saas", slug: "other-app" })).removed).toBe(false);
+    const logs = await t.run(async (ctx) => ctx.db.query("auditLogs").withIndex("by_token_time", (q) => q.eq("tokenId", tokenId)).collect());
+    expect(logs.map((l) => l.action)).toEqual(["follow", "follow", "unfollow", "unfollow"]);
+  });
+
+  it("follows founders by username and never yourself", async () => {
+    const { t, bob } = await seed();
+    const r = await t.mutation(api.gateway.followTool, { auth, targetType: "profile", username: "@Bob" });
+    expect(r.target).toMatchObject({ type: "profile", id: bob, username: "bob" });
+    expect((await t.query(api.gateway.watchlist, { auth })).founders.map((f) => f.username)).toEqual(["bob"]);
+    expect((await failure(t.mutation(api.gateway.followTool, { auth, targetType: "profile", username: "jane" }))).code).toBe("bad_request");
+    expect((await failure(t.mutation(api.gateway.followTool, { auth, targetType: "profile", username: "nobody" }))).code).toBe("not_found");
+  });
+});
+
+describe("gateway rank + benchmark history", () => {
+  it("returns stored positions for a private owned project and hides other owners", async () => {
+    const { t, acme, other } = await seed();
+    const today = dayKey(Date.now());
+    await t.run(async (ctx) => {
+      await ctx.db.patch(acme, { rank: 4, bestRank: 3, rank7dAgo: 9, rankDelta7d: 5 });
+      await ctx.db.insert("rankHistory", { saasId: acme, kind: "leaderboard", window: "30d", day: dayKey(Date.now() - 2 * 86_400_000), rank: 7, at: Date.now() - 2 * 86_400_000 });
+      await ctx.db.insert("rankHistory", { saasId: acme, kind: "leaderboard", window: "30d", day: today, rank: 4, at: Date.now() });
+      await ctx.db.insert("rankHistory", { saasId: acme, kind: "trending", window: "7d", day: today, rank: 2, score: 120, at: Date.now() });
+    });
+    const r = await t.query(api.gateway.rankHistoryTool, { auth, slug: "acme" });
+    expect(r.project).toMatchObject({ id: acme, isPublic: false });
+    expect(r).toMatchObject({ kind: "leaderboard", window: "30d", current: 4, best: 3, rank7dAgo: 9, movement7d: { kind: "up", delta: 5 } });
+    expect(r.points.map((p) => p.rank)).toEqual([7, 4]);
+    expect(r.publicUrl).toBeUndefined();
+    const tr = await t.query(api.gateway.rankHistoryTool, { auth, projectId: acme, kind: "trending" });
+    expect(tr.window).toBe("7d");
+    expect(tr.points).toEqual([{ day: today, rank: 2, score: 120 }]);
+    expect((await failure(t.query(api.gateway.rankHistoryTool, { auth, projectId: other }))).code).toBe("not_found");
+  });
+
+  it("returns the private benchmark history view", async () => {
+    const { t, acme } = await seed();
+    const r = await t.query(api.gateway.benchmarkHistoryTool, { auth, projectId: acme, weeks: 8 });
+    expect(r).toMatchObject({ weeks: 8, history: [], changes: [] });
+    expect(r.note).toMatch(/No weekly standings/);
+  });
+});
+
+describe("gateway datasets + discover", () => {
+  it("serves public datasets and frozen rankings", async () => {
+    const { t, other } = await seed();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(other, { isPublic: true, trust: "verified", newUsers30d: 40, lastSyncedAt: Date.now() });
+      await ctx.db.insert("rankingSnapshots", { period: "2026-08", board: "most-new", rows: [{ slug: "other-app", name: "Other", rank: 1, value: 40, totalUsers: 10, newUsers30d: 40, growth30dPct: 0, trust: "verified" }], sampleSize: 1, computedAt: Date.now() });
+    });
+    const d = await t.query(api.gateway.dataset, { auth, dataset: "category", category: "ai" });
+    expect(d).toMatchObject({ dataset: "category", board: "most-new", window: "30d", rows: [] });
+    const all = await t.query(api.gateway.dataset, { auth, dataset: "fastest-growing", limit: 5 });
+    expect(all.rows).toEqual([expect.objectContaining({ position: 1, slug: "other-app", verified: true, url: expect.stringMatching(/\/s\/other-app$/) })]);
+    expect(all.rows![0]).not.toHaveProperty("ownerId");
+    expect((await t.query(api.gateway.dataset, { auth, dataset: "movers" })).rows).toEqual([]); // movers need stored rank history
+    expect(all.urls!.csv).toMatch(/\/api\/v1\/datasets\/fastest-growing\?window=30d&format=csv$/);
+    expect((await failure(t.query(api.gateway.dataset, { auth, dataset: "category" }))).code).toBe("bad_request");
+    const periods = await t.query(api.gateway.dataset, { auth, dataset: "rankings" });
+    expect("periods" in periods && periods.periods).toEqual([expect.objectContaining({ period: "2026-08", board: "most-new", category: null })]);
+    const snap = await t.query(api.gateway.dataset, { auth, dataset: "rankings", period: "2026-08" });
+    expect(snap.rows![0]).toMatchObject({ slug: "other-app", rank: 1 });
+    expect((await failure(t.query(api.gateway.dataset, { auth, dataset: "rankings", period: "2026-07" }))).code).toBe("not_found");
+  });
+
+  it("returns discovery sections with public rows only", async () => {
+    const { t, other } = await seed();
+    await t.run(async (ctx) => ctx.db.patch(other, { isPublic: true, trust: "verified", trendingScore7d: 42, trendingRank: 1 }));
+    const d = await t.query(api.gateway.discover, { auth });
+    expect(Object.keys(d.sections).sort()).toEqual(["fastestGrowing", "hiddenGems", "mobile", "movers", "newAndRising", "trending"]);
+    expect(d.sections.trending[0]).toMatchObject({ slug: "other-app", trendingRank: 1 });
+    expect(d.sections.trending[0]).not.toHaveProperty("ownerId");
+    expect(d.hiddenGemRules.maxUsers).toBe(1000);
+    expect((await failure(t.query(api.gateway.discover, { auth, category: "nope" }))).code).toBe("bad_request");
+  });
+});
+
+describe("gateway webhooks", () => {
+  it("creates, lists, updates, tests and rotates endpoints with ownership isolation", async () => {
+    const { t, acme, tokenId } = await seed();
+    const created = await t.mutation(api.gateway.createWebhookTool, { auth, url: "https://hooks.example.com/usertrack", events: ["milestone.reached", "rank.changed", "bogus.event"], description: "Slack bridge", slug: "acme" });
+    expect(created.secret).toMatch(/^whsec_/);
+    expect(created.endpoint).toMatchObject({ url: "https://hooks.example.com/usertrack", events: ["milestone.reached", "rank.changed"], saasId: acme, status: "active" });
+    expect(created.endpoint).not.toHaveProperty("secret");
+    expect(created.endpoint.secretMasked).toMatch(/^whsec_/);
+    const id = created.endpoint.id;
+    const list = await t.query(api.gateway.webhooksList, { auth });
+    expect(list.endpoints.map((e) => e.id)).toEqual([id]);
+    expect(list.events.map((e) => e.type)).toContain("growth.spike");
+    expect(list.projects.map((p) => p.slug)).toEqual(["acme"]);
+    // Bob sees nothing and cannot touch Jane's endpoint.
+    expect((await t.query(api.gateway.webhooksList, { auth: bobAuth })).endpoints).toEqual([]);
+    expect((await failure(t.query(api.gateway.webhookDeliveriesTool, { auth: bobAuth, endpointId: id }))).code).toBe("not_found");
+    expect((await failure(t.mutation(api.gateway.updateWebhookTool, { auth: bobAuth, endpointId: id, status: "disabled" }))).code).toBe("not_found");
+    expect((await failure(t.mutation(api.gateway.testWebhookTool, { auth: bobAuth, endpointId: id }))).code).toBe("not_found");
+    expect((await failure(t.mutation(api.gateway.deleteWebhookTool, { auth: bobAuth, endpointId: id }))).code).toBe("not_found");
+    expect((await failure(t.query(api.gateway.webhookDeliveriesTool, { auth, endpointId: "not-an-id" }))).code).toBe("not_found");
+    // Jane tests, sees the queued delivery, updates and rotates.
+    const test = await t.mutation(api.gateway.testWebhookTool, { auth, endpointId: id });
+    expect(test.deliveryId).toBeDefined();
+    const deliveries = await t.query(api.gateway.webhookDeliveriesTool, { auth, endpointId: id });
+    expect(deliveries.deliveries).toEqual([expect.objectContaining({ type: "webhook.test", status: "pending", attempt: 0 })]);
+    expect((await t.query(api.gateway.webhookDeliveriesTool, { auth, endpointId: id, failedOnly: true })).deliveries).toEqual([]);
+    const updated = await t.mutation(api.gateway.updateWebhookTool, { auth, endpointId: id, events: ["growth.spike"], projectId: null, status: "disabled" });
+    expect(updated.updated.sort()).toEqual(["events", "project", "status"]);
+    expect(updated.endpoint).toMatchObject({ events: ["growth.spike"], status: "disabled", disabledReason: "Disabled by you." });
+    expect(updated.endpoint.saasId).toBeUndefined();
+    expect((await failure(t.mutation(api.gateway.updateWebhookTool, { auth, endpointId: id }))).code).toBe("bad_request");
+    expect((await failure(t.mutation(api.gateway.updateWebhookTool, { auth, endpointId: id, url: "http://insecure.example.com" }))).code).toBe("bad_request");
+    const rotated = await t.mutation(api.gateway.rotateWebhookSecretTool, { auth, endpointId: id });
+    expect(rotated.secret).toMatch(/^whsec_/);
+    expect(rotated.secret).not.toBe(created.secret);
+    expect((await t.mutation(api.gateway.deleteWebhookTool, { auth, endpointId: id })).deleted).toBe(true);
+    expect((await t.query(api.gateway.webhooksList, { auth })).endpoints).toEqual([]);
+    const logs = await t.run(async (ctx) => ctx.db.query("auditLogs").withIndex("by_token_time", (q) => q.eq("tokenId", tokenId)).collect());
+    expect(logs.map((l) => l.action)).toEqual(["create_webhook", "test_webhook", "update_webhook", "rotate_webhook_secret", "delete_webhook"]);
+    expect(JSON.stringify(logs)).not.toContain(created.secret);
+  });
+
+  it("rejects blocked URLs and empty event lists without creating anything", async () => {
+    const { t, jane } = await seed();
+    expect((await failure(t.mutation(api.gateway.createWebhookTool, { auth, url: "https://localhost/hook", events: ["milestone.reached"] }))).code).toBe("bad_request");
+    expect((await failure(t.mutation(api.gateway.createWebhookTool, { auth, url: "https://hooks.example.com/x", events: ["nope"] }))).code).toBe("bad_request");
+    expect((await failure(t.mutation(api.gateway.createWebhookTool, { auth, url: "https://hooks.example.com/x", events: ["milestone.reached"], slug: "other-app" }))).code).toBe("not_found");
+    expect(await t.run(async (ctx) => ctx.db.query("webhookEndpoints").withIndex("by_profile", (q) => q.eq("profileId", jane)).collect())).toEqual([]);
   });
 });

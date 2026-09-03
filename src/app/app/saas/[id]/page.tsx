@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
-import { ExternalLink, Trash2, Copy, Check, Eye, Trophy, ArrowRight, Apple, Play } from "lucide-react";
+import { ExternalLink, Trash2, Copy, Check, Eye, Trophy, ArrowRight, Apple, Play, History } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { VISIBILITY_KEYS, VISIBILITY_META } from "@convex/domain/visibility";
@@ -30,6 +30,7 @@ import { ShareButton } from "@/components/share/share-button";
 import { formatCompact, formatDelta, formatPct, formatRate, timeAgo } from "@/lib/format";
 import { NO_REVENUE_NOTE, ROLE_META, ROLES, type Role } from "@/lib/providers-ui";
 import { cn } from "@/lib/utils";
+import { errMsg } from "@/components/app/developer/copy-block";
 
 const NAV = [["growth", "Growth"], ["engagement", "Engagement"], ["conversion", "Conversion"], ["funnel", "Funnel"], ["benchmarks", "Benchmarks"], ["integrations", "Integrations"], ["sharing", "Sharing"], ["embeds", "Embeds"], ["visibility", "Visibility"], ["settings", "Settings"]] as const;
 const GROUPS = ["growth", "engagement", "conversion"] as const;
@@ -52,6 +53,8 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
   const setPublic = useMutation(api.saas.setPublic);
   const setVisibility = useMutation(api.saas.setVisibility);
   const remove = useMutation(api.saas.remove);
+  const backfill = useMutation(api.integrations.backfill);
+  const backfills = useQuery(api.integrations.backfills, { saasId });
   const [replacing, setReplacing] = useState<Role | null>(null);
   const [adding, setAdding] = useState<Role | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -230,6 +233,28 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
             </div>
           );
         })}
+        <div className="space-y-3">
+          <div>
+            <div className="text-sm font-medium">Backfill history</div>
+            <p className="mt-1 text-xs text-muted-foreground">Re-import the last 30 days of daily user counts from your users source. Useful after connecting a new source or fixing a broken one.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="outline" size="sm" disabled={!users?.capabilities.historicalUsers || backfills?.[0]?.status === "running"} onClick={() => backfill({ saasId, role: "users", days: 30 }).then(() => toast.success("Backfill started — points land within a minute")).catch((e) => toast.error(errMsg(e)))}><History className="size-4" /> Backfill last 30 days</Button>
+            {users && !users.capabilities.historicalUsers && <span className="font-mono text-[11px] text-muted-foreground">Your {users.provider} source cannot read history.</span>}
+          </div>
+          {backfills && backfills.length > 0 && (
+            <Panel className="divide-y divide-line p-0">
+              {backfills.map((r) => (
+                <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 font-mono text-[11px]">
+                  <span className={cn("inline-flex border px-1.5 py-0.5 uppercase tracking-wider", r.status === "ok" ? "border-pink/60 text-pink" : r.status === "error" ? "border-destructive/60 text-destructive" : "border-line text-muted-foreground")}>{r.status}</span>
+                  <span>{r.fromDay} → {r.toDay}</span>
+                  <span className="text-muted-foreground">{r.pointsWritten ?? 0} points · {r.provider} · {r.trigger} · {timeAgo(r.startedAt)}</span>
+                  {r.error && <span className="w-full truncate text-destructive sm:w-auto">{r.error}</span>}
+                </div>
+              ))}
+            </Panel>
+          )}
+        </div>
       </section>
 
       <section id="sharing" className="scroll-mt-14 space-y-3">

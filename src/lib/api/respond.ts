@@ -14,6 +14,11 @@ export function fail(code: ErrorCode, message: string, status: number, headers: 
   return Response.json({ error: { code, message } }, { status, headers: { ...CORS, "Cache-Control": "no-store", ...headers } });
 }
 
+// CSV download with the same CORS + caching rules as JSON responses; rate-limit headers are added by withApi.
+export function csv(body: string, filename: string, extra: Record<string, string> = {}, cache = "public, s-maxage=300, stale-while-revalidate=600") {
+  return new Response(body, { headers: { ...CORS, "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${filename}"`, "Cache-Control": cache, ...extra } });
+}
+
 export function options() {
   return new Response(null, { status: 204, headers: { ...CORS, "Access-Control-Max-Age": "86400" } });
 }

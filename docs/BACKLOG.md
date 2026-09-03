@@ -292,3 +292,28 @@ Goal: every meaningful growth event is one click from a designed, shareable asse
 - ☑ **71.2 MCP** — 6 tools, `profile:write`, share workflow, tests (36). Done.
 - ☑ **71.3 Docs** — PROFILES, SHARING, SOCIAL, ARCHITECTURE, API, MCP, ASSUMPTIONS, ROADMAP, CHANGELOG, README, HUMAN_TODO. Done.
 - ☑ **71.4 QA + deploy** — lint / typecheck / tests / build, screenshots desktop + mobile, push main, Railway, production smoke. Done.
+
+## v0.9 — "Discovery, follow, history, benchmarks v2, datasets, webhooks"
+
+### Epic 80 — History foundations (P0)
+- ☑ **UT-5001 Schema + history** — `rankHistory`, `benchmarkHistory`, `rankingSnapshots`, `backfills`, `webhookEndpoints` / `webhookDeliveries`; movement fields, `foundedAt`, `visibility.benchmarks`, follow sub-preferences; `lib/history.ts` (downsample, gaps, rank movement, rank-jump rule); idempotent `recordHistory` + provenance; owner backfill. AC: `convex/history.test.ts`, `lib/history.test.ts`. Done.
+- ☑ **UT-5008 History UX** — `public.history` with resolution + gaps, time-axis growth chart with shaded gaps, rank history chart, "Backfill history" action + run list. Done.
+
+### Epic 81 — Discovery v3 (P0)
+- ☑ **UT-5002** — movers from stored history, `hidden-gems` / `movers` boards, platform filter, `discover(category)`, mobile section, `rank_jump` / `traction` / `benchmark` events, related products, search categories, follow chips, cards with new users + growth. AC: `discovery.test.ts`, `history.test.ts`. Done.
+
+### Epic 82 — Follow + watchlists (P0)
+- ☑ **UT-5003** — idempotent follow / unfollow / ids, `watchlistFeed`, `/app/following` v2, sub-preferences + gated fan-out, `/api/v1/following`, MCP follow tools. AC: `follows.test.ts`. Done.
+
+### Epic 83 — Benchmarks v2 (P0)
+- ☑ **UT-5004** — `cohortsFor` (category × size, platform, age / tracked), acceleration, `MIN_SAMPLE` 10, weekly standings, previous percentile + change insight, cohort definitions, public toggle, benchmark feed events, dashboard cards v2. AC: `lib/benchmarks.test.ts`, `history.test.ts`. Done.
+
+### Epic 84 — Public datasets + SEO (P0/P1)
+- ☑ **UT-5005** — six new ranking pages, `/rankings` archive from monthly snapshots, methodology / last updated / JSON-LD / internal links on every board, redirects, sitemap, `/api/v1/datasets/*` JSON + CSV with cursor. AC: `datasets.test.ts`, `history.test.ts` (snapshot freeze). Done.
+
+### Epic 85 — Webhooks (P0)
+- ☑ **UT-5006** — engine (dispatch, signed async delivery, retries, ledger, SSRF policy + DoH, auto-disable, retry sweep), owner API, `/app/developer/webhooks`, `/developers/webhooks`, MCP tools. AC: `lib/webhooks.test.ts`, `webhooks.test.ts`, `gateway.test.ts`. Done.
+
+### Epic 86 — Platform + docs + QA (P1)
+- ☑ **UT-5007** — REST additions, OpenAPI, DTOs, gateway functions, 14 MCP tools + 4 scopes, `docs/API.md`, `docs/MCP.md`. Done.
+- ☑ **UT-5009** — docs set, README, HUMAN_TODO, lint / typecheck / tests / build, screenshots, push, Railway deploy, production smoke. Done.

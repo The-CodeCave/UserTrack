@@ -72,6 +72,15 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 - X OAuth 2.0 PKCE + opt-in auto-posting and the separate UserTrack-account pathway (OAuth 1.0a), all feature-flagged with human setup in `HUMAN_TODO.md`. `docs/SOCIAL.md`.
 - API `/users/{username}` aggregates + `/history`; MCP +6 tools (36) and the share workflow.
 
+### v0.9 — Discovery, follow, history, benchmarks v2, datasets, webhooks
+- **Discovery v3**: history-backed Biggest Movers, Hidden gems + Movers boards (`/hidden-gems`, `/biggest-movers`), category-narrowed `/discover`, Popular mobile apps, platform filter, feed events `rank_jump` / `traction` / `benchmark`, related products, search by category. `docs/DISCOVERY.md`.
+- **Follow + watchlists**: idempotent follow / unfollow, follow chips on cards, personalized feed (`/app/following`), per-kind email sub-preferences, API `/following`, MCP follow tools. `docs/FOLLOWS.md`.
+- **History as an asset**: append-only `rankHistory` (leaderboard + trending per window), weekly `benchmarkHistory`, monthly `rankingSnapshots`, backfill provenance (`backfills`, idempotent imports, owner-triggered backfill), downsampled charts with honest gaps, rank history charts, `/rank-history` + `/benchmark-history` API. `docs/HISTORY.md`.
+- **Benchmarks v2**: category × size, platform, founded / tracked age cohorts, growth acceleration, `MIN_SAMPLE` 10, previous percentile + change insights, cohort definitions, public benchmark visibility toggle. `docs/BENCHMARKS.md`.
+- **Public datasets + SEO**: `/fastest-growing-developer-tools`, `/fastest-growing-mobile-apps`, `/best-activation-rate-saas`, `/best-converting-mobile-apps`, `/rankings/<year>/<month>/<category>`, methodology + last-updated + JSON-LD on every ranking page, `/api/v1/datasets/*` (JSON + CSV, cursor). `docs/DATASETS.md`.
+- **Webhooks**: signed (HMAC-SHA256) async deliveries with retries and a delivery log, SSRF policy + DoH re-resolution, 7 event types, `/app/developer/webhooks`, `/developers/webhooks`, MCP webhook tools. `docs/WEBHOOKS.md`.
+- Platform: 50 MCP tools (4 new scopes), OpenAPI 3.1 updated.
+
 ## Next opportunities
 0. **Real-world adapter runs** — the Prisma / Drizzle / Convex / Auth.js adapters are tested against fakes and rendered SQL; one live founder integration per adapter (see `packages/node/HUMAN_TODO.md`) would confirm the count semantics end to end, then publish the three packages.
 1. **Verified retention cohorts** — providers with per-user `last_active_at` (Clerk list API, Auth0 logs) could yield true cohort retention instead of the estimate; also weekly cohort curves.
@@ -82,16 +91,17 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 6a. **Better Auth follow-ups**: publish `@usertrack/better-auth` to npm (see `packages/better-auth/HUMAN_TODO.md`), community-plugin listing, `waitUntil`-aware event delivery on serverless hosts, optional active-users (session scan) capability, `@usertrack/protocol` extraction when a second native plugin (Auth.js, Lucia, Clerk webhooks) arrives.
 6. **More sources**: Umami, Fathom (traffic); Amplitude, Mixpanel, Firebase Analytics via BigQuery (activation, today through the endpoint); RevenueCat identities (customers API or webhooks) and per-day trial flows; StoreKit / Google Play Billing directly; more databases (MySQL, MongoDB) behind the same Node-runtime pattern.
 6b. **Cohort-verified benchmarks** once enough products are `cohort_verified` (kept separate from aggregate cohorts by construction).
-7. **Notifications**: in-app + email on milestones / rank changes for followed products (the `events`/`milestones` data already exists).
+7. **In-app notification centre** (bell + unread state) on top of the watchlist feed; per-target mutes.
 7b. **Sharing follow-ups**: materialize founder aggregates/history on the profile row once founders have many projects; media upload for X posts (today the card comes from the URL unfurl); LinkedIn / Bluesky intents and connections; calendar-month growth cards; per-project X handles; share-stats dashboard for operators; "Import from X" in onboarding once the X app exists.
 8. **"vs" SEO pages** for popular compare pairs (compare permalinks + OG images exist since v0.4).
 9. **OAuth for MCP** (authorization-code flow with dynamic client registration) so clients can connect without copying tokens.
 10. **SDKs**: `@usertrack/api` (typed client generated from `/api/openapi.json`) and a Python equivalent.
 11. **Per-plan limits** (`PLANS` already keyed by plan) and billing; higher API/MCP quotas for paid tiers.
-12. **Webhooks** for milestones, rank changes and sync failures (signed payloads, retries).
+12. **Webhook follow-ups**: IP-pinning egress proxy for deliveries, per-endpoint retry policy, `benchmark.changed` event, replay from the dashboard, webhook marketplace listings (Zapier / Make).
 13. **MCP registry listing** and directory submissions (official MCP registry, Smithery, Cursor directory) using the `GET /mcp` discovery document.
 14. **Light theme** (design is intentionally dark-only), i18n number formats.
-15. **Raise `MIN_SAMPLE` to 10** once category cohorts are large enough; Postgres history for custom-SQL activation sources; time-to-activation would need per-user data and is intentionally out of scope.
+15. **Benchmarks v3**: finer size buckets once cohorts exceed ~200 members, versioned cohort deciles, founding dates imported from public sources; Postgres history for custom-SQL activation sources; time-to-activation would need per-user data and is intentionally out of scope.
+16. **History follow-ups**: 30-day movers, backfill of monthly ranking archives from `rankHistory`, aggregation of 4-hour snapshots older than two years into daily rows (raw daily history is never destroyed), dedicated MCP backfill tool.
 
 ## Known limitations
 - Retention is an estimate (active − new over the 30-day-old cohort) and is labelled as such.
@@ -101,7 +111,9 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 - History backfill is 30 days and only for providers that support it; Stripe/manual, Supabase API mode without a `createdAtColumn`, Firebase projects above 100k accounts (or with `scanSignups: false`) and custom-SQL activation sources start from the first live snapshot.
 - Firebase signup windows and history come from a full `accounts:batchGet` scan (pages of 1,000) on every sync; it is capped at `FIREBASE_SCAN_LIMIT = 100,000` accounts, beyond which the provider silently reports totals only.
 - PostgreSQL: the host must accept connections from the internet (Convex IPs are not fixed) or via a pooler; `ssl: require` uses `rejectUnauthorized: false` (encrypted, no CA validation); one 20 s statement timeout per query; the wizard lists at most 200 tables.
-- Benchmarks need ≥ 5 verified products per cohort and metric; with the current public set most category cohorts have no aggregate, and `n = 5` deciles are interpolations between neighbours (see `docs/BENCHMARKS.md`, privacy analysis).
+- Benchmarks need ≥ 10 verified products per cohort and metric; with the current public set most cohorts have no aggregate yet (see `docs/BENCHMARKS.md`).
+- Ranking history, Biggest Movers, benchmark history and monthly ranking archives accumulate from the v0.9 deploy onwards; the first movers appear after a week of stored positions, the first archive after the first full month.
+- Webhook delivery resolves hostnames through DNS-over-HTTPS immediately before the request but cannot pin the address `fetch` connects to (see `docs/ASSUMPTIONS.md` A111).
 - Burst rate limiting (API, MCP, badges) is per Next.js process (fine for one Railway replica); daily quotas live in Convex and survive deploys.
 - MCP auth is bearer tokens only (no OAuth yet); the MCP server is stateless, so clients that require SSE notifications are not supported.
 - Milestones for `best_day` / `best_week` need ≥3 / ≥14 closed days of daily data; Trending Score reaches full weight only after 14 tracked days.

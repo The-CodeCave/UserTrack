@@ -2,7 +2,9 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and deployed.
 
-Last updated: 2026-09-03 (v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
+Last updated: 2026-09-03 (v0.9: discovery v3, follow + watchlists, ranking / trending / benchmark history, benchmarks v2, public datasets + SEO pages, webhooks — see the v0.9 section; v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
+
+**v0.9 needs no new human action for production.** The schema additions are all new tables / optional fields (no migration), the crons (`webhook retry sweep`, monthly ranking snapshot inside the daily sweep) and every page, API route and MCP tool are deployed and smoke-tested by the agent. Three things only a human can do are listed under **v0.9** below: submit the new public pages once the domain is live (Search Console is part of the domain task), optionally register UserTrack webhooks with Zapier / Make, and optionally point a real endpoint at a test delivery to see the signed payload end to end. History-based features fill up on their own: the first Biggest Movers appear ~7 days after the deploy (stored daily positions), the first `/rankings` archive on the 1st of the next month, benchmark cards once a cohort has 10 verified products.
 
 **v0.7 (native SDK) needs three human actions, in this order.** (1) **Deploy + migrate**: `npx convex deploy` (schema adds the `native` provider literal and the new event types; nothing is removed), then `npx convex run --prod migrations:nativeV1` (idempotent, paged; rewrites the existing `better_auth` integration(s) to `native` + `source: "better-auth"` and their snapshot / sync-run provenance — until it ran, rows are normalised on read and keep working), then the Railway deploy (`git push` → Railway builds `pnpm railway:build`, which runs `convex deploy` again — harmless). Check afterwards: `/developers/integrations/native` renders, `/mcp` lists 30 tools, the dashboard shows the existing Better Auth source as "Better Auth" under "My app (SDK)", and `/api/integrations/better-auth/events` still answers 405 on GET (the 0.1.x plugin path). (2) **Publish the packages, in this order**: `@usertrack/protocol@0.1.0` → `@usertrack/node@0.1.0` → `@usertrack/better-auth@0.2.0` — the plugin now depends on the other two (`workspace:^` becomes `^0.1.0` at pack time), so `0.2.0` cannot be installed before they exist; all steps (scope, first publish per package, trusted publishing / `NPM_TOKEN`, tags `protocol-v*` / `node-v*` / `better-auth-v*` for `.github/workflows/release-packages.yml`) are in **`packages/better-auth/HUMAN_TODO.md`** (scope, tokens, ownership — shared by all three) and **`packages/node/HUMAN_TODO.md`** (publish order + first publish of protocol and node). Until then founders can install from a `pnpm pack` tarball. (3) **Verify one real founder integration after the deploy**: create a test project, pick "My app (SDK)" → Prisma (or Custom), mount the handler from the wizard in any app you own (a throwaway Next.js + Prisma app on Neon, or `packages/node/e2e/serve.mjs` behind a tunnel), click Verify, then check the Sync log, the auto-attached activation / conversion rows and the "Live events" line after one signup. The Prisma / Drizzle / Convex / Auth.js adapters are tested against in-memory fakes and rendered SQL, not live databases — a Postgres (Neon free tier) and a Convex starter deployment are the only third-party accounts needed for that; nothing else is required from you. No new UserTrack-side environment variable.
 
@@ -12,6 +14,65 @@ Last updated: 2026-09-03 (v0.8: founder profiles, Share Card Studio, share engin
 
 **v0.4 needed no new human action.** Everything in this phase (PostgreSQL / Supabase / Clerk / Firebase providers, activation + funnel, Trending Score v2, discovery feed, share cards + embeds, benchmarks, compare, API + MCP) is configured and deployed. The items below are unchanged from earlier phases; the domain item is now the most important one because every share card, embed snippet and MCP config snippet renders the Railway URL until `usertrack.dev` points at production.
 
+
+## v0.9 — Discovery, datasets, webhooks
+
+### Search Console: submit the new public pages (after the domain is live)
+
+**Why**
+v0.9 adds high-intent pages (`/hidden-gems`, `/biggest-movers`, `/fastest-growing-developer-tools`, `/fastest-growing-mobile-apps`, `/best-activation-rate-saas`, `/best-converting-mobile-apps`, `/rankings/*`, `/developers/webhooks`) and dataset endpoints. They are in the sitemap and have canonicals, metadata, JSON-LD and methodology sections, but until `usertrack.dev` points at Railway (task "Point usertrack.dev at production") every canonical renders the Railway hostname and nothing is worth submitting.
+
+**Where**
+Google Search Console → property `usertrack.dev` (created in the domain task) · Bing Webmaster Tools (optional)
+
+**Steps**
+1. Finish "Point usertrack.dev at production (Cloudflare)" below (sets `NEXT_PUBLIC_SITE_URL` / `SITE_URL`, redeploys).
+2. Search Console → Sitemaps → submit `https://usertrack.dev/sitemap.xml` (it already lists the new pages and, from the first month on, the `/rankings/<year>/<month>/<category>` archives).
+3. URL inspection → request indexing for `/discover`, `/hidden-gems`, `/biggest-movers`, `/fastest-growing-mobile-apps`, `/developers/webhooks`.
+4. After a week, check Coverage for "Duplicate, Google chose different canonical" — every board page uses its bare path as canonical on purpose; filter combinations (`?window=`, `?size=`, `?platform=`) are not separate canonicals.
+
+**Required values** — none. **Where to enter them** — Search Console UI.
+
+**Status**
+* [ ] Pending (blocked by the domain task)
+
+---
+
+### Optional: verify one real webhook delivery end to end
+
+**Why**
+The delivery pipeline (signature, retries, ledger, SSRF policy) is unit- and integration-tested, and the "Send test event" button runs the real action against a real HTTPS endpoint. A human can confirm the signed payload arrives on a third-party receiver and that the documented verification snippet accepts it.
+
+**Where**
+`https://<site>/app/developer/webhooks` (any founder account) · a receiver such as https://webhook.site or a small Node handler using the snippet from `/developers/webhooks`
+
+**Steps**
+1. Sign in, open Developer → Webhooks → Create endpoint with the receiver URL (must be `https://`; private / local hosts are refused by design), pick any events, copy the `whsec_…` secret (shown once).
+2. Click "Send test event". The Deliveries panel shows the attempt with HTTP status and latency; the receiver shows headers `UserTrack-Signature`, `UserTrack-Timestamp`, `UserTrack-Event: webhook.test`, `UserTrack-Delivery`, and a payload with `"test": true`.
+3. Paste the raw body + headers into the verification snippet with the secret → `true`. Change one byte → `false`.
+4. Delete the endpoint afterwards (or keep it for real events).
+
+**Status**
+* [ ] Optional
+
+---
+
+### Optional: list UserTrack webhooks with automation platforms
+
+**Why**
+Zapier / Make / n8n users could react to `milestone.reached` or `growth.spike` without writing code. Everything they need exists (signed payloads, docs at `/developers/webhooks`, stable event ids), but a listing needs a partner account and review that only a human can go through.
+
+**Where**
+Zapier Developer Platform (https://developer.zapier.com) · Make Custom Apps · n8n community node
+
+**Steps**
+1. Decide whether the listing is worth the review effort at the current user count (recommendation: wait until at least 20 founders have webhooks enabled — see `webhookEndpoints` in the Convex dashboard).
+2. If yes: create the integration with a "Catch webhook" trigger per event type, using the payload examples from `/developers/webhooks`; the API key (`ut_api_`) can be used for the polling-based "Get project metrics" action.
+
+**Status**
+* [ ] Decide later
+
+---
 
 ## v0.8 — Founder identity & sharing (X)
 
@@ -343,7 +404,7 @@ Clerk, Supabase (API + read-only database mode), Firebase (createdAt scan), Post
 
 ### Benchmarks need real cohorts
 
-Benchmark cards and the public "Top X% …" statement only appear once a cohort (all / category / size bucket) has at least 5 verified, non-demo products (`MIN_SAMPLE` in `convex/lib/benchmarks.ts`). Nothing to configure — this is a reminder that the dashboard shows "Not enough benchmark data yet" until enough founders have connected. Consider raising the threshold to 10 once the public set is larger. **Status** [ ] Nothing to do
+Benchmark cards and the public "Top X% …" statement only appear once a cohort (all / category / category × size / size bucket / platform / age) has at least **10** verified, non-demo products (`MIN_SAMPLE` in `convex/lib/benchmarks.ts`, raised from 5 in v0.9). Nothing to configure — this is a reminder that the dashboard shows "Not enough benchmark data yet" until enough founders have connected; the weekly benchmark history and the "up from Top 27 % last month" sentences start accumulating from the first day a cohort exists. **Status** [ ] Nothing to do
 
 ### Legal pages
 

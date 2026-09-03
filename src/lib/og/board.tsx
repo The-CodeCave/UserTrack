@@ -6,12 +6,13 @@ import { categoryLabel } from "@/lib/categories";
 import type { Board } from "@convex/public";
 
 type Window = "24h" | "7d" | "30d";
+type Platform = "web" | "mobile" | "hybrid";
 type Row = Awaited<ReturnType<typeof rows>>[number];
 
 const WINDOW_LABEL: Record<Window, string> = { "24h": "24 hours", "7d": "7 days", "30d": "30 days" };
 
-const rows = (board: Board, window: Window, category?: string) =>
-  fetchQuery(api.public.board, { board, window, verifiedOnly: false, category, limit: 4 });
+const rows = (board: Board, window: Window, category?: string, platform?: Platform) =>
+  fetchQuery(api.public.board, { board, window, verifiedOnly: false, category, platform, limit: 4 });
 
 // The number that decides the ranking, per board — mirrors the on-page primary metric.
 function metric(s: Row, board: Board, w: Window): { value: string; label: string } {
@@ -32,6 +33,10 @@ function metric(s: Row, board: Board, w: Window): { value: string; label: string
       return { value: formatRate(s.trialToConvertedPct), label: "trial → conv." };
     case "converted-growth":
       return { value: formatPct(s.convertedGrowth30dPct ?? 0), label: "converted 30d" };
+    case "hidden-gems":
+      return { value: formatPct(s.growth7dPct ?? 0), label: "growth 7d" };
+    case "movers":
+      return { value: `#${s.rank7dAgo ?? "—"} → #${s.rank ?? "—"}`, label: `+${s.rankDelta7d ?? 0} · 7d` };
     default:
       return { value: formatDelta(newIn), label: `new · ${w}` };
   }
@@ -41,6 +46,7 @@ export interface BoardOgOptions {
   board: Board;
   window?: Window;
   category?: string;
+  platform?: Platform;
   eyebrow: string;
   title: string;
   sub: string;
@@ -48,8 +54,8 @@ export interface BoardOgOptions {
 }
 
 // One renderer for every ranking page: leaderboard, trending, fastest, new, most new, conversion and category boards.
-export async function renderBoardOg({ board, window = "30d", category, eyebrow, title, sub, path }: BoardOgOptions) {
-  const list = await rows(board, window, category);
+export async function renderBoardOg({ board, window = "30d", category, platform, eyebrow, title, sub, path }: BoardOgOptions) {
+  const list = await rows(board, window, category, platform);
   const logos = await Promise.all(list.map((s) => remoteImage(s.logoUrl)));
 
   return ogImage(

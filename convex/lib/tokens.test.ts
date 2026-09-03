@@ -35,6 +35,8 @@ describe("tokens", () => {
     expect(hasScope(["metrics:read"], "projects:write")).toBe(false);
     expect(hasScope(["metrics:read"])).toBe(true);
     expect(validScopes(["metrics:read", "profile:read"])).toBe(true);
+    expect(validScopes(["follows:read", "follows:write", "webhooks:read", "webhooks:write"])).toBe(true);
+    expect(DEFAULT_MCP_SCOPES).toEqual(expect.arrayContaining(["follows:read", "follows:write", "webhooks:read", "webhooks:write"]));
     expect(validScopes(["metrics:read", "tokens:manage"])).toBe(false);
     expect(isActive({}, 100)).toBe(true);
     expect(isActive({ revokedAt: 50 }, 100)).toBe(false);

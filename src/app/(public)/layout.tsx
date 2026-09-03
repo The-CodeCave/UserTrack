@@ -18,9 +18,13 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
           <div className="flex flex-wrap gap-4 font-mono text-[11px] uppercase tracking-wider">
             <Link href="/leaderboard" className="hover:text-foreground">Leaderboard</Link>
             <Link href="/trending" className="hover:text-foreground">Trending</Link>
+            <Link href="/hidden-gems" className="hover:text-foreground">Hidden gems</Link>
+            <Link href="/biggest-movers" className="hover:text-foreground">Movers</Link>
+            <Link href="/rankings" className="hover:text-foreground">Rankings</Link>
             <Link href="/categories" className="hover:text-foreground">Categories</Link>
             <Link href="/compare" className="hover:text-foreground">Compare</Link>
             <Link href="/developers" className="hover:text-foreground">API</Link>
+            <Link href="/developers/webhooks" className="hover:text-foreground">Webhooks</Link>
             <Link href="/sign-up" className="hover:text-foreground">List your SaaS</Link>
           </div>
           <div className="font-mono text-[11px]">Free · verified growth · synced every 4h</div>

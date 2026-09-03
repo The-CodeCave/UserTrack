@@ -24,7 +24,7 @@ export function DiscoveryFeed({ items }: { items: FeedItem[] }) {
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-baseline gap-2 text-sm">
                 <Link href={`/s/${i.saas.slug}`} className="shrink-0 font-medium hover:text-pink">{i.saas.name}</Link>
-                <span className="min-w-0 truncate text-foreground/80">{i.title}</span>
+                <span className={i.kind === "rank_jump" ? "min-w-0 truncate font-mono font-semibold text-pink" : "min-w-0 truncate text-foreground/80"}>{i.title}</span>
               </div>
               <div className="truncate text-xs text-muted-foreground">{i.detail}</div>
             </div>

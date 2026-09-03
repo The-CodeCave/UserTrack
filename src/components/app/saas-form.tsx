@@ -39,6 +39,7 @@ export function SaasForm({
       logoUrl: s("logoUrl") || undefined,
       category: s("category") || undefined,
       tags: s("tags").split(",").map((t) => t.trim()).filter(Boolean),
+      foundedAt: parseMonth(s("foundedAt")),
       ...platform,
     };
     setSaving(true);
@@ -73,7 +74,14 @@ export function SaasForm({
         </div>
         <Field label="Tags (comma separated)" name="tags" defaultValue={initial?.tags.join(", ")} placeholder="analytics, devtools" />
       </div>
-      <Field label="Logo URL (optional)" name="logoUrl" defaultValue={initial?.logoUrl} placeholder="https://acme.com/logo.png" type="url" />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Logo URL (optional)" name="logoUrl" defaultValue={initial?.logoUrl} placeholder="https://acme.com/logo.png" type="url" />
+        <div className="space-y-1.5">
+          <Label htmlFor="foundedAt" className="text-label">Founded</Label>
+          <Input id="foundedAt" name="foundedAt" type="month" min="1990-01" max={MAX_MONTH} defaultValue={initial?.foundedAt ? monthValue(initial.foundedAt) : undefined} className="h-11 bg-background font-mono" />
+          <p className="font-mono text-[11px] text-muted-foreground">Optional. Used for benchmark age cohorts (otherwise we compare by tracking age).</p>
+        </div>
+      </div>
       {initial && <Field label="Slug" name="slug" defaultValue={initial.slug} placeholder="acme" className="font-mono" />}
       <Button type="submit" className="h-11 w-full sm:w-auto" disabled={saving}>
         {saving && <Loader2 className="size-4 animate-spin" />}
@@ -82,6 +90,11 @@ export function SaasForm({
     </form>
   );
 }
+
+// "YYYY-MM" ⇄ first day of that month (UTC), which is the precision the backend stores.
+const monthValue = (ms: number) => new Date(ms).toISOString().slice(0, 7);
+const MAX_MONTH = monthValue(Date.now());
+const parseMonth = (v: string) => { const m = /^(\d{4})-(\d{2})$/.exec(v); return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, 1) : undefined; };
 
 function Field({ label, name, className, ...props }: { label: string; name: string } & React.ComponentProps<typeof Input>) {
   return (

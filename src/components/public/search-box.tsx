@@ -30,7 +30,15 @@ export function SearchBox({ autoFocus, placeholder = "Search SaaS, founders, cat
       </div>
       {q.length >= 2 && results && (
         <div className="mt-3 space-y-2">
-          {results.saas.length === 0 && results.profiles.length === 0 && <Panel className="p-4 text-sm text-muted-foreground">Nothing matches “{q}”.</Panel>}
+          {results.saas.length === 0 && results.profiles.length === 0 && results.categories.length === 0 && <Panel className="p-4 text-sm text-muted-foreground">Nothing matches “{q}”.</Panel>}
+          {results.categories.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">Categories</span>
+              {results.categories.map((c) => (
+                <Link key={c.slug} href={`/categories/${c.slug}`} className="inline-flex items-center gap-1.5 border border-line px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider transition-colors hover:border-pink hover:text-pink">{c.label} <span className="text-muted-foreground">{c.count}</span></Link>
+              ))}
+            </div>
+          )}
           {results.saas.map((s) => (
             <Link key={s._id} href={`/s/${s.slug}`} className="group block">
               <Panel className="flex items-center gap-3 p-3 transition-colors group-hover:border-line-strong">

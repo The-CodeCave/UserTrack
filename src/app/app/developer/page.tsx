@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useQuery } from "convex/react";
-import { ArrowUpRight, Sparkles } from "lucide-react";
+import { ArrowUpRight, Sparkles, Webhook } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { PLANS } from "@convex/lib/tokens";
 import { MCP_URL } from "@/lib/mcp/snippets";
@@ -20,6 +20,7 @@ const LINKS = [
   { href: "/developers", label: "Docs" },
   { href: "/developers#api", label: "API reference" },
   { href: "/developers#mcp", label: "MCP" },
+  { href: "/app/developer/webhooks", label: "Webhooks" },
   { href: "/api/openapi.json", label: "OpenAPI" },
 ];
 
@@ -79,6 +80,14 @@ export default function DeveloperPage() {
           <p className="mt-1">Tokens are stored as SHA-256 hashes, scoped to what you allow, and revocable at any time. They can never delete projects or data. Keep them out of git and shared configs.</p>
         </div>
         {tokens === undefined ? <ListSkeleton /> : <TokenList tokens={mcpTokens} empty="No MCP tokens yet. Create one and paste the snippet into your coding agent." />}
+      </Panel>
+
+      <Panel className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div>
+          <SectionLabel>Webhooks</SectionLabel>
+          <p className="mt-2 text-sm text-muted-foreground">Signed HTTP POSTs for milestones, rank changes, growth spikes and integration health. HMAC-SHA256, retries, delivery log.</p>
+        </div>
+        <Button variant="outline" className="h-10 shrink-0" render={<Link href="/app/developer/webhooks" />}><Webhook className="size-4" /> Manage webhooks</Button>
       </Panel>
 
       <Panel className="space-y-4 p-4 sm:p-5">

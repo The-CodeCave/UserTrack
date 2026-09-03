@@ -7,6 +7,8 @@ import { TIMEFRAMES } from "@convex/domain/metrics";
 import type { Scope } from "@convex/lib/tokens";
 import { CARD_RANGES, CARD_STYLES } from "@/lib/share-card";
 import type { Id } from "@convex/_generated/dataModel";
+import { WEBHOOK_EVENTS } from "@convex/lib/webhooks";
+import { DATASET_WINDOWS } from "@/lib/api/datasets";
 
 type Auth = { hash: string; gateway?: string };
 const ROLES = ["users", "activation", "traffic", "conversion"] as const;
@@ -453,6 +455,168 @@ const TOOLS_SHARE: Tool[] = [
 ];
 TOOLS.push(...TOOLS_SHARE);
 
+const WEBHOOK_EVENT_TYPES = WEBHOOK_EVENTS.map((e) => e.type) as [string, ...string[]];
+const WINDOWS = DATASET_WINDOWS;
+const DATASET_TOOL_NAMES = ["trending", "fastest-growing", "new-and-rising", "hidden-gems", "movers", "category", "rankings"] as const;
+const endpointId = z.string().describe("Webhook endpoint id (from usertrack_get_webhooks)");
+
+const TOOLS_V09: Tool[] = [
+  tool({
+    name: "usertrack_discover",
+    title: "Discover",
+    description: "Public discovery sections in one call — trending, fastest growing, new & rising, hidden gems, biggest movers (7-day leaderboard climbs) and mobile — plus the activity feed and the public hidden-gem / new-rising rules. Optional category and window. Public data, not owner-scoped; requires metrics:read.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { category: z.string().optional().describe("Category slug, e.g. 'developer-tools'"), window: z.enum(WINDOWS).optional().describe("24h | 7d (default) | 30d for the trending and fastest sections") },
+    run: (auth, a) => fetchQuery(api.gateway.discover, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_follow_project",
+    title: "Follow project",
+    description: "Add a public product to the founder's watchlist by slug or project id. Idempotent: following an already-followed product returns created: false. Requires follows:write.",
+    scope: "follows:write",
+    readOnly: false,
+    input: { slug: z.string().optional().describe("Public project slug, e.g. 'acme'"), projectId: z.string().optional().describe("Project id — slug or projectId is required") },
+    run: (auth, a) => fetchMutation(api.gateway.followTool, { auth, targetType: "saas", slug: a.slug, targetId: a.projectId }),
+  }),
+  tool({
+    name: "usertrack_unfollow_project",
+    title: "Unfollow project",
+    description: "Remove a product from the founder's watchlist by slug or project id. Safe to repeat (removed: false when it was not followed). Requires follows:write.",
+    scope: "follows:write",
+    readOnly: false,
+    input: { slug: z.string().optional(), projectId: z.string().optional() },
+    run: (auth, a) => fetchMutation(api.gateway.unfollowTool, { auth, targetType: "saas", slug: a.slug, targetId: a.projectId }),
+  }),
+  tool({
+    name: "usertrack_follow_founder",
+    title: "Follow founder",
+    description: "Follow a public founder by username (with or without @): every public project they publish lands on the watchlist and in the personal feed. Idempotent. Requires follows:write.",
+    scope: "follows:write",
+    readOnly: false,
+    input: { username: z.string().describe("Founder username, e.g. 'jane' or '@jane'") },
+    run: (auth, a) => fetchMutation(api.gateway.followTool, { auth, targetType: "profile", username: a.username }),
+  }),
+  tool({
+    name: "usertrack_unfollow_founder",
+    title: "Unfollow founder",
+    description: "Stop following a founder by username. Safe to repeat. Requires follows:write.",
+    scope: "follows:write",
+    readOnly: false,
+    input: { username: z.string() },
+    run: (auth, a) => fetchMutation(api.gateway.unfollowTool, { auth, targetType: "profile", username: a.username }),
+  }),
+  tool({
+    name: "usertrack_get_watchlist",
+    title: "Get watchlist",
+    description: "Everything the founder follows: products (direct follows plus public projects of followed founders) with 7-day leaderboard / trending movement, followed founders, and the personal feed (milestones, spikes, launches, verifications, rank jumps, benchmarks) for the last days. Requires follows:read.",
+    scope: "follows:read",
+    readOnly: true,
+    input: { days: z.number().int().min(1).max(90).optional().describe("Feed window, default 30"), limit: z.number().int().min(1).max(200).optional().describe("Feed length, default 60") },
+    run: (auth, a) => fetchQuery(api.gateway.watchlist, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_rank_history",
+    title: "Rank history",
+    description: "Stored daily leaderboard or trending positions of one owned project (private projects included): one point per UTC day since the project was first ranked, plus current, best and 7-days-ago position with the 7-day movement. Graph-ready. Requires metrics:read.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { ...ref, kind: z.enum(["leaderboard", "trending"]).optional().describe("leaderboard (default, 30d window) | trending (7d window)"), window: z.enum(WINDOWS).optional(), days: z.number().int().min(7).max(730).optional().describe("Default 90") },
+    run: (auth, a) => fetchQuery(api.gateway.rankHistoryTool, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_benchmark_history",
+    title: "Benchmark history",
+    description: "Weekly benchmark standings of one owned project for the last weeks (private owner view: every cohort and metric, with value and median), plus the current cards' change insights ('Top 12% now, up from Top 27% last month'). Requires metrics:read.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { ...ref, weeks: z.number().int().min(4).max(52).optional().describe("Default 26") },
+    run: (auth, a) => fetchQuery(api.gateway.benchmarkHistoryTool, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_dataset",
+    title: "Get dataset",
+    description: "A public dataset as rows: trending, fastest-growing, new-and-rising, hidden-gems, movers, category (needs category; any board via board) or rankings (frozen monthly rankings: period YYYY-MM + optional board / category; without period, the list of available periods). Filters: window, category, platform (web | mobile | hybrid), limit (≤100). Returns the JSON and CSV URLs of the same dataset on the public API. Requires metrics:read.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: {
+      dataset: z.enum(DATASET_TOOL_NAMES).describe("trending | fastest-growing | new-and-rising | hidden-gems | movers | category | rankings"),
+      category: z.string().optional(),
+      window: z.enum(WINDOWS).optional(),
+      platform: z.enum(PROJECT_TYPES).optional(),
+      limit: z.number().int().min(1).max(100).optional().describe("Default 50"),
+      period: z.string().optional().describe("rankings only: YYYY-MM"),
+      board: z.string().optional().describe("rankings / category only: leaderboard board, default most-new"),
+    },
+    run: (auth, a) => fetchQuery(api.gateway.dataset, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_webhooks",
+    title: "List webhooks",
+    description: "The founder's webhook endpoints (URL, subscribed events, project scope, status, masked secret, last delivery), the catalog of event types that can be subscribed to, the endpoint limit and the owned projects an endpoint can be scoped to. Secrets are never returned here. Requires webhooks:read.",
+    scope: "webhooks:read",
+    readOnly: true,
+    input: {},
+    run: (auth) => fetchQuery(api.gateway.webhooksList, { auth }),
+  }),
+  tool({
+    name: "usertrack_create_webhook",
+    title: "Create webhook",
+    description: "Create a webhook endpoint: a public https URL, the event types to receive (milestone.reached, rank.changed, trending.rank_changed, growth.spike, integration.failed, integration.recovered, project.verified), an optional description and an optional project scope. The signing secret (whsec_…) is returned ONLY in this response — hand it to the founder for their environment, never print or log it. Then call usertrack_test_webhook. Requires webhooks:write.",
+    scope: "webhooks:write",
+    readOnly: false,
+    input: {
+      url: z.string().describe("Public https URL; localhost, private networks and internal hosts are rejected"),
+      events: z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1).describe("Event types to subscribe to"),
+      description: z.string().max(120).optional(),
+      ...ref,
+    },
+    run: (auth, a) => fetchMutation(api.gateway.createWebhookTool, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_update_webhook",
+    title: "Update webhook",
+    description: "Change an endpoint's URL, subscribed events, description, status (active | disabled — re-enabling resets the failure counter) or project scope (projectId, or null for all projects). Only the fields you pass change. Requires webhooks:write.",
+    scope: "webhooks:write",
+    readOnly: false,
+    input: {
+      endpointId,
+      url: z.string().optional(),
+      events: z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1).optional(),
+      description: z.string().max(120).optional(),
+      status: z.enum(["active", "disabled"]).optional(),
+      projectId: z.string().nullable().optional().describe("Scope to one owned project (id or slug); null = every project"),
+    },
+    run: (auth, a) => fetchMutation(api.gateway.updateWebhookTool, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_test_webhook",
+    title: "Test webhook",
+    description: "Send a signed webhook.test event through the normal delivery pipeline (signature headers, retries, delivery log) to one endpoint, regardless of its subscriptions. Returns the delivery id; check the result with usertrack_get_webhook_deliveries. Requires webhooks:write.",
+    scope: "webhooks:write",
+    readOnly: false,
+    input: { endpointId },
+    run: (auth, a) => fetchMutation(api.gateway.testWebhookTool, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_webhook_deliveries",
+    title: "Webhook deliveries",
+    description: "Recent deliveries of one endpoint: event type, attempt, status (pending | success | failed | exhausted), HTTP status, latency, error and next retry time. failedOnly narrows to failed / exhausted deliveries. Response bodies are never stored. Requires webhooks:read.",
+    scope: "webhooks:read",
+    readOnly: true,
+    input: { endpointId, limit: z.number().int().min(1).max(100).optional().describe("Default 25"), failedOnly: z.boolean().optional() },
+    run: (auth, a) => fetchQuery(api.gateway.webhookDeliveriesTool, { auth, ...a }),
+  }),
+];
+TOOLS.push(...TOOLS_V09);
+
+export const WEBHOOK_WORKFLOW = [
+  "usertrack_get_webhooks (existing endpoints + the event catalog)",
+  "usertrack_create_webhook { url, events, projectId? } → the secret is returned once: hand it to the founder for their environment, never log it",
+  "usertrack_test_webhook { endpointId } → a signed webhook.test event",
+  "usertrack_get_webhook_deliveries { endpointId } → confirm status success (or read the error and fix the receiver)",
+];
+
 export const SHARE_WORKFLOW = [
   "usertrack_get_share_events (strongest first; or usertrack_get_milestones for the raw list)",
   "usertrack_create_share_card { shareEventId, style, size, range } → image / square PNG URLs + draft",
@@ -484,5 +648,9 @@ Mobile flow ("Add this iOS app to UserTrack"): projectType "mobile"; users from 
 Native SDK flow ("Add this project to UserTrack" when the repo owns its user store — Better Auth, Auth.js / NextAuth, Convex, Prisma, Drizzle or a custom database): usertrack_create_project → usertrack_create_integration { provider: "native", source } (the secret is returned once) → usertrack_get_native_setup { source } → install the package with the repo's package manager (@usertrack/better-auth: append userTrack({ projectId: process.env.USERTRACK_PROJECT_ID!, secret: process.env.USERTRACK_SECRET! }) to the existing plugins array without touching other options; @usertrack/node: add app/api/usertrack/metrics/route.ts exporting createUserTrackHandler with a users count source, optionally activation / conversion), add both variables to .env.example and the local env, typecheck, deploy → usertrack_verify_integration → usertrack_sync_project → usertrack_get_share_url.
 
 Share flow ("Create a share card for my best milestone this month"): ${SHARE_WORKFLOW.join(" → ")}. Founder identity: usertrack_get_profile / usertrack_update_profile (X handle accepted as @name or name), usertrack_get_founder_url for the public profile.
+
+Discovery & watchlist flow ("What is trending in developer tools?", "Follow the products I compete with"): usertrack_discover { category?, window? } or usertrack_get_dataset { dataset } for public rows → usertrack_follow_project { slug } / usertrack_follow_founder { username } (idempotent) → usertrack_get_watchlist { days } for movement and the personal feed; usertrack_get_rank_history / usertrack_get_benchmark_history for the founder's own projects over time.
+
+Webhook flow ("Notify my Slack when we hit a milestone"): ${WEBHOOK_WORKFLOW.join(" → ")}. Endpoints must be public https URLs; the secret signs every payload (UserTrack-Signature = v1=hex(HMAC-SHA256(secret, timestamp.body))) and is shown only at creation or rotation.
 
 Rules: never print or log credentials; prefer verified providers over manual numbers; only aggregate counts are ever sent to UserTrack; payment providers are read for conversion state only, never revenue (no amounts, prices, invoices or MRR); never send emails, names or phone numbers — identities are stable ids only; ask the founder for any credential you cannot find in the repo's env files.`;

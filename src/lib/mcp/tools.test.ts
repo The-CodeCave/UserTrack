@@ -3,7 +3,7 @@ import { SCOPE_KEYS } from "@convex/lib/tokens";
 
 vi.mock("convex/nextjs", () => ({ fetchQuery: vi.fn(), fetchMutation: vi.fn(), fetchAction: vi.fn() }));
 
-import { SERVER_INSTRUCTIONS, SETUP_WORKFLOW, TOOLS } from "./tools";
+import { SERVER_INSTRUCTIONS, SETUP_WORKFLOW, TOOLS, WEBHOOK_WORKFLOW } from "./tools";
 
 const EXPECTED = [
   "usertrack_get_account",
@@ -42,13 +42,27 @@ const EXPECTED = [
   "usertrack_create_share_card",
   "usertrack_get_x_draft",
   "usertrack_get_founder_url",
+  "usertrack_discover",
+  "usertrack_follow_project",
+  "usertrack_unfollow_project",
+  "usertrack_follow_founder",
+  "usertrack_unfollow_founder",
+  "usertrack_get_watchlist",
+  "usertrack_get_rank_history",
+  "usertrack_get_benchmark_history",
+  "usertrack_get_dataset",
+  "usertrack_get_webhooks",
+  "usertrack_create_webhook",
+  "usertrack_update_webhook",
+  "usertrack_test_webhook",
+  "usertrack_get_webhook_deliveries",
 ];
 
 describe("MCP tool set", () => {
-  it("exposes exactly the 36 expected tools with unique names", () => {
+  it("exposes exactly the 50 expected tools with unique names", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toEqual(EXPECTED);
-    expect(new Set(names).size).toBe(36);
+    expect(new Set(names).size).toBe(50);
   });
 
   it("gives every tool a title, description and a known scope", () => {
@@ -66,7 +80,7 @@ describe("MCP tool set", () => {
       if (t.readOnly) expect(t.scope, t.name).toMatch(/:read$/);
       else expect(t.scope, t.name).toMatch(/:write$/);
     }
-    expect(TOOLS.filter((t) => !t.readOnly).map((t) => t.name)).toEqual(["usertrack_create_project", "usertrack_update_project", "usertrack_configure_integration", "usertrack_verify_integration", "usertrack_sync_project", "usertrack_create_integration", "usertrack_update_profile", "usertrack_create_share_card"]);
+    expect(TOOLS.filter((t) => !t.readOnly).map((t) => t.name)).toEqual(["usertrack_create_project", "usertrack_update_project", "usertrack_configure_integration", "usertrack_verify_integration", "usertrack_sync_project", "usertrack_create_integration", "usertrack_update_profile", "usertrack_create_share_card", "usertrack_follow_project", "usertrack_unfollow_project", "usertrack_follow_founder", "usertrack_unfollow_founder", "usertrack_create_webhook", "usertrack_update_webhook", "usertrack_test_webhook"]);
   });
 
   it("describes the setup workflow in order", () => {
@@ -87,6 +101,23 @@ describe("MCP tool set", () => {
     expect(Object.keys(rec.input).sort()).toEqual(["detectedAnalytics", "detectedAuth", "detectedPayments", "detectedProviders", "framework", "projectType"]);
     expect(rec.description).toMatch(/RevenueCat/);
     expect(TOOLS.find((t) => t.name === "usertrack_get_conversion_setup")!.description).toMatch(/never amounts/);
+  });
+
+  it("v0.9 tools use the new scopes and describe the watchlist + webhook flows", () => {
+    const byName = (n: string) => TOOLS.find((t) => t.name === n)!;
+    expect(byName("usertrack_get_watchlist").scope).toBe("follows:read");
+    expect(byName("usertrack_follow_project").scope).toBe("follows:write");
+    expect(byName("usertrack_get_webhooks").scope).toBe("webhooks:read");
+    expect(byName("usertrack_create_webhook").scope).toBe("webhooks:write");
+    expect(byName("usertrack_create_webhook").description).toMatch(/returned ONLY/);
+    const events = (byName("usertrack_create_webhook").input.events as unknown as { element: { options: string[] } }).element.options;
+    expect(events).toEqual(["milestone.reached", "rank.changed", "trending.rank_changed", "growth.spike", "integration.failed", "integration.recovered", "project.verified"]);
+    expect((byName("usertrack_get_dataset").input.dataset as unknown as { options: string[] }).options).toEqual(["trending", "fastest-growing", "new-and-rising", "hidden-gems", "movers", "category", "rankings"]);
+    expect(WEBHOOK_WORKFLOW[0]).toMatch(/^usertrack_get_webhooks/);
+    expect(SERVER_INSTRUCTIONS).toMatch(/Discovery & watchlist flow/);
+    expect(SERVER_INSTRUCTIONS).toMatch(/Webhook flow/);
+    expect(SERVER_INSTRUCTIONS).toMatch(/usertrack_get_webhooks .*usertrack_create_webhook .*usertrack_test_webhook .*usertrack_get_webhook_deliveries/);
+    expect(SERVER_INSTRUCTIONS).toMatch(/never log it/);
   });
 
   it("native tools accept every SDK source and keep the Better Auth alias", () => {

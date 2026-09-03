@@ -1,72 +1,127 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Award, Flame, Rocket, ShieldCheck, Sprout, TrendingDown, TrendingUp, Trophy, Zap } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { MovementTag } from "@/components/blueprint/movement";
-import { MilestoneRow } from "@/components/public/milestones";
+import { MILESTONE_ICON } from "@/components/public/milestones";
 import { SaasLogo } from "@/components/public/saas-card";
 import { FollowButton } from "@/components/public/follow-button";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatCompact, formatDelta, formatPct } from "@/lib/format";
+import { formatCompact, formatDelta, formatPct, timeAgo } from "@/lib/format";
+import { cn } from "@/lib/utils";
+
+const DAYS = [7, 30, 90] as const;
+const ICON: Record<string, typeof Trophy> = { milestone: Trophy, spike: Flame, activation_spike: Zap, launched: Rocket, new_project: Rocket, verified: ShieldCheck, rank_jump: TrendingUp, rank_change: TrendingUp, traction: Sprout, benchmark: Award };
 
 export default function FollowingPage() {
-  const feed = useQuery(api.follows.feed);
+  const [days, setDays] = useState<(typeof DAYS)[number]>(30);
+  const feed = useQuery(api.follows.feed, { days });
+  const nothing = feed && feed.saas.length === 0 && feed.founders.length === 0;
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
       <div>
         <SectionLabel>Following</SectionLabel>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Products you track</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Weekly movement and milestones from every SaaS and founder you follow. They also feed your weekly digest.</p>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Your SaaS intelligence feed</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Milestones, spikes and rank moves from every product and founder you follow. Email alerts are configured in <Link href="/app/settings/notifications" className="text-foreground underline-offset-2 hover:underline">notification settings</Link>.</p>
       </div>
-      {feed === undefined && <div className="space-y-2"><Skeleton className="h-16" /><Skeleton className="h-16" /></div>}
-      {feed && feed.saas.length === 0 && feed.founders.length === 0 && (
+      {feed === undefined && <div className="space-y-2"><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /></div>}
+      {nothing && (
         <Panel className="p-6">
           <div className="text-lg font-medium">You are not following anything yet</div>
-          <p className="mt-1 text-sm text-muted-foreground">Hit “Follow” on any product or founder page.</p>
-          <div className="mt-4 flex gap-2"><Button render={<Link href="/trending" />}>Trending <ArrowRight className="size-4" /></Button><Button variant="outline" render={<Link href="/discover" />}>Discover</Button></div>
+          <p className="mt-1 text-sm text-muted-foreground">Hit “Follow” on any product or founder page and their notable moments land here.</p>
+          <div className="mt-4 flex gap-2"><Button render={<Link href="/discover" />}>Discover <ArrowRight className="size-4" /></Button><Button variant="outline" render={<Link href="/trending" />}>Trending</Button></div>
         </Panel>
       )}
       {feed && feed.saas.length > 0 && (
         <section className="space-y-2">
-          <SectionLabel>This week</SectionLabel>
-          {feed.saas.map((s) => (
-            <Panel key={s._id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 p-3 sm:grid-cols-[auto_1fr_6rem_6rem_auto]">
-              <SaasLogo name={s.name} logoUrl={s.logoUrl} size={36} />
-              <div className="min-w-0">
-                <Link href={`/s/${s.slug}`} className="flex items-center gap-2 font-medium hover:underline"><span className="truncate">{s.name}</span><TrustBadge trust={s.trust} className="hidden sm:inline-flex" /></Link>
-                <div className="font-mono text-[11px] text-muted-foreground">{formatCompact(s.totalUsers)} users{s.rank ? ` · #${s.rank}` : ""}</div>
+          <SectionLabel>Products you track</SectionLabel>
+          <Panel className="divide-y divide-line p-0">
+            {feed.saas.map((s) => (
+              <div key={s._id} className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-2 p-3 sm:grid-cols-[auto_1fr_5.5rem_7rem_6rem_auto]">
+                <SaasLogo name={s.name} logoUrl={s.logoUrl} size={36} />
+                <div className="min-w-0">
+                  <Link href={`/s/${s.slug}`} className="flex min-w-0 items-center gap-2 font-medium hover:underline"><span className="truncate">{s.name}</span><TrustBadge trust={s.trust} label={s.trustLabel} className="hidden sm:inline-flex" /></Link>
+                  <div className="flex flex-wrap items-center gap-x-2 font-mono text-[11px] text-muted-foreground">
+                    <span>{formatCompact(s.totalUsers)} users</span>
+                    {s.via === "founder" && <span className="border border-line px-1 text-[10px]">via founder</span>}
+                  </div>
+                </div>
+                <div className="text-right sm:text-left"><div className="tabular font-semibold text-pink">{formatDelta(s.newUsers7d)}</div><div className="font-mono text-[11px] text-muted-foreground">{formatPct(s.growth7dPct)} · 7d</div></div>
+                <div className="col-span-3 flex items-center gap-3 font-mono text-[11px] sm:col-span-1 sm:block sm:text-sm">
+                  <span className="inline-flex items-center gap-1"><span className="text-muted-foreground sm:hidden">rank</span> {s.rank ? `#${s.rank}` : "—"} {s.rank && <MovementTag m={s.rankMovement7d} />}</span>
+                  <span className="text-muted-foreground sm:hidden">·</span>
+                  <span className="inline-flex items-center gap-1 sm:hidden"><span className="text-muted-foreground">trending</span> {s.trendingRank ? `#${s.trendingRank}` : "—"} {s.trendingRank && <MovementTag m={s.trendingMovement7d} />}</span>
+                  <span className="block font-mono text-[10px] uppercase tracking-wider text-muted-foreground max-sm:hidden">rank · 7d</span>
+                </div>
+                <div className="hidden font-mono text-sm sm:block">
+                  <span className="inline-flex items-center gap-1">{s.trendingRank ? `T#${s.trendingRank}` : "—"} {s.trendingRank && <MovementTag m={s.trendingMovement7d} />}</span>
+                  <span className="block font-mono text-[10px] uppercase tracking-wider text-muted-foreground">trending</span>
+                </div>
+                <div className="col-span-3 sm:col-span-1">{s.followed && <FollowButton targetType="saas" targetId={s._id} className="w-full sm:w-auto" />}</div>
               </div>
-              <div className="text-right sm:text-left"><div className="font-semibold text-pink">{formatDelta(s.newUsers7d)}</div><div className="font-mono text-[11px] text-muted-foreground">{formatPct(s.growth7dPct)} · 7d</div></div>
-              <div className="hidden items-center gap-1 font-mono text-sm sm:flex">{s.trendingRank ? `T#${s.trendingRank}` : "—"}<MovementTag m={s.trendingRank ? (s.prevTrendingRank !== undefined ? { kind: s.prevTrendingRank > s.trendingRank ? "up" : s.prevTrendingRank < s.trendingRank ? "down" : "same", delta: s.prevTrendingRank - s.trendingRank } : { kind: "new", delta: 0 }) : null} /></div>
-              <div className="col-span-3 sm:col-span-1">{s.followed && <FollowButton targetType="saas" targetId={s._id} />}</div>
-            </Panel>
-          ))}
+            ))}
+          </Panel>
         </section>
       )}
       {feed && feed.founders.length > 0 && (
         <section className="space-y-2">
           <SectionLabel>Founders</SectionLabel>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {feed.founders.map((p) => (
               <Panel key={p._id} className="flex items-center gap-3 p-3">
-                <div className="grid size-9 place-items-center border border-line bg-background font-mono text-sm">{p.displayName.slice(0, 1).toUpperCase()}</div>
-                <Link href={`/u/${p.username}`} className="min-w-0 flex-1 hover:underline"><div className="truncate font-medium">{p.displayName}</div><div className="font-mono text-[11px] text-muted-foreground">@{p.username}</div></Link>
+                {p.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.avatarUrl} alt="" className="size-9 shrink-0 border border-line object-cover" />
+                ) : (
+                  <div className="grid size-9 shrink-0 place-items-center border border-line bg-background font-mono text-sm">{p.displayName.slice(0, 1).toUpperCase()}</div>
+                )}
+                <Link href={`/u/${p.username}`} className="min-w-0 flex-1 hover:underline"><div className="truncate font-medium">{p.displayName}</div><div className="truncate font-mono text-[11px] text-muted-foreground">@{p.username} · {p.followerCount} {p.followerCount === 1 ? "follower" : "followers"}</div></Link>
                 <FollowButton targetType="profile" targetId={p._id} />
               </Panel>
             ))}
           </div>
         </section>
       )}
-      {feed && feed.milestones.length > 0 && (
+      {feed && !nothing && (
         <section className="space-y-2">
-          <SectionLabel>Milestones · last 7 days</SectionLabel>
-          <div className="grid gap-2 md:grid-cols-2">{feed.milestones.map((m) => <MilestoneRow key={m._id} m={m} slug={m.slug} name={m.name} compact />)}</div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <SectionLabel>Feed · last {days} days</SectionLabel>
+            <div className="flex border border-line font-mono text-[11px]">
+              {DAYS.map((d) => <button key={d} type="button" onClick={() => setDays(d)} aria-pressed={days === d} className={cn("px-2.5 py-1", days === d ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{d}d</button>)}
+            </div>
+          </div>
+          {feed.feed.length === 0 ? (
+            <Panel className="p-4 text-sm text-muted-foreground">Nothing notable yet — milestones, spikes and rank moves appear here as they happen.</Panel>
+          ) : (
+            <Panel className="divide-y divide-line p-0">
+              {feed.feed.map((e) => {
+                const Icon = (e.kind === "milestone" && MILESTONE_ICON[e.subkind]) || ICON[e.kind] || Trophy;
+                const down = (e.kind === "rank_change" || e.kind === "rank_jump") && e.subkind === "down";
+                return (
+                  <div key={e.id} className="flex items-start gap-3 p-3">
+                    {down ? <TrendingDown className="mt-1 size-4 shrink-0 text-muted-foreground" /> : <Icon className="mt-1 size-4 shrink-0 text-pink" />}
+                    <SaasLogo name={e.saas.name} logoUrl={e.saas.logoUrl} size={28} className="mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm"><Link href={`/s/${e.saas.slug}`} className="font-medium hover:underline">{e.saas.name}</Link> <span className="text-muted-foreground">—</span> {e.title}</div>
+                      {e.detail && <div className="mt-0.5 text-xs text-muted-foreground">{e.detail}</div>}
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 font-mono text-[11px] text-muted-foreground">
+                        <span>{timeAgo(e.at)}</span>
+                        {e.founder && <span>· via <Link href={`/u/${e.founder.username}`} className="hover:text-foreground">@{e.founder.username}</Link></span>}
+                        {e.share && <Link href={`/s/${e.saas.slug}/${e.share}`} className="text-pink hover:underline">Share</Link>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </Panel>
+          )}
         </section>
       )}
     </div>

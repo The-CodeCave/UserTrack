@@ -1,23 +1,30 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, ReferenceArea, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { cn } from "@/lib/utils";
 import { formatCompact, formatDelta, formatPointDate, formatTick, RANGES, type Range } from "@/lib/format";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export interface SeriesPoint { t: number; total: number; delta: number; activated?: number; visitors?: number }
+export interface Gap { from: number; to: number; days: number }
+export type Resolution = "raw" | "day" | "week" | "month";
 export interface Annotation { id: string; t: number; kind: "milestone" | "spike" | "activation_spike" | "traffic_spike" | "reconnect" | "source_changed" | "launched" | "verified" | "rank_jump" | "traction" | "benchmark"; title: string; detail: string }
 type Metric = "total" | "new";
+// A plotted point may be a gap marker (total null) so the line breaks instead of bridging an outage.
+type Plotted = Omit<SeriesPoint, "total" | "activated"> & { total: number | null; activated?: number | null; gap?: true };
 
 const WHITE = "#f4f4f5";
 const PINK = "#fb0184";
 const SKY = "#7dd3fc";
 const GRID = "rgba(255,255,255,0.08)";
 const AXIS = { fontSize: 11, fontFamily: "var(--font-geist-mono)", fill: "#8b8f98" };
+const RESOLUTION_HINT: Record<Resolution, string> = { raw: "4-hour snapshots", day: "daily points", week: "weekly points", month: "monthly points" };
 
 export function GrowthChart({
   data,
+  gaps = [],
+  resolution,
   annotations = [],
   range,
   onRangeChange,
@@ -25,6 +32,8 @@ export function GrowthChart({
   compact,
 }: {
   data: SeriesPoint[] | null | undefined;
+  gaps?: Gap[];
+  resolution?: Resolution;
   annotations?: Annotation[];
   range: Range;
   onRangeChange: (r: Range) => void;
@@ -34,7 +43,10 @@ export function GrowthChart({
   const [metric, setMetric] = useState<Metric>("total");
   const [showActivated, setShowActivated] = useState(true);
   const gradId = useId();
+  const hatchId = useId();
   const points = useMemo(() => data ?? [], [data]);
+  // Insert one null point per gap so the area/line break there; the time axis then shows the hole at true width.
+  const plotted = useMemo<Plotted[]>(() => [...points, ...gaps.map((g) => ({ t: (g.from + g.to) / 2, total: null, delta: 0, activated: null, gap: true as const }))].sort((a, b) => a.t - b.t), [points, gaps]);
   const last = points[points.length - 1];
   const hasActivated = points.some((p) => p.activated !== undefined);
   const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -73,19 +85,25 @@ export function GrowthChart({
         {points.length >= 2 && (
           <ResponsiveContainer width="100%" height="100%">
             {metric === "total" ? (
-              <AreaChart data={points} margin={{ top: 20, right: 28, bottom: 0, left: 0 }}>
+              <AreaChart data={plotted} margin={{ top: 20, right: 28, bottom: 0, left: 0 }}>
                 <defs>
                   <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={PINK} stopOpacity={0.28} />
                     <stop offset="100%" stopColor={PINK} stopOpacity={0} />
                   </linearGradient>
+                  <pattern id={hatchId} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                    <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
+                  </pattern>
                 </defs>
                 <CartesianGrid stroke={GRID} vertical={false} />
-                <XAxis dataKey="t" tickFormatter={(t) => formatTick(t, range)} tick={AXIS} axisLine={false} tickLine={false} minTickGap={40} />
+                <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={(t) => formatTick(t, range)} tick={AXIS} axisLine={false} tickLine={false} minTickGap={40} />
                 <YAxis tickFormatter={formatCompact} tick={AXIS} axisLine={false} tickLine={false} width={44} domain={["auto", "auto"]} />
                 <Tooltip cursor={{ stroke: "rgba(255,255,255,0.35)", strokeWidth: 1 }} content={<PointTooltip range={range} metric={metric} marks={marks} />} />
-                <Area type="monotone" dataKey="total" stroke={WHITE} strokeWidth={2} fill={`url(#${gradId})`} dot={false} activeDot={{ r: 4, fill: PINK, stroke: "#0b0c0e", strokeWidth: 2 }} animationDuration={anim} isAnimationActive={!reduced} />
-                {hasActivated && showActivated && <Line type="monotone" dataKey="activated" stroke={SKY} strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: SKY }} animationDuration={anim} isAnimationActive={!reduced} />}
+                {gaps.map((g) => (
+                  <ReferenceArea key={g.from} x1={g.from} x2={g.to} fill={`url(#${hatchId})`} stroke="rgba(255,255,255,0.12)" strokeDasharray="3 3" ifOverflow="visible" label={<GapLabel days={g.days} />} />
+                ))}
+                <Area type="monotone" dataKey="total" connectNulls={false} stroke={WHITE} strokeWidth={2} fill={`url(#${gradId})`} dot={false} activeDot={{ r: 4, fill: PINK, stroke: "#0b0c0e", strokeWidth: 2 }} animationDuration={anim} isAnimationActive={!reduced} />
+                {hasActivated && showActivated && <Line type="monotone" dataKey="activated" connectNulls={false} stroke={SKY} strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: SKY }} animationDuration={anim} isAnimationActive={!reduced} />}
                 {last && <ReferenceDot x={last.t} y={last.total} r={4} fill={PINK} stroke="#0b0c0e" strokeWidth={2} />}
                 {marks.map((m) => (
                   <ReferenceDot key={m.id} x={m.x} y={m.y} r={0} shape={<Marker kind={m.kind} />} />
@@ -106,15 +124,23 @@ export function GrowthChart({
           </ResponsiveContainer>
         )}
       </div>
-      {marks.length > 0 && (
+      {(marks.length > 0 || resolution || gaps.length > 0) && (
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 px-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-          <span className="inline-flex items-center gap-1"><MarkerGlyph kind="milestone" /> milestone</span>
+          {resolution && <span>{RESOLUTION_HINT[resolution]}</span>}
+          {gaps.length > 0 && <span>{gaps.length} {gaps.length === 1 ? "gap" : "gaps"} · no data, never interpolated</span>}
+          {marks.length > 0 && <span className="inline-flex items-center gap-1"><MarkerGlyph kind="milestone" /> milestone</span>}
           {marks.some((m) => m.kind.includes("spike")) && <span className="inline-flex items-center gap-1"><MarkerGlyph kind="spike" /> growth spike</span>}
           {marks.some((m) => m.kind === "reconnect" || m.kind === "source_changed") && <span className="inline-flex items-center gap-1"><MarkerGlyph kind="reconnect" /> source change</span>}
         </div>
       )}
     </div>
   );
+}
+
+// Recharts hands the reference area's box to the label; the text sits at the top of the hatched stretch.
+function GapLabel({ days, viewBox }: { days: number; viewBox?: { x: number; y: number; width: number; height: number } }) {
+  if (!viewBox || viewBox.width < 36) return null;
+  return <text x={viewBox.x + viewBox.width / 2} y={viewBox.y + 12} textAnchor="middle" fontSize={10} fontFamily="var(--font-geist-mono)" fill="#8b8f98">{`no data · ${days}d`}</text>;
 }
 
 function Marker({ kind, cx, cy }: { kind: Annotation["kind"]; cx?: number; cy?: number }) {
@@ -150,9 +176,10 @@ function Segmented<T extends string>({ value, options, onChange }: { value: T; o
   );
 }
 
-function PointTooltip({ active, payload, range, metric, marks }: { active?: boolean; payload?: { payload: SeriesPoint }[]; range: Range; metric: Metric; marks: (Annotation & { x: number })[] }) {
+function PointTooltip({ active, payload, range, metric, marks }: { active?: boolean; payload?: { payload: Plotted }[]; range: Range; metric: Metric; marks: (Annotation & { x: number })[] }) {
   const p = payload?.[0]?.payload;
   if (!active || !p) return null;
+  if (p.gap || p.total === null) return <div className="border border-line bg-background/95 px-3 py-2 font-mono text-[11px] text-muted-foreground shadow-lg backdrop-blur">No snapshots stored here</div>;
   const here = marks.filter((m) => m.x === p.t);
   return (
     <div className="max-w-[240px] border border-line bg-background/95 px-3 py-2 shadow-lg backdrop-blur">
@@ -163,7 +190,7 @@ function PointTooltip({ active, payload, range, metric, marks }: { active?: bool
         <span className="text-xs text-muted-foreground">{metric === "total" ? "users" : "new"}</span>
       </div>
       {metric === "total" && p.delta !== 0 && <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{formatDelta(p.delta)} vs previous</div>}
-      {metric === "total" && p.activated !== undefined && (
+      {metric === "total" && p.activated != null && (
         <div className="mt-0.5 flex items-center gap-2 font-mono text-[11px]" style={{ color: SKY }}><span className="h-0.5 w-3" style={{ background: SKY }} />{formatCompact(p.activated)} activated</div>
       )}
       {here.map((m) => (

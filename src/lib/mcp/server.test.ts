@@ -44,7 +44,7 @@ describe("handleMcpRequest", () => {
     expect(msg.result.capabilities.prompts).toBeDefined();
   });
 
-  it("lists all 36 tools with input schemas", async () => {
+  it("lists all 50 tools with input schemas", async () => {
     const msg = await rpc("tools/list");
     const tools = msg.result.tools as { name: string; inputSchema: unknown; description: string; annotations: { readOnlyHint: boolean } }[];
     expect(tools.map((t) => t.name).sort()).toEqual(TOOLS.map((t) => t.name).sort());
@@ -128,6 +128,24 @@ describe("handleMcpRequest", () => {
     spy.mockRestore();
   });
 
+  it("maps follow / webhook tools to the gateway with the right target and scope", async () => {
+    authorized();
+    fetchMutation.mockResolvedValueOnce({ following: true, created: true });
+    await call("usertrack_follow_project", { slug: "acme" });
+    expect(fetchMutation.mock.calls[0][1]).toMatchObject({ scope: "follows:write", category: "usertrack_follow_project" });
+    expect(getFunctionName(fetchMutation.mock.calls[1][0])).toBe("gateway:followTool");
+    expect(fetchMutation.mock.calls[1][1]).toMatchObject({ targetType: "saas", slug: "acme" });
+    fetchMutation.mockReset();
+    authorized();
+    fetchMutation.mockResolvedValueOnce({ endpoint: { id: "e1" }, secret: "whsec_x" });
+    const msg = await call("usertrack_create_webhook", { url: "https://hooks.example.com/ut", events: ["milestone.reached"] });
+    expect(fetchMutation.mock.calls[0][1]).toMatchObject({ scope: "webhooks:write" });
+    expect(getFunctionName(fetchMutation.mock.calls[1][0])).toBe("gateway:createWebhookTool");
+    expect(msg.result.structuredContent.secret).toBe("whsec_x");
+    const bad = await call("usertrack_create_webhook", { url: "https://hooks.example.com/ut", events: ["nope"] });
+    expect(bad.result.isError ?? bad.error).toBeTruthy();
+  });
+
   it("passes tool arguments through to the gateway", async () => {
     authorized();
     fetchQuery.mockResolvedValueOnce({ totalUsers: 1 });
@@ -176,7 +194,7 @@ describe("/mcp route", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     const body = await res.json();
-    expect((Array.isArray(body) ? body[0] : body).result.tools).toHaveLength(36);
+    expect((Array.isArray(body) ? body[0] : body).result.tools).toHaveLength(50);
   });
 
   it("answers GET without SSE accept with a JSON discovery document", async () => {
@@ -187,7 +205,7 @@ describe("/mcp route", () => {
     expect(body.transport).toBe("streamable-http");
     expect(body.endpoint).toMatch(/\/mcp$/);
     expect(body.auth.tokenPrefix).toBe("ut_mcp_");
-    expect(body.tools).toHaveLength(36);
+    expect(body.tools).toHaveLength(50);
     expect(body.tools[0]).toMatchObject({ name: "usertrack_get_account", scope: "profile:read", readOnly: true });
     expect(body.setupWorkflow[0]).toBe("usertrack_get_account");
   });

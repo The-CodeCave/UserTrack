@@ -1,6 +1,6 @@
 # UserTrack public API
 
-Read-only JSON API over everything that is public on UserTrack: SaaS profiles, metrics, history, milestones, funnels, benchmark statements, leaderboards, discovery sections + activity feed, comparisons, categories and founder profiles. Plus embeddable SVG badges and share-card images.
+Read-only JSON API over everything that is public on UserTrack: SaaS profiles, metrics, history, rank history, milestones, funnels, benchmark statements + weekly standings, leaderboards, discovery sections + activity feed, datasets (JSON / CSV), frozen monthly rankings, comparisons, categories and founder profiles — plus, with an API key, your own private watchlist (`/following`). Plus embeddable SVG badges and share-card images.
 
 - **Base URL:** `https://usertrack.dev/api/v1` (self-hosted: `${NEXT_PUBLIC_SITE_URL}/api/v1`)
 - **Auth:** optional API key (see below). Without a key you still get the full data set at a lower rate limit.
@@ -29,6 +29,8 @@ X-API-Key: ut_api_…
 
 Keys carry the `metrics:read` scope, can be revoked at any time, and can optionally expire (up to 365 days). Up to 25 active keys/tokens per account. Keys cannot be used for the MCP endpoint (`ut_mcp_` tokens are a separate type).
 
+One endpoint **requires** a key: `GET /following` returns the key owner's own watchlist. It is the only personal data the API serves — private to the key owner, `private, no-store`, never public. Everything else is identical with or without a key.
+
 ## Rate limits
 
 | | Anonymous | With API key |
@@ -49,7 +51,7 @@ X-RateLimit-Window: day
 X-RateLimit-Reset: 1756857600        # unix seconds, keyed requests only
 ```
 
-Exceeding a limit returns `429 rate_limited` with a `Retry-After` header (seconds). Badges have their own bucket (120 requests/minute per IP, see below) and do not count against the API limits.
+Exceeding a limit returns `429 rate_limited` with a `Retry-After` header (seconds). Badges have their own bucket (120 requests/minute per IP, see below) and do not count against the API limits. Dataset downloads (`/datasets/*`, JSON and CSV alike) share the normal API buckets — a CSV page costs one request.
 
 ## Caching and CORS
 
@@ -75,7 +77,7 @@ Error:
 | Status | `code` | When |
 | ------ | -------------- | --- |
 | 400 | `bad_request` | Invalid query parameter; the message lists the accepted values. |
-| 401 | `unauthorized` | Key has the wrong format (`ut_api_` + 40 base62 chars) or does not exist. |
+| 401 | `unauthorized` | Key has the wrong format (`ut_api_` + 40 base62 chars) or does not exist; or `/following` was called without a key. |
 | 401 | `revoked` | Key was revoked in the dashboard. |
 | 401 | `expired` | Key passed its expiry date. |
 | 403 | `forbidden` | Token is missing a required scope (only reachable through MCP today). |
@@ -106,9 +108,10 @@ Returned by `/saas/{slug}`, in each leaderboard row and in `/users/{username}.sa
 | `identityQuality` | `"aggregate_only" \| "partially_mapped" \| "cohort_verified"`? | Whether the same users can be traced across stages (`docs/IDENTITY.md`) |
 | `projectType` | `"web" \| "mobile" \| "hybrid"`? | |
 | `stores` | object? | `{ appStore?, googlePlay? }` store links for mobile / hybrid products |
-| `ranks` | object | `{ leaderboard?, previousLeaderboard?, trending?, previousTrending?, trendingScore7d? }` |
+| `ranks` | object | `{ leaderboard?, previousLeaderboard?, leaderboard7dAgo?, leaderboardDelta7d?, trending?, previousTrending?, trending7dAgo?, trendingDelta7d?, bestTrending?, trendingScore7d? }` — `previous*` is the position at the previous rerank; `*7dAgo` / `*Delta7d` come from stored daily rank history (position 7 UTC days ago and the climb since, positive = up); `bestTrending` is the best 7-day trending position ever |
 | `followers` | number | |
 | `owner` | object? | `{ username, displayName }` |
+| `foundedAt` | string? | ISO date of the founding month entered by the founder (benchmark age cohorts use it) |
 | `timestamps` | object | `{ firstSnapshotAt?, lastSyncedAt? }` ISO strings |
 | `urls` | object | `{ page, badge }` |
 
@@ -195,13 +198,20 @@ curl https://usertrack.dev/api/v1/saas/acme/metrics
 
 ## `GET /api/v1/saas/{slug}/history`
 
-Time series of total users.
+Time series of total users with a storage-aware **resolution** and explicit **gaps** (`docs/HISTORY.md`). Nothing is ever interpolated.
 
 | Param | Values | Default |
 | --- | --- | --- |
 | `range` | `24h`, `7d`, `30d`, `90d`, `1y`, `all` | `30d` |
 
-`24h`/`7d` return raw sync snapshots (roughly every 4h); longer ranges return one point per UTC day. `activatedUsers` is present only on daily points for products with an activation source.
+| `resolution` | One point is | Used for |
+| --- | --- | --- |
+| `raw` | a sync snapshot (roughly every 4h) | `24h`, `7d` |
+| `day` | one UTC day | `30d`, `90d` |
+| `week` | one ISO week (last total of the week, new users summed) | `1y`, `all` |
+| `month` | one month | `all` on products with more than two years of history |
+
+`activatedUsers` is present on daily and coarser points for products with an activation source; `visitors` and `convertedUsers` only when the owner publishes traffic / converted counts. `gaps` lists stretches without stored rows (longer than 1 / 3 / 14 / 45 days depending on the resolution) so charts can shade them instead of drawing a line across.
 
 ```bash
 curl "https://usertrack.dev/api/v1/saas/acme/history?range=7d"
@@ -211,17 +221,50 @@ curl "https://usertrack.dev/api/v1/saas/acme/history?range=7d"
 {
   "data": {
     "range": "7d",
+    "resolution": "raw",
     "points": [
       { "t": "2026-08-26T12:00:00.000Z", "totalUsers": 12169, "newUsers": 0 },
       { "t": "2026-08-26T16:00:00.000Z", "totalUsers": 12190, "newUsers": 21 },
-      { "t": "2026-08-26T20:00:00.000Z", "totalUsers": 12214, "newUsers": 24 }
+      { "t": "2026-08-28T20:00:00.000Z", "totalUsers": 12214, "newUsers": 24, "activatedUsers": 4801 }
+    ],
+    "gaps": [{ "from": "2026-08-26T16:00:00.000Z", "to": "2026-08-28T20:00:00.000Z", "days": 2 }]
+  },
+  "meta": { "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z" }
+}
+```
+
+`400 bad_request` for an unknown `range`, `404 not_found` for an unknown slug. (`resolution` and `gaps` were added in v0.9; `points` kept its shape.)
+
+## `GET /api/v1/saas/{slug}/rank-history`
+
+Stored daily ranking positions — one row per UTC day since the product was first ranked, append-only, never rewritten — plus the current, best and 7-days-ago position. This is the source of every "moved up N places" statement on the site.
+
+| Param | Values | Default |
+| --- | --- | --- |
+| `kind` | `leaderboard`, `trending` | `leaderboard` |
+| `window` | `24h`, `7d`, `30d` | `30d` for `leaderboard`, `7d` for `trending` |
+| `days` | 7..730 | 90 |
+
+```bash
+curl "https://usertrack.dev/api/v1/saas/acme/rank-history?kind=leaderboard&days=30"
+```
+
+```json
+{
+  "data": {
+    "slug": "acme", "kind": "leaderboard", "window": "30d",
+    "current": 4, "best": 3, "rank7dAgo": 9, "movement7d": { "kind": "up", "delta": 5 },
+    "points": [
+      { "day": "2026-08-05", "rank": 12 },
+      { "day": "2026-08-06", "rank": 11 },
+      { "day": "2026-09-02", "rank": 4 }
     ]
   },
   "meta": { "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z" }
 }
 ```
 
-`400 bad_request` for an unknown `range`, `404 not_found` for an unknown slug.
+`points[].score` is present for `kind=trending` (the trending score of that day). `movement7d` is `null` while unranked, `{ kind: "new", delta: 0 }` when the product was not ranked 7 days ago. `400 bad_request` on invalid params, `404 not_found` for unknown or private slugs.
 
 ## `GET /api/v1/saas/{slug}/milestones`
 
@@ -378,18 +421,48 @@ curl https://usertrack.dev/api/v1/saas/acme/benchmarks
 
 When there is nothing to say, `highlight` is `null` and `note` explains why: `"No public benchmark statement: the product is not verified, or it is not in the top quarter of any cohort with enough members."` `metric` is one of `growth30dPct`, `activationRatePct`, `newUsers30d`; `percentile` is a multiple of 5 between 75 and 95. `404 not_found` for an unknown or private slug.
 
+## `GET /api/v1/saas/{slug}/benchmark-history`
+
+Weekly benchmark standings (one entry per ISO week), public projection: **top-quarter positions only** (percentile ≥ 75), conversion cohorts only when the owner publishes conversion rates, and only when the owner keeps benchmarks visible. Values, medians and other members are never exposed.
+
+| Param | Values | Default |
+| --- | --- | --- |
+| `weeks` | 4..52 | 26 |
+
+```bash
+curl "https://usertrack.dev/api/v1/saas/acme/benchmark-history?weeks=8"
+```
+
+```json
+{
+  "data": {
+    "slug": "acme",
+    "weeks": [
+      { "week": "2026-W32", "day": "2026-08-07", "computedAt": "2026-08-07T03:10:00.000Z",
+        "standings": [ { "cohort": "category:developer-tools", "metric": "growth30dPct", "metricLabel": "30-day growth", "percentile": 75, "band": "Top 25%", "sampleSize": 23 } ] },
+      { "week": "2026-W36", "day": "2026-09-02", "computedAt": "2026-09-02T03:10:00.000Z",
+        "standings": [ { "cohort": "category:developer-tools", "metric": "growth30dPct", "metricLabel": "30-day growth", "percentile": 85, "band": "Top 15%", "sampleSize": 24 } ] }
+    ]
+  },
+  "meta": { "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z" }
+}
+```
+
+A week whose standings were all below the top quarter is returned with an empty `standings` array. `404 not_found` with the message `benchmark history not published: …` when the product is private, unverified, a demo, or its owner hides benchmarks; `400 bad_request` for an invalid `weeks`.
+
 ## `GET /api/v1/leaderboard`
 
 | Param | Values | Default |
 | --- | --- | --- |
-| `board` | `trending`, `fastest`, `most-users`, `most-new`, `most-activated`, `activation-rate`, `new-rising`, and the secondary conversion boards `best-conversion`, `best-trial-conversion`, `converted-growth` (only products that publish the matching metric) | `most-new` |
+| `board` | `trending`, `fastest`, `most-users`, `most-new`, `most-activated`, `activation-rate`, `new-rising`, `hidden-gems` (small verified products with unusually strong traction — the rules are in `/discover.hiddenGemRules`), `movers` (biggest 7-day leaderboard climbs from stored rank history), and the secondary conversion boards `best-conversion`, `best-trial-conversion`, `converted-growth` (only products that publish the matching metric) | `most-new` |
 | `window` | `24h`, `7d`, `30d` | `7d` for `trending`, otherwise `30d` |
 | `category` | any slug from `/categories` | all |
+| `platform` | `web`, `mobile`, `hybrid` (the product's `projectType`; products without one count as `web`) | all |
 | `verified` | `true`, `false` | `true` (only verified products) |
 | `size` | `0-100`, `100-1k`, `1k-10k`, `10k-100k`, `100k+` (total users) | all |
 | `limit` | 1..100 | 50 |
 
-Rows are the SaaS object plus `position` (1-based), `movement` (`{ kind: "up" | "down" | "same" | "new", delta }` or `null` when unranked) and, for `board=trending` only, `explain` (a short human-readable reason string).
+Rows are the SaaS object plus `position` (1-based), `movement` (`{ kind: "up" | "down" | "same" | "new", delta }` or `null` when unranked) and, for `board=trending` only, `explain` (a short human-readable reason string). For `board=movers`, `movement` is the stored 7-day move (`rank7dAgo → rank`, never the previous 4-hour refresh) and each row also carries `rank7dAgo` and `rankDelta7d`; the envelope echoes `platform` when given.
 
 ```bash
 curl "https://usertrack.dev/api/v1/leaderboard?board=trending&window=7d&category=ai&limit=2"
@@ -453,11 +526,11 @@ curl https://usertrack.dev/api/v1/categories
 
 ## `GET /api/v1/discover`
 
-The discovery sections shown on `/discover` plus the activity feed. Sections are fixed at five verified products each; `category` and `limit` apply to the feed only.
+The discovery sections shown on `/discover` plus the activity feed. Sections are fixed at five verified products each; `category` narrows **every section and the feed** to one category (the `categories` list stays global); `limit` applies to the feed only.
 
 | Param | Values | Default |
 | --- | --- | --- |
-| `category` | any slug from `/categories` (filters the feed) | all |
+| `category` | any slug from `/categories` (filters sections and feed) | all |
 | `limit` | 1..100 (feed length) | 30 |
 
 ```bash
@@ -467,16 +540,21 @@ curl "https://usertrack.dev/api/v1/discover?category=developer-tools&limit=5"
 ```json
 {
   "data": {
+    "category": "developer-tools",
     "sections": {
       "trending": [ { "movement": { "kind": "up", "delta": 2 }, "slug": "acme", "name": "Acme", "...": "remaining SaaS object fields" } ],
       "fastestToday": [ "..." ],
       "fastestWeek": [ "..." ],
+      "fastestMonth": [ "..." ],
       "newAndRising": [ "..." ],
       "recentlyVerified": [ "..." ],
-      "biggestMovers": [ "..." ],
-      "hiddenGems": [ "..." ]
+      "biggestMovers": [ { "movement": { "kind": "up", "delta": 7 }, "rank7dAgo": 18, "rankDelta7d": 7, "slug": "promptly", "...": "" } ],
+      "hiddenGems": [ "..." ],
+      "mobile": [ "..." ]
     },
     "hiddenGemRules": { "maxUsers": 1000, "minNew7d": 10, "minGrowth7dPct": 10, "minHistoryDays": 7, "minTrustScore": 60 },
+    "newRisingRules": { "maxAgeDays": 30, "minNew7d": 5 },
+    "updatedAt": "2026-09-02T08:00:00.000Z",
     "categories": [ { "slug": "developer-tools", "label": "Developer Tools", "count": 9 } ],
     "feed": [
       { "id": "milestone:k97…:users:10000", "kind": "milestone", "subkind": "users", "at": "2026-08-20T14:02:11.000Z",
@@ -492,7 +570,131 @@ curl "https://usertrack.dev/api/v1/discover?category=developer-tools&limit=5"
 }
 ```
 
-Section rows are SaaS objects plus `movement` (trending movement for the window the section uses; `null` when unranked). Feed items are a merge of stored milestones and growth events for verified, non-demo products, newest first; `kind` is `milestone`, `spike`, `activation_spike`, `launched` or `verified`; `id` is stable (`milestone:{saasId}:{key}` or `{kind}:{saasId}:{day}`) so clients can deduplicate across polls. `urls.share` is present for milestones and user spikes. `400 bad_request` for an unknown category or an out-of-range limit.
+Section rows are SaaS objects plus `movement` (trending movement for the window the section uses; `null` when unranked). `biggestMovers` rows carry the stored 7-day leaderboard move as `movement` plus `rank7dAgo` / `rankDelta7d`; `mobile` lists mobile products by new users (30d); `updatedAt` is the newest successful sync among the listed rows. Feed items are a merge of stored milestones and growth events for verified, non-demo products, newest first; `kind` is `milestone`, `spike`, `activation_spike`, `launched`, `verified`, `rank_jump`, `traction` or `benchmark`; `id` is stable (`milestone:{saasId}:{key}` or `{kind}:{saasId}:{day}`) so clients can deduplicate across polls. `urls.share` is present for milestones and user spikes. `400 bad_request` for an unknown category or an out-of-range limit.
+
+## Datasets
+
+Named projections over the public leaderboard boards, as JSON or a CSV download. Every value is the public SaaS projection (visibility applied) — datasets never carry private metrics. All dataset endpoints share the normal API rate-limit buckets (CSV included).
+
+| Endpoint | Board | Default window |
+| --- | --- | --- |
+| `GET /api/v1/datasets/trending` | `trending` | `7d` |
+| `GET /api/v1/datasets/fastest-growing` | `fastest` | `30d` |
+| `GET /api/v1/datasets/new-and-rising` | `new-rising` | `7d` |
+| `GET /api/v1/datasets/hidden-gems` | `hidden-gems` | `7d` |
+| `GET /api/v1/datasets/movers` | `movers` | `30d` |
+| `GET /api/v1/datasets/categories/{slug}` | `most-new` (any board via `board=`) | `30d` |
+| `GET /api/v1/datasets/rankings/history` | frozen monthly rankings (see below) | — |
+
+Common params:
+
+| Param | Values | Default |
+| --- | --- | --- |
+| `window` | `24h`, `7d`, `30d` | per dataset |
+| `category` | any slug from `/categories` | all |
+| `platform` | `web`, `mobile`, `hybrid` | all |
+| `limit` | 1..100 | 50 |
+| `cursor` | opaque, from `meta.nextCursor` (JSON) or the `X-Next-Cursor` header (CSV) | first page |
+| `format` | `json`, `csv` | `json` |
+
+Datasets are **capped at 100 rows per window** for now: each request reads the top 100 of the board and `limit` / `cursor` page through that slice. `meta.total` is the number of rows in the capped window, `meta.nextCursor` is present while more rows remain.
+
+```bash
+curl "https://usertrack.dev/api/v1/datasets/hidden-gems?limit=2"
+```
+
+```json
+{
+  "data": [
+    { "position": 1, "slug": "promptly", "name": "Promptly", "category": "ai", "projectType": "web", "totalUsers": 640, "newUsers24h": 9, "newUsers7d": 71, "newUsers30d": 210, "growth7dPct": 12.5, "growth30dPct": 48.8, "activationRatePct": 44, "trendingRank": 14, "trendingScore7d": 211.3, "rank": 38, "rank7dAgo": 51, "rankDelta7d": 13, "trust": "verified", "verified": true, "lastSyncedAt": "2026-09-02T08:00:00.000Z", "url": "https://usertrack.dev/s/promptly" },
+    { "position": 2, "slug": "…", "...": "" }
+  ],
+  "meta": {
+    "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z",
+    "dataset": "hidden-gems", "board": "hidden-gems", "window": "7d", "count": 2, "total": 9, "nextCursor": "Mg==",
+    "updatedAt": "2026-09-02T08:00:00.000Z", "methodology": "https://usertrack.dev/hidden-gems#methodology", "maxRows": 100
+  }
+}
+```
+
+`meta.methodology` links to the page section that explains the ranking (`/trending#how`, `/hidden-gems#methodology`, …); `meta.updatedAt` is the newest successful sync among verified products (of the category when one is given).
+
+**CSV** (`format=csv`): `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="usertrack-<dataset>-<yyyy-mm-dd>.csv"`, RFC 4180 (CRLF, fields containing `,`, `"` or line breaks are quoted, quotes doubled), one header row:
+
+```
+position,slug,name,category,projectType,totalUsers,newUsers24h,newUsers7d,newUsers30d,growth7dPct,growth30dPct,activationRatePct,trendingRank,trendingScore7d,rank,rank7dAgo,rankDelta7d,trust,verified,lastSyncedAt,url
+```
+
+Missing values are empty fields; `verified` is `true` / `false`; `lastSyncedAt` is ISO 8601. Paging works the same way (`X-Next-Cursor` response header). Same caching and CORS as JSON.
+
+```bash
+curl -O -J "https://usertrack.dev/api/v1/datasets/trending?window=7d&format=csv"
+curl "https://usertrack.dev/api/v1/datasets/categories/developer-tools?board=fastest&platform=web&limit=25"
+```
+
+`400 bad_request` for invalid params (the message lists the accepted values), `404 not_found` for an unknown dataset or category.
+
+### `GET /api/v1/datasets/rankings/history`
+
+Frozen monthly rankings (`rankingSnapshots`, the data behind `/rankings/<year>/<month>`). Without `period`, the index of every `(period, board, category)` that has a frozen ranking; with `period`, that ranking.
+
+| Param | Values | Default |
+| --- | --- | --- |
+| `period` | `YYYY-MM` | — (index) |
+| `board` | any leaderboard board | `most-new` |
+| `category` | any slug from `/categories` | all |
+| `format` | `json`, `csv` (CSV needs a `period`) | `json` |
+
+```bash
+curl "https://usertrack.dev/api/v1/datasets/rankings/history"
+curl "https://usertrack.dev/api/v1/datasets/rankings/history?period=2026-08&category=ai"
+```
+
+```json
+{
+  "data": [
+    { "rank": 1, "slug": "acme", "name": "Acme", "category": "ai", "value": 1922, "totalUsers": 12481, "newUsers30d": 1922, "growth30dPct": 18.2, "trust": "verified", "verified": true, "url": "https://usertrack.dev/s/acme" }
+  ],
+  "meta": { "version": "v1", "generatedAt": "…", "dataset": "rankings", "period": "2026-08", "board": "most-new", "category": "ai", "sampleSize": 14, "computedAt": "2026-09-01T00:05:00.000Z", "methodology": "https://usertrack.dev/rankings#methodology", "page": "https://usertrack.dev/rankings/2026/08/ai" }
+}
+```
+
+The index rows are `{ period, board, category | null, sampleSize, computedAt, url }`. `value` is the board's sort value at freeze time. CSV columns: `rank,slug,name,category,value,totalUsers,newUsers30d,growth30dPct,trust,verified,url`. `404 not_found` when no ranking was frozen for that combination.
+
+## `GET /api/v1/following`
+
+**Requires an API key.** The key owner's watchlist: every product they follow plus every public project of every founder they follow, with the stored 7-day leaderboard and trending movement, the followed founders, and the personal feed for the last `days`. This is private data — it is never cached (`private, no-store`), never public, and only ever describes the key owner's own follows. Without a key the endpoint answers `401 unauthorized`.
+
+| Param | Values | Default |
+| --- | --- | --- |
+| `days` | 1..90 (feed window) | 30 |
+| `limit` | 1..200 (feed length) | 60 |
+
+```bash
+curl -H "Authorization: Bearer ut_api_…" "https://usertrack.dev/api/v1/following?days=7"
+```
+
+```json
+{
+  "data": {
+    "days": 7,
+    "saas": [
+      { "slug": "promptly", "name": "Promptly", "...": "remaining SaaS object fields",
+        "via": "direct", "followed": true, "rankMovement7d": { "kind": "up", "delta": 13 }, "trendingMovement7d": { "kind": "same", "delta": 0 } },
+      { "slug": "globex", "via": "founder", "followed": false, "...": "" }
+    ],
+    "founders": [ { "username": "jane", "displayName": "Jane Doe", "avatarUrl": "…", "followers": 118, "urls": { "profile": "https://usertrack.dev/u/jane" } } ],
+    "feed": [
+      { "id": "rank_change:k97…:51-38", "kind": "rank_change", "subkind": "up", "at": "2026-09-02T08:00:00.000Z", "title": "#51 → #38", "detail": "Promptly climbed 13 places on the leaderboard this week.", "value": 13, "via": "direct",
+        "saas": { "slug": "promptly", "...": "" }, "urls": { "page": "https://usertrack.dev/s/promptly" } },
+      { "id": "launched:k98…:2026-09-01", "kind": "new_project", "subkind": "launched", "title": "New from Jane Doe", "via": "founder", "founder": { "username": "jane", "displayName": "Jane Doe" }, "...": "" }
+    ]
+  },
+  "meta": { "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z", "private": true }
+}
+```
+
+`via` is `direct` (followed product) or `founder` (public project of a followed founder); `followed` says whether the product itself is followed. Feed kinds are the discovery kinds plus `rank_change` (±5 places or more in 7 days) and `new_project` (a followed founder published a project). Following and unfollowing happens on the website or through MCP (`usertrack_follow_project`, `usertrack_follow_founder`); the REST API stays read-only. `400 bad_request` for invalid params, `401` without a key.
 
 ## `GET /api/v1/compare`
 

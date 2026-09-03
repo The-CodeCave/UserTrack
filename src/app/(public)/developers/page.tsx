@@ -24,30 +24,38 @@ const NAV = [
   ["#quickstart", "Quickstart"],
   ["#api", "Public API"],
   ["#mcp", "MCP"],
+  ["#webhooks", "Webhooks"],
   ["#examples", "Examples"],
 ];
 
 const ENDPOINTS = [
   { path: "/saas/{slug}", params: "—", desc: "Full public profile: metrics, trust, ranks, owner, URLs and the 8 latest milestones." },
   { path: "/saas/{slug}/metrics", params: "—", desc: "Compact metrics view for badges, widgets and newsletters." },
-  { path: "/saas/{slug}/history", params: "range = 24h · 7d · 30d · 90d · 1y · all (default 30d)", desc: "Time series of total users, new users and activated users." },
+  { path: "/saas/{slug}/history", params: "range = 24h · 7d · 30d · 90d · 1y · all (default 30d)", desc: "Time series of total, new, activated (and, when published, visitors / converted) users with storage-aware resolution and explicit gaps." },
+  { path: "/saas/{slug}/rank-history", params: "kind = leaderboard · trending · window · days (7–730, default 90)", desc: "Stored daily leaderboard / trending positions, plus current, best and 7-days-ago position." },
+  { path: "/saas/{slug}/benchmark-history", params: "weeks (4–52, default 26)", desc: "Weekly benchmark standings, top-quarter positions only; 404 when the owner does not publish benchmarks." },
   { path: "/saas/{slug}/milestones", params: "—", desc: "The 8 most recent milestones, newest first." },
   { path: "/saas/{slug}/funnel", params: "timeframe = 7d · 30d · 90d (default 30d)", desc: "Lifecycle funnel Reached → Signed up → Activated → Trial → Converted: only published stages, rates, per-stage provenance and freshness." },
   { path: "/saas/{slug}/engagement", params: "—", desc: "Activated users, activation rate and retention when published." },
   { path: "/saas/{slug}/conversion", params: "—", desc: "Converted users and Signup / Activated / Trial → Converted rates when published. Never amounts." },
   { path: "/saas/{slug}/cohorts", params: "—", desc: "Monthly signup cohorts traced through the lifecycle from pseudonymous identities, with identity quality." },
   { path: "/saas/{slug}/benchmarks", params: "—", desc: "Public benchmark statement (top-quarter positions only)." },
-  { path: "/discover", params: "category · limit", desc: "Discovery sections and the activity feed." },
+  { path: "/discover", params: "category · limit", desc: "Discovery sections (trending, fastest today / week / month, new & rising, recently verified, biggest movers, hidden gems, mobile) and the activity feed, narrowed by category." },
   { path: "/compare", params: "s = slug,slug · days = 7 · 30 · 90 · 365 · all", desc: "Compare 2–4 products: absolute and indexed daily series." },
-  { path: "/leaderboard", params: "board · window · category · size · verified · limit (1–100, default 50)", desc: "Any board with the same filters as the website; rows carry position and movement." },
+  { path: "/leaderboard", params: "board · window · category · size · platform · verified · limit (1–100, default 50)", desc: "Any board with the same filters as the website; rows carry position and movement (movers: the stored 7-day climb)." },
   { path: "/trending", params: "same as /leaderboard", desc: "Alias for /leaderboard?board=trending." },
   { path: "/categories", params: "—", desc: "Categories that have at least one public product, with counts." },
+  { path: "/datasets/{name}", params: "trending · fastest-growing · new-and-rising · hidden-gems · movers; window · category · platform · limit · cursor · format = json · csv", desc: "Public datasets as JSON or CSV download (≤ 100 rows per window, cursor paging, methodology link in meta)." },
+  { path: "/datasets/categories/{slug}", params: "board (default most-new) + the dataset params", desc: "One category as a dataset." },
+  { path: "/datasets/rankings/history", params: "period = YYYY-MM · board · category · format", desc: "Frozen monthly rankings; without period, the index of available periods." },
+  { path: "/following", params: "days (1–90) · limit (1–200) — API key required", desc: "Your watchlist: followed products with 7-day movement, followed founders and your personal feed. Private to the key owner, never public." },
   { path: "/users/{username}", params: "—", desc: "Public founder profile with links and their public SaaS projects." },
+  { path: "/users/{username}/history", params: "range = 7d · 30d · 90d · 1y · all", desc: "Aggregate user growth across the founder's public projects." },
 ];
 
 const ERRORS = [
   ["400", "bad_request", "Invalid query parameter; the message lists accepted values."],
-  ["401", "unauthorized", "Key has the wrong format or does not exist."],
+  ["401", "unauthorized", "Key has the wrong format or does not exist — or /following was called without a key."],
   ["401", "revoked", "Key was revoked in the dashboard."],
   ["401", "expired", "Key passed its expiry date."],
   ["403", "forbidden", "Token is missing the required scope (MCP only)."],
@@ -60,6 +68,8 @@ const EXAMPLES = [
   { ask: "How did my SaaS perform this week?", tools: ["usertrack_get_projects", "usertrack_get_metrics { timeframe: \"7d\" }", "usertrack_get_rank"], out: "New users vs the previous 7 days, growth %, activation, leaderboard and trending movement." },
   { ask: "Compare my projects.", tools: ["usertrack_get_projects", "usertrack_get_metrics (per project)", "usertrack_get_growth_history { range: \"30d\" }"], out: "A side-by-side table of totals, 30-day growth and ranks, plus a chart-ready series per project." },
   { ask: "Write a post about my biggest milestone.", tools: ["usertrack_get_milestones", "usertrack_get_share_url"], out: "The milestone copy, its share page and OG image URL, ready to paste into X or LinkedIn." },
+  { ask: "Follow the products I compete with and tell me what moved this week.", tools: ["usertrack_discover { category: \"developer-tools\" }", "usertrack_follow_project { slug }", "usertrack_get_watchlist { days: 7 }"], out: "Your watchlist with 7-day leaderboard and trending movement, plus the personal feed of milestones, spikes and rank jumps." },
+  { ask: "Ping Slack when we hit a milestone.", tools: ["usertrack_get_webhooks", "usertrack_create_webhook { url, events: [\"milestone.reached\"] }", "usertrack_test_webhook"], out: "A signed endpoint, its secret handed to you once, and a test delivery you can inspect with usertrack_get_webhook_deliveries." },
 ];
 
 const METRICS_EXAMPLE = `{
@@ -212,7 +222,7 @@ export default function DevelopersPage() {
           ))}
         </Panel>
         <p className="mt-2 text-xs text-muted-foreground">
-          Leaderboard values: board = trending · fastest · most-users · most-new · most-activated · activation-rate · new-rising; window = 24h · 7d · 30d; size = 0-100 · 100-1k · 1k-10k · 10k-100k · 100k+; verified = true (default) · false.
+          Leaderboard values: board = trending · fastest · most-users · most-new · most-activated · activation-rate · new-rising · hidden-gems · movers · best-conversion · best-trial-conversion · converted-growth; window = 24h · 7d · 30d; size = 0-100 · 100-1k · 1k-10k · 10k-100k · 100k+; platform = web · mobile · hybrid; verified = true (default) · false. Datasets share the API rate-limit buckets (CSV included) and are capped at 100 rows per window.
         </p>
 
         <div className="mt-6 grid gap-3 md:grid-cols-2 *:min-w-0">
@@ -303,7 +313,7 @@ console.log(data.metrics.totalUsers, meta.generatedAt);`}</Code></div>
           {SCOPES.map((s) => (
             <Row key={s.key} className="md:grid-cols-[11rem_12rem_1fr]" cols={[<span key="k" className="font-mono text-xs text-pink">{s.key}</span>, <span key="l" className="text-sm">{s.label}</span>, <span key="d" className="text-xs text-muted-foreground">{s.description}</span>]} />
           ))}
-          <div className="p-4 pt-3 text-xs text-muted-foreground">Recommended: all six for onboarding (the default). For reporting-only agents, <code className="font-mono">projects:read</code> + <code className="font-mono">metrics:read</code> is enough.</div>
+          <div className="p-4 pt-3 text-xs text-muted-foreground">Recommended: all {SCOPES.length} for onboarding (the default). For reporting-only agents, <code className="font-mono">projects:read</code> + <code className="font-mono">metrics:read</code> is enough; add <code className="font-mono">follows:*</code> for the watchlist and <code className="font-mono">webhooks:*</code> to manage webhook endpoints.</div>
         </Panel>
 
         <Panel className="mt-3 p-0">
@@ -374,6 +384,19 @@ console.log(data.metrics.totalUsers, meta.generatedAt);`}</Code></div>
             <div className="p-4 pt-3 text-xs text-muted-foreground">Tool failures come back as tool results with <code className="font-mono">isError: true</code> and a structured <code className="font-mono">error.code</code> + <code className="font-mono">hint</code>, so agents can recover without parsing prose.</div>
           </Panel>
         </div>
+      </section>
+
+      {/* Webhooks */}
+      <section className="mt-16">
+        <H2 id="webhooks" label="Webhooks">Get told when something happens</H2>
+        <Panel className="mt-6 p-4">
+          <ul className="space-y-1.5 text-sm text-muted-foreground">
+            <li>Signed <code className="font-mono">POST</code>s to your https endpoint for <code className="font-mono">milestone.reached</code>, <code className="font-mono">rank.changed</code>, <code className="font-mono">trending.rank_changed</code>, <code className="font-mono">growth.spike</code>, <code className="font-mono">integration.failed</code> / <code className="font-mono">recovered</code> and <code className="font-mono">project.verified</code>.</li>
+            <li>Every payload carries <code className="font-mono">UserTrack-Signature</code> (HMAC-SHA256 with a per-endpoint secret shown once), a timestamp, a deterministic event id and an idempotency key; failed deliveries retry five times over 14 hours.</li>
+            <li>Manage endpoints in <Link href="/app/developer" className="font-mono underline underline-offset-4">/app/developer</Link>, or let your agent do it with <code className="font-mono">usertrack_create_webhook</code> → <code className="font-mono">usertrack_test_webhook</code> → <code className="font-mono">usertrack_get_webhook_deliveries</code>.</li>
+          </ul>
+          <Link href="/developers/webhooks" className="mt-4 inline-flex items-center font-mono text-[11px] uppercase tracking-wider text-pink underline underline-offset-4">Webhook reference: payloads, signatures, retries →</Link>
+        </Panel>
       </section>
 
       {/* Examples */}

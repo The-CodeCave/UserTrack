@@ -12,11 +12,15 @@ export const SCOPES = [
   { key: "metrics:read", label: "Read metrics", description: "Growth metrics, history, ranks, milestones and share URLs." },
   { key: "profile:read", label: "Read profile", description: "Your founder profile and account summary." },
   { key: "profile:write", label: "Update profile", description: "Edit your founder profile (name, bio, links, X handle) and create share cards from your events." },
+  { key: "follows:read", label: "Read your watchlist", description: "Products and founders you follow, with their movement and the personal feed." },
+  { key: "follows:write", label: "Follow / unfollow products and founders", description: "Add or remove products and founders on your watchlist." },
+  { key: "webhooks:read", label: "List webhook endpoints and deliveries", description: "Your webhook endpoints (secrets masked), the event catalog and the delivery log." },
+  { key: "webhooks:write", label: "Create, update, test and rotate webhook endpoints", description: "Manage webhook endpoints; new secrets are returned once." },
 ] as const;
 
 export type Scope = (typeof SCOPES)[number]["key"];
 export const SCOPE_KEYS = new Set<string>(SCOPES.map((s) => s.key));
-export const DEFAULT_MCP_SCOPES: Scope[] = ["projects:read", "projects:write", "integrations:read", "integrations:write", "metrics:read", "profile:read", "profile:write"];
+export const DEFAULT_MCP_SCOPES: Scope[] = ["projects:read", "projects:write", "integrations:read", "integrations:write", "metrics:read", "profile:read", "profile:write", "follows:read", "follows:write", "webhooks:read", "webhooks:write"];
 export const API_SCOPES: Scope[] = ["metrics:read"];
 
 // Free plan. Structured so limits can later differ per plan without touching call sites.

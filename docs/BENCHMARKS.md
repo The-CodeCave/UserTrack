@@ -1,112 +1,97 @@
 # Benchmarks
 
-"Your 30-day growth is ahead of 82% of products your size." Cohort percentiles computed daily from stored deciles; no individual product value is ever persisted or exposed. Source: `convex/lib/benchmarks.ts`, `convex/daily.ts`, `convex/saas.ts` (`benchmarks`), `convex/public.ts` (`benchmarkHighlight`).
+**TL;DR** — "Top 12 % activation among AI SaaS with 1K–10K users." Cohort percentiles are computed daily from stored deciles over verified public products, across category, size, category × size, platform and age cohorts; no individual value of another product is ever stored or shown; cohorts need **10** members; a weekly standings history makes "up from Top 27 % last month" possible. Source: `convex/lib/benchmarks.ts` (pure rules), `convex/domain/benchmarks.ts` (cards, history, public highlight), `convex/daily.ts` (`benchmarks`), `convex/saas.ts` (`benchmarks`), `convex/public.ts` (`benchmarkHighlight`, `benchmarkHistory`).
 
-## Cohorts
+## Cohorts (`cohortsFor`)
 
-Every rankable product (public, `verified`, not demo, not under review) is a member of three cohorts:
+Every rankable product (public, `verified`, not demo, not under review) belongs to these cohorts, in this order of preference:
 
-| Cohort key | Members |
-|---|---|
-| `all` | every rankable product |
-| `cat:<slug>` | same category (15 fixed slugs in `src/lib/categories.ts`); products without a category are only in `all` and their size cohort |
-| `size:<bucket>` | same total-user bucket |
-
-Size buckets (`SIZE_BUCKETS` in `convex/lib/metrics.ts`, also the leaderboard `size` filter):
-
-| Key | Label | Range (total users) |
+| Key | Members | Label example |
 |---|---|---|
-| `0-100` | < 100 | 0 ≤ n < 100 |
-| `100-1k` | 100 – 1K | 100 ≤ n < 1,000 |
-| `1k-10k` | 1K – 10K | 1,000 ≤ n < 10,000 |
-| `10k-100k` | 10K – 100K | 10,000 ≤ n < 100,000 |
-| `100k+` | 100K+ | n ≥ 100,000 |
+| `cat:<slug>` | same category | "AI SaaS" |
+| `cat:<slug>\|size:<bucket>` | same category **and** size bucket | "AI SaaS with 1K – 10K users" |
+| `size:<bucket>` | same total-user bucket | "products with 1K – 10K users" |
+| `platform:<web\|mobile\|hybrid>` | same project type (`web` when unset) | "mobile apps" |
+| `age:<bucket>` | same **product age**, only when the founder entered a founding month (`saas.foundedAt`) | "products founded 1–2 years ago" |
+| `tracked:<bucket>` | same **tracking age** (`firstSnapshotAt`), used only when no founding date exists | "products tracked on UserTrack for 6–12 months" |
+| `all` | every rankable product | "all SaaS on UserTrack" |
 
-## Metrics
+Product age and tracking age are two separate cohort families with separate labels; they are never mixed, so a cohort's meaning is always one definition (`describeCohort(key)` returns the sentence used in tooltips and the API).
 
-`BENCHMARK_METRICS = growth30dPct · newUsers30d · activationRatePct · growth7dPct · trendingScore7d`. A product contributes to a `(cohort, metric)` pair only when the value is a finite number, so the activation cohorts contain only products with an activation source.
+Size buckets (`SIZE_BUCKETS`, also the board `size` filter): `0-100`, `100-1k`, `1k-10k`, `10k-100k`, `100k+`. The brief's finer buckets (101–500, 501–1k, 1k–5k, …) were evaluated and not adopted yet: with today's public set they would only split cohorts below the sample floor and they would break existing filter URLs and share cards; revisit when a bucket exceeds ~200 members (`docs/ASSUMPTIONS.md`).
 
-### Conversion metrics (v0.5)
+Age buckets (`AGE_BUCKETS`): `lt3m` (< 90 days), `3-6m`, `6-12m`, `1-2y`, `2y+`.
 
-`signupToConvertedPct`, `activatedToConvertedPct`, `trialToConvertedPct` and `convertedGrowth30dPct` are benchmarked with the same cohorts and the same `MIN_SAMPLE`. Only **aggregate** definitions are compared (`BENCHMARK_METRIC_BASIS`): a cohort-verified conversion rate is never mixed into an aggregate decile set, and the public "Top X %" statement is emitted for a conversion metric only when the founder published `visibility.conversionRate`. Example insights: "Your signup-to-converted rate is 1.6× the median for SaaS with 1K–10K users." · "Your converted-user growth is in the top 10 % this month." Values are only present for products with a conversion source, so cohorts for these metrics are smaller and appear later.
+## Metrics (`BENCHMARK_METRICS`)
 
-## Minimum sample (`MIN_SAMPLE = 5`)
+| Metric | Definition | Requires |
+|---|---|---|
+| `growth30dPct`, `growth7dPct` | user growth % in the window | — |
+| `newUsers30d` | new users, 30 days | — |
+| `acceleration30dPct` | `(new30d − prev30d) / prev30d`, previous window ≥ 10 users | 60 days of history |
+| `activationRatePct` | activated ÷ users | activation source |
+| `trendingScore7d` | `docs/TRENDING.md` | — |
+| `signupToConvertedPct`, `activatedToConvertedPct`, `trialToConvertedPct`, `convertedGrowth30dPct` | conversion rates / growth | conversion source; public statements only when the founder published the rate |
 
-Below five members a `(cohort, metric)` aggregate is not computed, and an existing one is deleted. With two or three members a "median" is one specific competitor's number; five is the smallest size at which nine interpolated deciles stop being a lookup table of individual values. The constant is one line and the plan is to raise it to 10 once the public set is large enough that category cohorts still exist (see `docs/ASSUMPTIONS.md`).
+Only equivalent definitions are compared (`BENCHMARK_METRIC_BASIS`: every stored metric is an aggregate ratio or count — cohort-verified conversion figures are never mixed in). A product contributes to a `(cohort, metric)` pair only when `benchmarkValue(product, metric)` is a finite number, so activation cohorts contain only products with an activation source.
 
-## Storage: deciles only
+## Minimum sample (`MIN_SAMPLE = 10`, `MIN_SAMPLE_CONVERSION = 10`)
 
-`deciles(values)` sorts the values and returns nine points `p10 … p90` by linear interpolation at `pos = k/10 × (n − 1)`. `benchmarkAggregates` rows are `{ groupKey, metric, sampleSize, deciles[9], computedAt }`, indexed by `(groupKey, metric)`. Raw values are never written anywhere.
+Below ten members a `(cohort, metric)` aggregate is not computed and an existing one is deleted, so no card, statement, history row or feed event can be derived from it. Ten is the smallest size at which nine interpolated deciles stop being a lookup table of individual values (v0.4–v0.8 used 5 while the public set was tiny; the constant is one line).
 
-## Percentile of a product
+## Storage: deciles only + weekly standings
 
-`percentileOf(value, deciles)`:
+`deciles(values)` returns nine points `p10 … p90` by linear interpolation. `benchmarkAggregates { groupKey, metric, sampleSize, deciles[9], computedAt }` is upserted daily. Raw member values are never written.
 
-- `value ≤ p10` → **5**; `value ≥ p90` → **95**.
-- Otherwise find the decile band `[p(i), p(i+1)]` that contains it, interpolate `10·(i+1) + 10·frac`, and round to the nearest **5**.
+`benchmarkHistory { saasId, week, day, standings[{ groupKey, metric, value, percentile, median, sampleSize }] }` — one row per product per ISO week, patched by each daily run, containing only the product's **own** value and percentile plus the cohort median and size. Four weeks later it is the "last month" reference (`previousStandings`).
 
-The result is always in `5 … 95` in steps of 5. Rounding is deliberate: it avoids false precision and makes reverse-engineering neighbours harder. `medianMultiple(value, median)` = `value / p50` rounded to 0.1, `null` when the median is not positive.
+## Percentiles, bands, insights
 
-## Insight sentences (`benchmarkInsight`)
+- `percentileOf(value, deciles)` → `5 … 95` in steps of 5 (≤ p10 → 5, ≥ p90 → 95, interpolated inside the band, rounded to 5). Coarse on purpose: no false precision, harder to reverse-engineer neighbours.
+- `topBand(p)` → "Top 5 %" (≥ 95), "Top 10 %" (≥ 90), "Top 20 %" (≥ 80), "Top 25 %" (≥ 75), else none — the wording used publicly and on share cards.
+- `medianMultiple(value, median)` → `value / p50` to one decimal, `null` without a positive median.
+- `benchmarkInsight` — "Your activation rate is ahead of 90 % of AI SaaS. Top 10 %." / "… 1.8× the median." / "… behind 70 % of …".
+- `percentileChangeInsight` — "Your activation rate improved from the 55th to the 70th percentile since last month." Only for moves of ≥ 10 points.
+- `publicBenchmarkStatement` — top quarter only: "Top 25 % 30-day growth in AI SaaS".
 
-For the owner dashboard and MCP:
+## Dashboard (`saas.benchmarks` → `benchmarkCards`)
 
-| Percentile | Sentence |
-|---|---|
-| ≥ 80 | "Your `<metric>` is ahead of `P`% of `<cohort>`. Top `100 − P`%." |
-| 50 – 75 with multiple ≥ 1.2 | "Your `<metric>` is ahead of `P`% of `<cohort>`. `M`× the median." |
-| 50 – 75 otherwise | "Your `<metric>` is ahead of `P`% of `<cohort>`." |
-| < 50 | "Your `<metric>` is behind `100 − P`% of `<cohort>`." (+ multiple when ≥ 1.2, which cannot happen below the median) |
+Owner-only. One card per `(cohort, metric)` with an aggregate: cohort label + short label + dimension + `cohortDefinition`, metric, own value, percentile, `previousPercentile` (+ week) when a standing existed ~4 weeks ago, sample size, median / p10 / p90, median multiple, band, insight and change insight. Cards are de-duplicated per metric in the UI (category × size → category → size → platform → age → all) and sorted by percentile; the last 26 weeks of standings render as a small history strip. Ineligible products (private, unverified, demo) see why; eligible products without a cohort of ten see "not enough data yet".
 
-Metric labels: `30-day growth`, `7-day growth`, `new users (30d)`, `activation rate`, `trending score`.
+## Public statement (`publicBenchmarkHighlight`)
 
-## Public statement policy
+Shown on `/s/<slug>`, `GET /api/v1/saas/{slug}/benchmarks` and share cards, only when:
 
-`publicBenchmarkStatement` returns a sentence only for the **top quarter** (`percentile ≥ 75`): "Top `100 − P`% `<metric>` in `<cohort>`". Below that it returns `null`, so a public page never says where a weaker product stands.
+1. the product is public, verified, not demo, not under review, **and the owner keeps the "Benchmark statement" visibility on** (`visibility.benchmarks`, default on, `/app/saas/<id>` → Visibility);
+2. the cohort has ≥ 10 members;
+3. the percentile is ≥ 75 (`publicBenchmarkStatement`).
 
-`public.benchmarkHighlight(slug)` picks the statement shown on the product page and in `GET /api/v1/saas/{slug}/benchmarks`:
+Cohorts are tried in `cohortsFor` order and the first cohort with any qualifying statement wins, the highest percentile inside it. The result names the cohort and its size — never members — and carries the previous band when it changed ("Top 10 %, up from Top 25 % last month"). Conversion metrics need the conversion rate to be published as well. Weak positions are invisible.
 
-1. Only for public, verified, non-demo products that are not under review.
-2. Cohorts are tried in order **category → size → all**; within the first cohort that yields any statement, the metric with the highest percentile wins (`growth30dPct`, `activationRatePct`, `newUsers30d` are considered).
-3. The result names the cohort ("Developer Tools", "products with 1K – 10K users", "all SaaS on UserTrack") and its `sampleSize`, never any member.
+`public.benchmarkHistory` / `GET /api/v1/saas/{slug}/benchmark-history` expose the weekly standings with the same gating, top-quarter rows only, without values or medians.
 
-## Dashboard cards (`saas.benchmarks`)
+## Discovery + sharing
 
-Owner-only, private. Returns `{ eligible, minSample, cards[] }` where `eligible = isPublic && verified && !demo`. One card per `(cohort, metric)` that has an aggregate:
-
-| Field | Content |
-|---|---|
-| `group`, `groupLabel`, `groupShort` | `all` / `cat:<slug>` / `size:<bucket>` and labels |
-| `metric`, `metricLabel`, `value` | the product's current value |
-| `percentile`, `sampleSize`, `computedAt` | from the stored aggregate |
-| `median`, `p10`, `p90`, `medianMultiple` | context for the bar |
-| `previousValue` | only for `newUsers30d` (`newUsersPrev30d`) |
-| `insight` | sentence from `benchmarkInsight` |
-
-Cohorts below `MIN_SAMPLE` simply have no card; the UI shows a "not enough data" state.
+- `daily.benchmarks` writes one `benchmark` discovery event per product per month for its strongest category-cohort standing at ≥ 90 % (`BENCHMARK_FEED_PERCENTILE`), owner opt-out respected (`docs/DISCOVERY.md`).
+- `share.benchmarkSweep` still creates monthly share cards at ≥ 90 % for growth and activation (`docs/SHARING.md`).
 
 ## API and MCP
 
 | Surface | Returns |
 |---|---|
-| `GET /api/v1/saas/{slug}/benchmarks` | `{ slug, highlight: { statement, metric, cohort, percentile, sampleSize } \| null, note? }` — public statement only |
-| MCP `usertrack_get_benchmark` (`metrics:read`, owner's project) | `{ eligible, minCohortSize, cards[] { cohort, metric, metricLabel, value, percentile, median, p10, p90, medianMultiple, sampleSize, insight }, note?, hiddenGemRules }` — full private view |
-| Dashboard `/app/saas/[id]` | cards above |
-| Public page `/s/[slug]` | the highlight statement |
+| `GET /api/v1/saas/{slug}/benchmarks` | `{ highlight: { statement, band, percentile, metric, cohort, sampleSize, previousBand? } \| null }` |
+| `GET /api/v1/saas/{slug}/benchmark-history` | weekly public standings (gated) |
+| MCP `usertrack_get_benchmark` | full private cards incl. `cohortDefinition`, `previousPercentile`, `changeInsight` |
+| MCP `usertrack_get_benchmark_history` | full private weekly standings for an owned project |
 
 ## Privacy analysis
 
-- What is stored: nine interpolated deciles and a count per cohort and metric, recomputed daily. Not stored: any product's value in any aggregate.
-- What is public: at most one sentence per product, only for the top quarter, naming a cohort and its size. Weak positions are invisible.
-- What the owner sees: their own percentile (steps of 5), the median and the p10/p90 of cohorts with ≥ 5 members. A member who knows its own value can bound its neighbours to a decile band; with `n = 5` the deciles are interpolations between adjacent sorted members, which is the reason for the planned move to `MIN_SAMPLE = 10`.
-- Excluded from every cohort: demo rows, self-reported (manual / foreign endpoint) products, drafts, products under review.
-
-## Hidden gems (discovery, for reference)
-
-Not a benchmark, but the other place cohort-style rules are public. `HIDDEN_GEM_RULES` in `convex/public.ts`: verified, not demo, `totalUsers < 1000`, `newUsers7d ≥ 10`, `growth7dPct ≥ 10`, at least 7 days of history, `trustScore ≥ 60`; sorted by 7-day growth, top 5. The rules are returned with the section (`hiddenGemRules`) so the list is explainable.
+Stored: nine interpolated deciles + a count per cohort × metric, and each product's own weekly standing. Not stored: any other product's value in any aggregate. Public: at most one sentence per product for top-quarter positions naming a cohort and its size; weekly history only for those positions and only with the owner's consent. Owner view: own percentile in steps of 5, median, p10 / p90 of cohorts with ≥ 10 members. Excluded from every cohort: demo rows, self-reported sources, drafts, products under review.
 
 ## Daily job
 
-`crons.ts` runs the daily sweep at **03:30 UTC** → `daily.run` (milestones, streaks, rank history) → `scheduler.runAfter(0, daily.benchmarks)` → then the trust review (+5 s) and the quiet-product email sweep (+10 s).
+`crons.ts` → 03:30 UTC `daily.run` → `daily.benchmarks` (0 s): collect rankable products → memberships via `cohortsFor` → per `(cohort, metric)` filter finite values, drop below the floor, else upsert deciles → per product compute standings from the in-memory aggregates → upsert this week's `benchmarkHistory` row → write the monthly `benchmark` feed event. Manual: `npx convex run daily:benchmarks`.
 
-`daily.benchmarks`: collect rankable products → build the three cohort memberships per product → for every `(cohort, metric)`: filter finite values; `< MIN_SAMPLE` → delete any existing aggregate; else upsert `{ sampleSize, deciles, computedAt }`. Run it manually with `npx convex run daily:benchmarks` (or `daily:run` for the whole sweep).
+## Tests
+
+`convex/lib/benchmarks.test.ts` (deciles, percentiles, multiples, insights, statements, cohort keys/labels/order, age buckets, acceleration, floor, change insight, bands), `convex/history.test.ts` (aggregates per cohort key, weekly standings idempotency, feed event, cards, public highlight gating, public history projection), `convex/boards.test.ts` (conversion statements need a published rate).

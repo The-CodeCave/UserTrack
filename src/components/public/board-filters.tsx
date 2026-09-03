@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CATEGORIES } from "@/lib/categories";
 import { cn } from "@/lib/utils";
-import { BOARD_META, PRIMARY_BOARDS, SECONDARY_BOARDS } from "@/lib/boards";
+import { BOARD_META, PLATFORMS, PRIMARY_BOARDS, SECONDARY_BOARDS, boardWindows, defaultWindow } from "@/lib/boards";
 
 const SIZES = [
   { key: "", label: "Any size" },
@@ -15,22 +15,26 @@ const SIZES = [
   { key: "100k+", label: "100K+" },
 ];
 
-export interface BoardState { board: string; window: "24h" | "7d" | "30d"; category?: string; size?: string; verified: boolean }
+export interface BoardState { board: string; window: "24h" | "7d" | "30d"; category?: string; size?: string; platform?: string; verified: boolean }
+
+// Only the leaderboard and category pages switch boards; every other base is a fixed board.
+const switchesBoard = (base: string) => base === "/leaderboard" || base.startsWith("/categories/");
 
 export function boardHref(base: string, s: Partial<BoardState>, current: BoardState) {
   const next = { ...current, ...s };
   const p = new URLSearchParams();
-  if (next.board !== "most-new" && !base.includes("/trending") && !base.startsWith("/fastest") && !base.startsWith("/new-saas") && !base.startsWith("/most-new") && !base.startsWith("/best-conversion")) p.set("board", next.board);
-  if (next.window !== (next.board === "trending" ? "7d" : "30d")) p.set("window", next.window);
+  if (next.board !== "most-new" && switchesBoard(base)) p.set("board", next.board);
+  if (next.window !== defaultWindow(next.board)) p.set("window", next.window);
   if (next.category && !base.startsWith("/categories/")) p.set("category", next.category);
   if (next.size) p.set("size", next.size);
+  if (next.platform && !base.endsWith("-mobile-apps")) p.set("platform", next.platform);
   if (!next.verified) p.set("all", "1");
   const qs = p.toString();
   return qs ? `${base}?${qs}` : base;
 }
 
-// URL-driven filter bar: boards + windows are links (crawlable), category/size are selects.
-export function BoardFilters({ state, base, lockCategory, lockBoard }: { state: BoardState; base: string; lockCategory?: boolean; lockBoard?: boolean }) {
+// URL-driven filter bar: boards + windows are links (crawlable), category/size/platform are selects.
+export function BoardFilters({ state, base, lockCategory, lockBoard, lockPlatform }: { state: BoardState; base: string; lockCategory?: boolean; lockBoard?: boolean; lockPlatform?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -38,9 +42,10 @@ export function BoardFilters({ state, base, lockCategory, lockBoard }: { state: 
     const href = boardHref(base, patch, state);
     router.push(href === base && pathname === base && params.size === 0 ? base : href);
   };
-  const windows = (["24h", "7d", "30d"] as const).filter((w) => !(state.board === "new-rising" || state.board === "most-users" || state.board === "activation-rate" || BOARD_META[state.board]?.secondary) || w === "7d");
+  const windows = boardWindows(state.board);
+  const select = "h-8 border border-line bg-background px-2 font-mono text-[11px] uppercase tracking-wider text-foreground";
   const boardLink = (key: string) => (
-    <Link key={key} href={boardHref(base, { board: key, window: key === "trending" ? "7d" : "30d" }, state)} className={cn("whitespace-nowrap px-3 py-2 font-mono text-[11px] uppercase tracking-wider", state.board === key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
+    <Link key={key} href={boardHref(base, { board: key, window: defaultWindow(key) }, state)} className={cn("whitespace-nowrap px-3 py-2 font-mono text-[11px] uppercase tracking-wider", state.board === key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
       {BOARD_META[key].short}
     </Link>
   );
@@ -64,14 +69,19 @@ export function BoardFilters({ state, base, lockCategory, lockBoard }: { state: 
           </div>
         )}
         {!lockCategory && (
-          <select aria-label="Category" value={state.category ?? ""} onChange={(e) => set({ category: e.target.value || undefined })} className="h-8 border border-line bg-background px-2 font-mono text-[11px] uppercase tracking-wider text-foreground">
+          <select aria-label="Category" value={state.category ?? ""} onChange={(e) => set({ category: e.target.value || undefined })} className={select}>
             <option value="">All categories</option>
             {CATEGORIES.map((c) => <option key={c.slug} value={c.slug}>{c.label}</option>)}
           </select>
         )}
-        <select aria-label="Size" value={state.size ?? ""} onChange={(e) => set({ size: e.target.value || undefined })} className="h-8 border border-line bg-background px-2 font-mono text-[11px] uppercase tracking-wider text-foreground">
+        <select aria-label="Size" value={state.size ?? ""} onChange={(e) => set({ size: e.target.value || undefined })} className={select}>
           {SIZES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
+        {!lockPlatform && (
+          <select aria-label="Platform" value={state.platform ?? ""} onChange={(e) => set({ platform: e.target.value || undefined })} className={select}>
+            {PLATFORMS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+        )}
         <div className="flex border border-line">
           <Link href={boardHref(base, { verified: true }, state)} className={cn("px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider", state.verified ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>Verified</Link>
           <Link href={boardHref(base, { verified: false }, state)} className={cn("px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider", !state.verified ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>All sources</Link>

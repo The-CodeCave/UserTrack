@@ -7,7 +7,7 @@ import { connectIntegration, requestSync } from "./domain/integrations";
 import { integrationRole, providerKind } from "./schema";
 import { describeProvider, getProvider, normalizeRole, ProviderError, verificationLevel, type ProviderCapabilities, type ProviderMetrics, type Role, type Trust, type VerificationLevel } from "./providers";
 import type { ColumnInfo, TableInfo } from "./providers/postgres";
-import { fetchMetrics } from "./providerRun";
+import { fetchMetrics, hasHistory } from "./providerRun";
 import { defaultSsl, parseConnectionString, splitTable } from "./providers/postgres";
 import { stagesOf } from "./domain/integrations";
 
@@ -39,6 +39,7 @@ export const backfill = mutation({
     const all = await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", saasId)).collect();
     const integration = all.find((i) => normalizeRole(i.role) === wanted);
     if (!integration) throw new Error("No source connected for that role");
+    if (!hasHistory(integration.provider, integration.config)) throw new Error("This source cannot read history");
     const running = await ctx.db.query("backfills").withIndex("by_integration_time", (q) => q.eq("integrationId", integration._id)).order("desc").first();
     if (running && running.status === "running" && Date.now() - running.startedAt < 10 * 60_000) throw new Error("A backfill is already running");
     await ctx.scheduler.runAfter(0, internal.sync.backfill, { integrationId: integration._id, days: Math.min(90, Math.max(1, days ?? 30)) });

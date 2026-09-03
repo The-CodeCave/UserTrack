@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { cohortsDto, compareDto, conversionDto, engagementDto, feedItemDto, funnelDto, historyDto, milestoneDto, saasDto, type SaasRow } from "./dto";
+import { benchmarkHistoryDto, cohortsDto, compareDto, conversionDto, engagementDto, feedItemDto, funnelDto, historyDto, historySeriesDto, milestoneDto, rankHistoryDto, saasDto, type SaasRow } from "./dto";
 
-const FORBIDDEN = ["ownerId", "trustState", "trustScore", "config", "flags", "fraudFlags", "isPublic", "showTraffic", "showRevenue", "_id", "_creationTime", "spark", "sources"];
+const FORBIDDEN = ["ownerId", "trustState", "trustScore", "config", "flags", "fraudFlags", "isPublic", "showTraffic", "showRevenue", "_id", "_creationTime", "spark", "sources", "visibility", "secret"];
 
 const keysDeep = (v: unknown, out = new Set<string>()): Set<string> => {
   if (Array.isArray(v)) v.forEach((x) => keysDeep(x, out));
@@ -21,7 +21,7 @@ const base: SaasRow = {
 // A raw-looking row with junk that must never reach the wire.
 const junk = {
   ...base, _id: "j57abc", _creationTime: 1, ownerId: "profiles:123", isPublic: true, trustState: "review", showTraffic: false, showRevenue: false,
-  config: { apiKey: "sk_live_secret" }, flags: [{ kind: "impossible_growth" }], spark: [1, 2, 3], sources: [{ provider: "clerk" }],
+  config: { apiKey: "sk_live_secret" }, flags: [{ kind: "impossible_growth" }], spark: [1, 2, 3], sources: [{ provider: "clerk" }], visibility: { totalUsers: true }, secret: "whsec_x",
   owner: { username: "jane", displayName: "Jane", _id: "profiles:123", avatarUrl: "x", bio: "hi" },
 } as unknown as SaasRow;
 
@@ -31,6 +31,7 @@ describe("saasDto", () => {
     const keys = keysDeep(wire);
     for (const k of FORBIDDEN) expect(keys.has(k), k).toBe(false);
     expect(Object.keys(wire).sort()).toEqual(["category", "demo", "description", "followers", "metrics", "name", "owner", "ranks", "slug", "tags", "timestamps", "trust", "urls", "websiteUrl"]);
+    expect(JSON.stringify(wire)).not.toContain("whsec_");
     expect(wire.owner).toEqual({ username: "jane", displayName: "Jane" });
     expect(JSON.stringify(wire)).not.toContain("sk_live_secret");
   });
@@ -43,7 +44,11 @@ describe("saasDto", () => {
     expect(d.metrics.traffic).toBeUndefined();
     expect(d.metrics.revenue).toBeUndefined();
     expect(d.metrics.retention).toBeUndefined();
-    expect(d.ranks).toEqual({ leaderboard: 4, previousLeaderboard: 6, trending: 2, previousTrending: undefined, trendingScore7d: undefined });
+    expect(d.ranks).toEqual({ leaderboard: 4, previousLeaderboard: 6, leaderboard7dAgo: undefined, leaderboardDelta7d: undefined, trending: 2, previousTrending: undefined, trending7dAgo: undefined, trendingDelta7d: undefined, bestTrending: undefined, trendingScore7d: undefined });
+    expect(d.foundedAt).toBeUndefined();
+    const moved = saasDto({ ...base, rank7dAgo: 9, rankDelta7d: 5, trendingRank7dAgo: 3, trendingRankDelta7d: 1, bestTrendingRank: 1, foundedAt: Date.UTC(2025, 5, 1) });
+    expect(moved.ranks).toMatchObject({ leaderboard7dAgo: 9, leaderboardDelta7d: 5, trending7dAgo: 3, trendingDelta7d: 1, bestTrending: 1 });
+    expect(moved.foundedAt).toBe("2025-06-01T00:00:00.000Z");
     expect(d.followers).toBe(12);
     expect(d.demo).toBe(false);
     expect(d.timestamps.firstSnapshotAt).toBe("2026-01-01T00:00:00.000Z");
@@ -111,10 +116,23 @@ describe("milestoneDto / historyDto", () => {
     expect(milestoneDto({ _id: "m1", kind: "users", title: "1K users", copy: "Hit 1,000 users", value: 1000, achievedAt: 0, saasId: "x", key: "k" } as never)).toEqual({ id: "m1", kind: "users", title: "1K users", copy: "Hit 1,000 users", value: 1000, achievedAt: "1970-01-01T00:00:00.000Z" });
   });
   it("maps history points", () => {
-    expect(historyDto([{ t: 0, total: 10, delta: 2 }, { t: 86_400_000, total: 12, delta: 2, activated: 3 }])).toEqual([
-      { t: "1970-01-01T00:00:00.000Z", totalUsers: 10, newUsers: 2, activatedUsers: undefined },
-      { t: "1970-01-02T00:00:00.000Z", totalUsers: 12, newUsers: 2, activatedUsers: 3 },
+    expect(historyDto([{ t: 0, total: 10, delta: 2 }, { t: 86_400_000, total: 12, delta: 2, activated: 3, visitors: 40, converted: 1 }])).toEqual([
+      { t: "1970-01-01T00:00:00.000Z", totalUsers: 10, newUsers: 2, activatedUsers: undefined, visitors: undefined, convertedUsers: undefined },
+      { t: "1970-01-02T00:00:00.000Z", totalUsers: 12, newUsers: 2, activatedUsers: 3, visitors: 40, convertedUsers: 1 },
     ]);
+  });
+  it("maps the storage-aware series with resolution and ISO gaps", () => {
+    const d = historySeriesDto({ range: "1y", resolution: "week", points: [{ t: 0, total: 1, delta: 1 }], gaps: [{ from: 0, to: 86_400_000 * 20, days: 20 }] });
+    expect(d).toEqual({ range: "1y", resolution: "week", points: [{ t: "1970-01-01T00:00:00.000Z", totalUsers: 1, newUsers: 1, activatedUsers: undefined, visitors: undefined, convertedUsers: undefined }], gaps: [{ from: "1970-01-01T00:00:00.000Z", to: "1970-01-21T00:00:00.000Z", days: 20 }] });
+  });
+  it("maps rank and benchmark history without internals", () => {
+    const r = rankHistoryDto({ slug: "acme", kind: "leaderboard", window: "30d", current: 4, best: 3, rank7dAgo: 9, movement7d: { kind: "up", delta: 5 }, points: [{ day: "2026-09-01", rank: 5, score: undefined, at: 1 } as never] });
+    expect(r.points).toEqual([{ day: "2026-09-01", rank: 5, score: undefined }]);
+    expect(r.movement7d).toEqual({ kind: "up", delta: 5 });
+    const b = benchmarkHistoryDto({ slug: "acme", weeks: [{ week: "2026-W36", day: "2026-09-01", computedAt: 0, standings: [{ cohort: "all", metric: "growth30dPct", metricLabel: "30-day growth", percentile: 85, band: "Top 15%", sampleSize: 12, value: 99, median: 3 } as never] }] });
+    expect(b.weeks[0].computedAt).toBe("1970-01-01T00:00:00.000Z");
+    expect(b.weeks[0].standings[0]).toEqual({ cohort: "all", metric: "growth30dPct", metricLabel: "30-day growth", percentile: 85, band: "Top 15%", sampleSize: 12 });
+    expect(keysDeep(b).has("value")).toBe(false);
   });
 });
 
