@@ -9,6 +9,7 @@ import { api } from "../../../convex/_generated/api";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/site/logo";
+import { SiteFooter } from "@/components/site/footer";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const NAV = [
@@ -68,7 +69,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <button onClick={signOut} aria-label="Sign out" className="p-2 text-muted-foreground"><LogOut className="size-5" /></button>
       </header>
 
-      <main className="flex-1 pb-20 md:pb-0">{children}</main>
+      <div className="flex flex-1 flex-col pb-20 md:pb-0">
+        <main className="flex-1">{children}</main>
+        <SiteFooter compact />
+      </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-8 border-t border-line bg-background/90 backdrop-blur md:hidden">
         {NAV.map(({ href, label, Icon }) => {

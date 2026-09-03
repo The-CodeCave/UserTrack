@@ -244,7 +244,7 @@ Google Cloud Console → https://console.cloud.google.com
 2. **APIs & Services → OAuth consent screen** (now "Google Auth Platform → Branding/Audience"):
    - User type: **External**. App name `UserTrack`, support email, developer email.
    - App domain: `https://usertrack.dev`. Authorized domain: `usertrack.dev`.
-   - Privacy policy / Terms links are required for the app to leave "Testing" — see the Legal pages item below. While in "Testing" only up to 100 test users you add manually can sign in.
+   - Privacy policy `https://usertrack.dev/privacy` and Terms `https://usertrack.dev/terms` links (both live since LEGAL-1) are required for the app to leave "Testing" — paste them, then **Publish app**. While in "Testing" only up to 100 test users you add manually can sign in.
    - Scopes: leave default (`email`, `profile`, `openid` are all Better Auth requests).
    - When ready for everyone: **Publish app** (no verification needed for these basic scopes, only a brand review if you upload a logo).
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
@@ -270,6 +270,22 @@ Convex dashboard → usertrack → Development *and* Production → Settings →
 
 **Status**
 * [ ] Pending
+
+---
+
+### Legal pages — lawyer review + effective date (LEGAL-1)
+
+**Why this is needed**
+`/impressum`, `/privacy` and `/terms` exist and are linked from every footer and the sign-up form (agent-written, based on the code and on https://thecodecave.de/impressum). Google's OAuth consent screen needs the two URLs to leave "Testing" (see the Google item above). The texts have **not** been reviewed by a lawyer.
+
+**Steps**
+1. Have a lawyer review `src/app/(public)/impressum/page.tsx`, `src/app/(public)/privacy/page.tsx`, `src/app/(public)/terms/page.tsx` — in particular the liability clause (§ 521 BGB-style), the Köln venue, the CC BY 4.0 licence for public growth data and the processor list (Convex, Railway, Resend, Cloudflare, Google, GitHub, X, self-hosted Rybbit). Sign the DPAs / SCCs with Convex, Railway and Resend if not yet done.
+2. Confirm the effective date: `EFFECTIVE_DATE` in `src/lib/legal.ts` (currently `2026-09-04`) — set it to the launch date, `pnpm build`, deploy.
+3. Google Cloud Console → OAuth consent screen → Privacy policy `https://usertrack.dev/privacy`, Terms `https://usertrack.dev/terms` → Publish app.
+4. If the Impressum data changes, change it on thecodecave.de first and mirror it in `OPERATOR` (`src/lib/legal.ts`).
+
+**Status**
+* [ ] Lawyer review pending · [ ] Effective date confirmed · [ ] Google links pasted
 
 ---
 
@@ -409,7 +425,3 @@ Clerk, Supabase (API + read-only database mode), Firebase (createdAt scan), Post
 ### Benchmarks need real cohorts
 
 Benchmark cards and the public "Top X% …" statement only appear once a cohort (all / category / category × size / size bucket / platform / age) has at least **10** verified, non-demo products (`MIN_SAMPLE` in `convex/lib/benchmarks.ts`, raised from 5 in v0.9). Nothing to configure — this is a reminder that the dashboard shows "Not enough benchmark data yet" until enough founders have connected; the weekly benchmark history and the "up from Top 27 % last month" sentences start accumulating from the first day a cohort exists. **Status** [ ] Nothing to do
-
-### Legal pages
-
-No privacy policy / terms page yet. UserTrack stores founder email + password or Google account id/name/avatar (Better Auth), provider API keys (stored server-side in Convex, never returned to the dashboard, the API or an agent), email preferences, an email delivery log (recipient, type, status, Resend message id — never content or auth tokens) and aggregate counts only. A short privacy page is recommended before public launch and required by Google before the OAuth consent screen can leave "Testing". **Status** [ ] Recommended

@@ -46,6 +46,7 @@ Datasets are computed from the same `sortBoard` projection as the pages (max 100
 - Private projects are never listed; demo rows are flagged `demo: true`.
 - Benchmark history is exposed only when the owner keeps the "Benchmark statement" visibility on, and only top-quarter positions (`docs/BENCHMARKS.md`).
 - Watchlists are private (`GET /api/v1/following` requires the owner's API key).
+- **Licence.** Public growth data (counts, growth rates, ranks, trending scores, milestones and their history as exposed by public pages, the API and the datasets) is licensed under **CC BY 4.0** — reuse with attribution "UserTrack" + a link to the source page (`/terms#licence`). Product names and logos stay with their owners.
 
 ## Monthly ranking snapshots
 

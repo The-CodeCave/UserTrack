@@ -32,6 +32,7 @@ const nextConfig: NextConfig = {
     return [
       { source: "/trending-saas", destination: "/trending", permanent: true },
       { source: "/new-and-rising", destination: "/new-saas", permanent: true },
+      { source: "/imprint", destination: "/impressum", permanent: true },
     ];
   },
   async headers() {

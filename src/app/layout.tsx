@@ -26,6 +26,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-background text-foreground">
+        <link rel="privacy-policy" href="/privacy" />
+        <link rel="terms-of-service" href="/terms" />
         <ConvexClientProvider initialToken={token}>{children}</ConvexClientProvider>
         <Toaster position="bottom-center" />
       </body>

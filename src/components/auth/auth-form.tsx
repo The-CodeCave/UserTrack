@@ -130,8 +130,10 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         {loading && <Loader2 className="size-4 animate-spin" />}
         {mode === "sign-up" ? "Create account" : "Sign in"}
       </Button>
-      {mode === "sign-in" && (
+      {mode === "sign-in" ? (
         <p className="text-center text-sm text-muted-foreground"><Link className="underline-offset-4 hover:text-foreground hover:underline" href="/forgot-password">Forgot your password?</Link></p>
+      ) : (
+        <p className="text-center text-xs text-muted-foreground">By creating an account you agree to the <Link className="text-foreground underline-offset-4 hover:underline" href="/terms">Terms</Link> and acknowledge the <Link className="text-foreground underline-offset-4 hover:underline" href="/privacy">Privacy Policy</Link>.</p>
       )}
       <p className="text-center text-sm text-muted-foreground">
         {mode === "sign-up" ? (
