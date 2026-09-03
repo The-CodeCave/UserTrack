@@ -11,6 +11,11 @@
     "jsx": "react-jsx",
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
+    /* Workspace packages imported from the native provider / e2e tests (same aliases as the root tsconfig). */
+    "paths": {
+      "@usertrack/protocol": ["../packages/protocol/src/index.ts"],
+      "@usertrack/node": ["../packages/node/src/index.ts"]
+    },
 
     /* These compiler options are required by Convex */
     "target": "ESNext",
