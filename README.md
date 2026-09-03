@@ -23,7 +23,7 @@ UserTrack is a public growth and discovery platform for SaaS and mobile apps. Fo
 | **Trust** | Trust score 0–100 + anomaly heuristics (impossible jumps, drops, reconnect churn, source switching, stale sources). Public labels: Verified · Partially verified · Data under review · Self-reported. Under-review products are unranked, never accused. |
 | **Milestones** | 10 → 1M users, activated thresholds, biggest day/week, top 10 / top 100, best rank, streaks, +X% month, trending top 10. Persisted once; each has a share page + OG image. |
 | **Sharing** | Share cards (`/s/[slug]/share/[kind]`: users, growth, week, rank, trending, activation, milestone, spike) as 1200×630 and 1080×1080 PNGs, X/copy/download, edge-cached. |
-| **Embeds** | SVG badges (`/api/badge/[slug].svg`: users, growth, trending, verified, **mini chart**; dark/light, 7d/30d, compact) with copy-paste HTML/Markdown, per-IP rate limit, configurator at `/app/saas/[id]/embed`. |
+| **Embeds** | **Live widgets** (`/widget.js` loader → iframe `/embed/[slug]`: live user count, growth %, Verified by UserTrack, mini chart; auto/dark/light theme, 7d/30d, count-up, 5-minute refresh from `/api/embed/[slug].json`, every widget links back with `ref=embed` + UTM) and SVG badges (`/api/badge/[slug].svg`: users, growth, trending, verified, mini chart; dark/light, compact) with copy-paste snippets, per-IP rate limits, configurator at `/app/saas/[id]/embed`. Embedding hosts are recorded (domain only) → “Embedded on N sites” on the dashboard and the public page. |
 | **Discovery** | `/discover` search (name, description, tags, category, founders), Trending now, Fastest today / this week, New & rising, Recently verified, Biggest movers, Hidden gems (public rules), Top dev tools, Top AI, and an activity feed built from stored milestones and events (launched, verified, spikes). Category pages, `/trending`, `/fastest-growing-saas`, `/fastest-growing-ai-saas`, `/new-saas`, `/most-new-users`. |
 | **Compare** | `/compare?s=a,b,c,d&days=7\|30\|90\|365\|all` — up to four products, Total or Indexed (= 100) chart, metric table, shareable permalink with its own OG image (`/compare/og`). |
 | **Founder profiles** | `/u/<username>`: avatar, name, X handle (typed vs connected states), bio, links, location, joined; founder-level aggregates across public projects (Σ users, new 30d, **weighted** activation rate, best rank, trending, biggest growth), aggregate growth chart with per-project breakdown, project grid, `Person` JSON-LD, founder card / OG. `docs/PROFILES.md`. |
@@ -87,7 +87,7 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | Command | Purpose |
 |---|---|
 | `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
-| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (387 tests in 44 files: metrics, funnel, trending, trust, milestones, benchmarks, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, share, rate limit, email rules, templates, tokens, webhook signatures, MCP tools, and `convex-test` function tests for discovery / dedupe / preferences / lifecycle / milestones / reports / gateway) |
+| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (400 tests in 47 files: metrics, funnel, trending, trust, milestones, benchmarks, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, embed widgets, share, rate limit, email rules, templates, tokens, webhook signatures, MCP tools, and `convex-test` function tests for discovery / dedupe / preferences / lifecycle / milestones / reports / gateway / embed sites) |
 | `node scripts/email-preview.mjs` | Render every email template with sample data to `/tmp/ut-emails/*.html` |
 | `pnpm packages:build` · `pnpm packages:test` · `pnpm packages:typecheck` | Build / test / typecheck every workspace package (`@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth`; 61 tests) |
 | `pnpm convex:dev` · `pnpm convex:deploy` | Convex dev watch · deploy to prod |
@@ -144,7 +144,8 @@ convex/lib/            pure, unit-tested math: metrics, trending (v2), trust, mi
                        tokens (format, SHA-256, scopes, plans), domain normalization, integrationSetup (catalog + recommendation + plans)
 src/app/(public)/      /, /leaderboard, /trending, /discover, /compare (+ /compare/og), /categories/*, SEO boards,
                        /s/[slug] (+ share/[kind], share/[kind]/card), /u/[username], /developers, opengraph-image routes
-src/app/api/           /api/v1/* public API, /api/openapi.json, /api/badge/[slug], /api/auth (+ /forgot-password, /reset-password pages)
+src/app/api/           /api/v1/* public API, /api/openapi.json, /api/badge/[slug], /api/embed/[slug].json, /api/auth (+ /forgot-password, /reset-password pages)
+src/app/embed/         /embed/[slug] — iframe document behind public/widget.js (records the embedding host)
 src/app/mcp/           /mcp — MCP endpoint (Streamable HTTP, stateless)
 src/app/app/           dashboard: overview (next actions), saas manage (anchored sections) + embed configurator, following, digest,
                        reports, profile, settings (+ notifications), developer (keys + tokens), onboarding (5 steps, optional activation)
@@ -153,7 +154,7 @@ src/components/        blueprint primitives, charts (growth w/ annotations, comp
                        trending explain, embed badge), app forms (connect source, postgres wizard, test result, embed configurator)
 src/lib/api/           respond (rate limits + envelope), gateway bridge, DTOs (incl. funnel / feed / compare), OpenAPI
 src/lib/mcp/           server, tools (30) + setup workflow, config snippets + agent prompts
-src/lib/               format, categories, providers-ui (setup instructions), share copy + kinds, badge SVG (+ chart widget), og renderers
+src/lib/               format, categories, providers-ui (setup instructions), share copy + kinds, badge SVG (+ chart widget), embed snippets + widget HTML, og renderers
 docs/                  ARCHITECTURE · API · MCP · PROVIDERS · FUNNEL · IDENTITY · METRICS · TRENDING · BENCHMARKS · BACKLOG · ASSUMPTIONS · DEPLOYMENT · ROADMAP · CHANGELOG
 HUMAN_TODO.md          the only things left that need a human
 ```

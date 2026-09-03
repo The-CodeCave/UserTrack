@@ -68,7 +68,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
   const nextSteps = [
     ...(!saas.isPublic ? [{ label: "Publish your page", onClick: () => setPublic({ id: saasId, isPublic: true }) }] : []),
     ...(!byRole("activation") ? [{ label: "Connect an activation source", href: "#integrations" }] : []),
-    ...(saas.isPublic ? [{ label: "Add the badge to your site", href: embedHref }, { label: "Share your growth card", href: "#sharing" }] : []),
+    ...(saas.isPublic ? [{ label: "Add the widget to your site", href: embedHref }, { label: "Share your growth card", href: "#sharing" }] : []),
     ...(saas.isPublic && saas.trust === "verified" ? [{ label: "See how you compare", href: "#benchmarks" }] : []),
   ];
   const chip = "inline-flex items-center gap-1.5 border border-line px-2.5 py-1 text-xs transition-colors hover:border-pink hover:text-pink";
@@ -281,8 +281,13 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
       <section id="embeds" className="scroll-mt-14 space-y-3">
         <SectionLabel>Embeds</SectionLabel>
         <Panel className="p-4">
-          <div className="text-sm font-medium">Badge for your website</div>
-          <p className="mt-1 text-xs text-muted-foreground">A live SVG badge that links back to your growth page. Widgets and themes live in the configurator.</p>
+          <div className="text-sm font-medium">Widget &amp; badge for your website</div>
+          <p className="mt-1 text-xs text-muted-foreground">Live widgets (user count, growth, verified, mini chart) with auto theme live in the configurator; the SVG badge below works anywhere.</p>
+          <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+            {saas.embedSites.length > 0
+              ? `Embedded on ${saas.embedSites.length} ${saas.embedSites.length === 1 ? "site" : "sites"}: ${saas.embedSites.slice(0, 3).map((e) => e.host).join(", ")}${saas.embedSites.length > 3 ? ` +${saas.embedSites.length - 3}` : ""}`
+              : "Not embedded anywhere yet."}
+          </p>
           <div className="mt-3"><EmbedBadge slug={saas.slug} name={saas.name} /></div>
           <Button variant="outline" size="sm" className="mt-4" render={<Link href={embedHref} />}>Open embed configurator <ArrowRight className="size-3.5" /></Button>
         </Panel>

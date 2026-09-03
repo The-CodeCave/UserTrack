@@ -36,6 +36,7 @@ import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { explainTrending, trendingFactors } from "./lib/trending";
 import { trendingInputs } from "./leaderboard";
 import { CATEGORIES } from "../src/lib/categories";
+import { WIDGET_TYPES, parseWidgetParams, widgetSnippets } from "../src/lib/embed";
 
 export const authArg = v.object({ hash: v.string(), gateway: v.optional(v.string()) });
 type Auth = { hash: string; gateway?: string };
@@ -717,25 +718,40 @@ export const shareCard = query({
 });
 
 export const embedCode = query({
-  args: { auth: authArg, ...refArg, type: v.optional(v.string()), theme: v.optional(v.string()), window: v.optional(v.string()), compact: v.optional(v.boolean()) },
-  handler: async (ctx, { auth, projectId, slug, type = "users", theme = "dark", window = "30d", compact }) =>
+  args: { auth: authArg, ...refArg, format: v.optional(v.string()), type: v.optional(v.string()), theme: v.optional(v.string()), window: v.optional(v.string()), compact: v.optional(v.boolean()) },
+  handler: async (ctx, { auth, projectId, slug, format = "badge", type = "users", theme, window = "30d", compact }) =>
     run(async () => {
       const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
       const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      if (format !== "badge" && format !== "widget") fail("bad_request", "format must be badge or widget");
+      const urls = projectUrls(saas);
+      const project = { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic };
+      const note = saas.isPublic ? undefined : "Drafts render 'not found' until published.";
+      if (format === "widget") {
+        if (!(WIDGET_TYPES as readonly string[]).includes(type)) fail("bad_request", `type must be one of ${WIDGET_TYPES.join(", ")}`);
+        const p = parseWidgetParams(new URLSearchParams({ type, theme: theme ?? "auto", window }));
+        const s = widgetSnippets({ siteUrl: siteUrl(), slug: saas.slug, name: saas.name, ...p });
+        return {
+          project, format, ...p,
+          script: s.script, iframe: s.iframe, iframeSrc: s.iframeSrc, jsonUrl: s.jsonUrl, width: s.width, height: s.height,
+          types: WIDGET_TYPES, themes: ["auto", "dark", "light"],
+          cache: "Live iframe widget: renders from public metrics, refreshes every 5 minutes, auto light/dark, links back to the growth page with ref=embed. The embedding host is counted (never visitors).",
+          note,
+        };
+      }
       const types = ["users", "growth", "trending", "verified", "chart"];
       if (!types.includes(type)) fail("bad_request", `type must be one of ${types.join(", ")}`);
-      const urls = projectUrls(saas);
       const qs = new URLSearchParams({ type, ...(theme === "light" ? { theme: "light" } : {}), ...(window === "7d" ? { window: "7d" } : {}), ...(compact ? { compact: "1" } : {}) });
       const src = `${urls.badge}?${qs}`;
       const height = type === "chart" ? (compact ? 96 : 120) : 28;
       return {
-        project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic },
-        type, theme, window, compact: Boolean(compact),
+        project, format,
+        type, theme: theme ?? "dark", window, compact: Boolean(compact),
         imageUrl: src,
         html: `<a href="${urls.page}"><img src="${src}" alt="${saas.name} on UserTrack" height="${height}"></a>`,
         markdown: `[![${saas.name} on UserTrack](${src})](${urls.page})`,
         types, cache: "Rendered on request, cached 1h at the edge; only public metrics; no key needed.",
-        note: saas.isPublic ? undefined : "Drafts render a 'not found' badge until published.",
+        note,
       };
     }),
 });

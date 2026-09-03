@@ -608,6 +608,32 @@ Mini chart:
 <a href="https://usertrack.dev/s/acme"><img src="https://usertrack.dev/api/badge/acme.svg?type=chart" alt="Acme on UserTrack" height="120"></a>
 ```
 
+## Widgets: `/widget.js`, `/embed/{slug}`, `GET /api/embed/{slug}.json`
+
+Live, clickable widgets for websites (badges above are static images). One script tag inserts an iframe:
+
+```html
+<script async src="https://usertrack.dev/widget.js" data-slug="acme" data-type="users"></script>
+```
+
+| Attribute | Values | Default |
+|---|---|---|
+| `data-type` | `users` (live user count) · `growth` (growth %) · `verified` (Verified by UserTrack) · `chart` (320×120 mini chart) | `users` |
+| `data-theme` | `auto` (follows the visitor's system) · `dark` · `light` | `auto` |
+| `data-window` | `30d` · `7d` (growth, chart) | `30d` |
+
+The loader creates `<iframe src="https://usertrack.dev/embed/acme?type=users">` right after the script tag and resizes it from the widget's `postMessage({ ut: "size", w, h })`. The plain iframe URL works on its own (`width` 200 / 180 / 170 / 320, `height` 28 / 120). Every widget links to the growth page with `?ref=embed&utm_source=embed&utm_medium=widget&utm_campaign=<type>` and always carries the UserTrack mark. Numbers are the public metrics (visibility applies), rendered on load and refreshed every 5 minutes while the tab is visible from:
+
+```bash
+curl https://usertrack.dev/api/embed/acme.json
+```
+
+```json
+{ "data": { "slug": "acme", "name": "Acme", "totalUsers": 12481, "newUsers7d": 300, "newUsers30d": 1900, "growth7dPct": 2.5, "growth30dPct": 18.2, "trust": "verified", "trustLabel": "Verified", "trendingRank": 4, "lastSyncedAt": 1756800000000, "spark": [10200, 10310, "…"] }, "meta": { "version": "v1", "generatedAt": "…" } }
+```
+
+Cached 60 s, CORS `*`, 120 requests/minute per IP (own bucket, like badges); `404 not_found` for unknown or private projects (the iframe renders a neutral “not found” pill). `/embed/{slug}` is `no-store` + `noindex`. **Distribution signal:** the embedding page's host (from the `Referer`, origin only — never paths, IPs or visitors) is stored once per project and host with a load counter (max one write per host per minute); the founder sees the hosts in the configurator, the public page shows “Embedded on N sites”. Own host and `localhost` are ignored.
+
 ## Share-card images
 
 Every share page has a deterministic PNG rendered by the same code as its Open Graph image:

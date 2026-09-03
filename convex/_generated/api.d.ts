@@ -34,6 +34,7 @@ import type * as email_users from "../email/users.js";
 import type * as email_webhook from "../email/webhook.js";
 import type * as email_webhookSig from "../email/webhookSig.js";
 import type * as email_welcome from "../email/welcome.js";
+import type * as embeds from "../embeds.js";
 import type * as follows from "../follows.js";
 import type * as gateway from "../gateway.js";
 import type * as http from "../http.js";
@@ -125,6 +126,7 @@ declare const fullApi: ApiFromModules<{
   "email/webhook": typeof email_webhook;
   "email/webhookSig": typeof email_webhookSig;
   "email/welcome": typeof email_welcome;
+  embeds: typeof embeds;
   follows: typeof follows;
   gateway: typeof gateway;
   http: typeof http;

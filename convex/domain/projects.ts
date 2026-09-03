@@ -146,6 +146,7 @@ export function projectUrls(s: Pick<Doc<"saas">, "slug">, username?: string) {
     page: `${base}/s/${s.slug}`,
     profile: username ? `${base}/u/${username}` : undefined,
     badge: `${base}/api/badge/${s.slug}.svg`,
+    widget: `${base}/embed/${s.slug}`,
     ogImage: `${base}/s/${s.slug}/opengraph-image`,
     share: Object.fromEntries(["users", "growth", "week", "rank", "trending", "activation", "conversion"].map((k) => [k, `${base}/s/${s.slug}/share/${k}`])) as Record<string, string>,
     api: `${base}/api/v1/saas/${s.slug}`,

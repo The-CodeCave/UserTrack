@@ -167,6 +167,31 @@ export const saasBySlug = query({
   },
 });
 
+// Widget payload: the few public numbers an embed needs, visibility applied, no owner / integrations / milestones.
+export const widget = query({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    if (!s || !s.isPublic) return null;
+    const p = publicSaas(s);
+    const vis = p.visibility;
+    return {
+      slug: s.slug,
+      name: s.name,
+      totalUsers: vis.totalUsers ? s.totalUsers : undefined,
+      newUsers7d: vis.growth ? s.newUsers7d : undefined,
+      newUsers30d: vis.growth ? s.newUsers30d : undefined,
+      growth7dPct: vis.growth ? s.growth7dPct : undefined,
+      growth30dPct: vis.growth ? s.growth30dPct : undefined,
+      trust: s.trust,
+      trustLabel: p.trustLabel,
+      trendingRank: s.trendingRank,
+      lastSyncedAt: s.lastSyncedAt,
+      spark: vis.totalUsers ? await sparkline(ctx, s._id) : [],
+    };
+  },
+});
+
 const funnelTimeframeArg = v.union(...FUNNEL_TIMEFRAMES.map((t) => v.literal(t)));
 
 // Public funnel: reached / trial / converted stages only when the owner published them; every stage carries its own provenance.

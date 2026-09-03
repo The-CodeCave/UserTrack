@@ -253,7 +253,11 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
             </div>
           </Panel>
           <Panel className="p-4">
-            <div className="text-sm font-medium">Badge for your website</div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-medium">Badge for your website</div>
+              {s.embedSiteCount ? <span className="inline-flex items-center gap-1 border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"><Globe className="size-3" />Embedded on {s.embedSiteCount} {s.embedSiteCount === 1 ? "site" : "sites"}</span> : null}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">Static SVG. Founders get live widgets with auto theme in the dashboard.</p>
             <div className="mt-3"><EmbedBadge slug={slug} name={s.name} /></div>
           </Panel>
         </div>

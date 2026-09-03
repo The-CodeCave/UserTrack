@@ -123,8 +123,10 @@ export const getMine = query({
     const flags = await ctx.db.query("fraudFlags").withIndex("by_saas_open", (q) => q.eq("saasId", id).eq("resolvedAt", undefined)).collect();
     const milestones = await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", id)).order("desc").take(12);
     const runs = await ctx.db.query("syncRuns").withIndex("by_saas_time", (q) => q.eq("saasId", id)).order("desc").take(10);
+    const embedSites = await ctx.db.query("embedSites").withIndex("by_saas_last", (q) => q.eq("saasId", id)).order("desc").take(20);
     return {
       ...saas,
+      embedSites: embedSites.map((e) => ({ host: e.host, loads: e.loads, firstSeenAt: e.firstSeenAt, lastSeenAt: e.lastSeenAt })),
       trustLabel: publicTrustLabel(saas.trust, saas.trustState, saas.trustScore),
       visibility: visibilityOf(saas),
       integrations: integrations.map((i) => ({ _id: i._id, ...integrationView(i) })),

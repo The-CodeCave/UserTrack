@@ -23,7 +23,7 @@ export default function OverviewPage() {
   const nextActions = !detail ? [] : [
     ...(!detail.isPublic ? [{ label: "Publish your page", href: manage }] : []),
     ...(!detail.integrations.some((i) => i.role === "activation") ? [{ label: "Connect an activation source", href: `${manage}#integrations` }] : []),
-    ...(detail.isPublic ? [{ label: "Add the badge to your site", href: `${manage}/embed` }, { label: "Share your growth card", href: `${manage}#sharing` }] : []),
+    ...(detail.isPublic ? [{ label: "Add the widget to your site", href: `${manage}/embed` }, { label: "Share your growth card", href: `${manage}#sharing` }] : []),
     ...(detail.isPublic && detail.trust === "verified" ? [{ label: "See how you compare", href: `${manage}#benchmarks` }] : []),
   ];
   const totals = list?.reduce((a, s) => ({ users: a.users + s.totalUsers, new7: a.new7 + s.newUsers7d, new30: a.new30 + s.newUsers30d }), { users: 0, new7: 0, new30: 0 });

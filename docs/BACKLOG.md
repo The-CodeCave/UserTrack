@@ -212,6 +212,16 @@ Goal: Better Auth becomes a first-class, native-verified UserTrack provider with
 - ☑ **55.2 QA** — lint, typecheck, root tests, package tests, build, `pnpm pack`, local e2e (`packages/better-auth/e2e`), screenshots.
 - ☑ **55.3 Deploy + smoke** — push `main`, Railway deploy (Convex deploy in build), production smoke: pages, MCP tool list (29), docs page, integration creation, events route.
 
+## v0.7 — "Embeddable growth widgets"
+
+### Epic 60 — Growth widgets + distribution (P1)
+| ID | Title | Objective / scope | Deps | Acceptance criteria | Status |
+|---|---|---|---|---|---|
+| UT-6001 | Widget runtime | `public/widget.js` loader → iframe `/embed/[slug]` (users / growth / verified / chart; auto / dark / light; 7d / 30d; count-up; size via postMessage; 5-minute refresh from `/api/embed/[slug].json`; not-found pill). | 3402 | `widget.test.ts`, `embed.test.ts`; renders on dark + light host pages at 375 / 1440; every link carries `ref=embed` + UTM; branding always visible | ☑ |
+| UT-6002 | Distribution tracking | `embedSites` + `saas.embedSiteCount`, `embeds.record` (gateway secret, host normalization, 1 write / host / minute, own host + localhost ignored), `getMine.embedSites`. | 6001 | `convex/embeds.test.ts`; hosts only, never IPs / paths; count written once per host | ☑ |
+| UT-6003 | Surfaces | Configurator Live widget / SVG badge modes + “Where it's embedded”; manage `#embeds` summary; public “Embedded on N sites” chip; MCP `usertrack_get_embed_code { format: "widget" }`. | 6001, 6002 | Snippets come from `widgetSnippets` everywhere; docs (README, API, ARCHITECTURE, MCP, ROADMAP, CHANGELOG) | ☑ |
+
+
 ## v0.7 — "Native SDK integrations"
 
 Goal: generalize the v0.6 Better Auth integration into ONE provider kind `native` that accepts any client speaking the protocol, and ship `@usertrack/node` with adapters so Prisma, Drizzle, Convex, Auth.js / NextAuth and custom apps become native-verified sources ("install package → UserTrack is done"). Tickets: objective · scope · dependencies · acceptance criteria · done definition.

@@ -279,10 +279,10 @@ const TOOLS_V04: Tool[] = [
   tool({
     name: "usertrack_get_embed_code",
     title: "Embed code",
-    description: "Copy-paste HTML and Markdown for a live badge or mini growth chart (types: users, growth, trending, verified, chart; dark/light; 7d/30d; compact). Public metrics only, cached, no API key involved.",
+    description: "Copy-paste embed code. format 'widget' (recommended for websites): a live iframe widget via one <script> tag (types: users = live user count, growth = growth %, verified = Verified by UserTrack, chart = mini chart; theme auto/dark/light; 7d/30d) that refreshes every 5 minutes and links back to the growth page. format 'badge' (default, for READMEs): static SVG HTML/Markdown (types: users, growth, trending, verified, chart; dark/light; compact). Public metrics only, no API key involved.",
     scope: "metrics:read",
     readOnly: true,
-    input: { ...ref, type: z.enum(["users", "growth", "trending", "verified", "chart"]).optional(), theme: z.enum(["dark", "light"]).optional(), window: z.enum(["7d", "30d"]).optional(), compact: z.boolean().optional() },
+    input: { ...ref, format: z.enum(["badge", "widget"]).optional(), type: z.enum(["users", "growth", "trending", "verified", "chart"]).optional(), theme: z.enum(["auto", "dark", "light"]).optional(), window: z.enum(["7d", "30d"]).optional(), compact: z.boolean().optional() },
     run: (auth, a) => fetchQuery(api.gateway.embedCode, { auth, ...a }),
   }),
 ];

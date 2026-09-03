@@ -184,6 +184,8 @@ export default defineSchema({
     // Social
     followerCount: v.optional(v.number()),
     streakDays: v.optional(v.number()),
+    // Distinct third-party hosts that embed a widget (materialized from embedSites).
+    embedSiteCount: v.optional(v.number()),
   })
     .index("by_slug", ["slug"])
     .index("by_owner", ["ownerId"])
@@ -453,6 +455,17 @@ export default defineSchema({
     count: v.number(),
     updatedAt: v.number(),
   }).index("by_day_kind_action", ["day", "kind", "action"]),
+
+  // One row per (project, embedding host). Referrer host only — never IPs, paths or visitors.
+  embedSites: defineTable({
+    saasId: v.id("saas"),
+    host: v.string(),
+    loads: v.number(),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+  })
+    .index("by_saas_host", ["saasId", "host"])
+    .index("by_saas_last", ["saasId", "lastSeenAt"]),
 
   follows: defineTable({
     followerId: v.id("profiles"),

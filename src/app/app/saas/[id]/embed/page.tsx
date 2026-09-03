@@ -19,9 +19,9 @@ export default function EmbedPage({ params }: { params: Promise<{ id: string }> 
       <div>
         <SectionLabel><Link href="/app/saas" className="hover:text-foreground">My SaaS</Link> / <Link href={`/app/saas/${id}`} className="hover:text-foreground">{saas.name}</Link> / Embed</SectionLabel>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">Embed UserTrack</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Live badges and a mini growth chart for your README, website or docs. Served as SVG and cached at the edge.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Live widgets and SVG badges for your website, README or docs. Every embed links back to your growth page.</p>
       </div>
-      <EmbedConfigurator slug={saas.slug} name={saas.name} isPublic={saas.isPublic} />
+      <EmbedConfigurator slug={saas.slug} name={saas.name} isPublic={saas.isPublic} embedSites={saas.embedSites} />
     </div>
   );
 }

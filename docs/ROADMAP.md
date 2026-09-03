@@ -55,6 +55,11 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 - Provider `better_auth` (native verified), `ut_int_` credentials shown once, awaiting-verification state, verify → first sync, event ingestion, plugin/protocol version diagnostics.
 - Dashboard wizard, AI-onboarding step, MCP tools `usertrack_get_better_auth_setup` / `usertrack_create_integration`, prompt, Better Auth first in the users priority, public docs `/developers/integrations/better-auth`.
 
+### v0.7 — Embeddable growth widgets
+- Live widgets for websites: `/widget.js` loader → iframe `/embed/[slug]` (users · growth · verified · chart; `auto` / dark / light; 7d / 30d; count-up; 5-minute refresh from `/api/embed/[slug].json`); every widget links back with `ref=embed` + UTM.
+- Distribution tracking: embedding hosts (`embedSites`, domain only) → “Where it's embedded” in the configurator, “Embedded on N sites” on the manage page and the public page.
+- Configurator with Live widget / SVG badge modes; MCP `usertrack_get_embed_code { format: "widget" }`.
+
 ### v0.7 — Native SDK integrations (`@usertrack/node`)
 - One provider kind `native` for every client of the native protocol; `better_auth` migrated (`migrations:nativeV1`) and kept as an alias. Users, activation and conversion from one signed handler; extra roles attach automatically.
 - `@usertrack/protocol` (signing + wire types, zero deps), `@usertrack/node` (handler, Node adapter, tracker; Prisma / Drizzle / Convex / Auth.js adapters, 22 tests + e2e), `@usertrack/better-auth` 0.2.0 as a thin wrapper. One tag-driven release workflow for all three packages.
