@@ -2,7 +2,7 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and deployed.
 
-Last updated: 2026-09-03 (v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
+Last updated: 2026-09-03 (v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
 
 **v0.7 (native SDK) needs three human actions, in this order.** (1) **Deploy + migrate**: `npx convex deploy` (schema adds the `native` provider literal and the new event types; nothing is removed), then `npx convex run --prod migrations:nativeV1` (idempotent, paged; rewrites the existing `better_auth` integration(s) to `native` + `source: "better-auth"` and their snapshot / sync-run provenance — until it ran, rows are normalised on read and keep working), then the Railway deploy (`git push` → Railway builds `pnpm railway:build`, which runs `convex deploy` again — harmless). Check afterwards: `/developers/integrations/native` renders, `/mcp` lists 30 tools, the dashboard shows the existing Better Auth source as "Better Auth" under "My app (SDK)", and `/api/integrations/better-auth/events` still answers 405 on GET (the 0.1.x plugin path). (2) **Publish the packages, in this order**: `@usertrack/protocol@0.1.0` → `@usertrack/node@0.1.0` → `@usertrack/better-auth@0.2.0` — the plugin now depends on the other two (`workspace:^` becomes `^0.1.0` at pack time), so `0.2.0` cannot be installed before they exist; all steps (scope, first publish per package, trusted publishing / `NPM_TOKEN`, tags `protocol-v*` / `node-v*` / `better-auth-v*` for `.github/workflows/release-packages.yml`) are in **`packages/better-auth/HUMAN_TODO.md`** (scope, tokens, ownership — shared by all three) and **`packages/node/HUMAN_TODO.md`** (publish order + first publish of protocol and node). Until then founders can install from a `pnpm pack` tarball. (3) **Verify one real founder integration after the deploy**: create a test project, pick "My app (SDK)" → Prisma (or Custom), mount the handler from the wizard in any app you own (a throwaway Next.js + Prisma app on Neon, or `packages/node/e2e/serve.mjs` behind a tunnel), click Verify, then check the Sync log, the auto-attached activation / conversion rows and the "Live events" line after one signup. The Prisma / Drizzle / Convex / Auth.js adapters are tested against in-memory fakes and rendered SQL, not live databases — a Postgres (Neon free tier) and a Convex starter deployment are the only third-party accounts needed for that; nothing else is required from you. No new UserTrack-side environment variable.
 
@@ -11,6 +11,83 @@ Last updated: 2026-09-03 (v0.7: native SDK integrations — `@usertrack/protocol
 **v0.5 needs no new human action for production.** Everything in this phase is configured and deployed by the agent: the Convex schema migration (`migrations:lifecycleV1`, ran to `done` on production on 2026-09-02), `IDENTITY_SALT` on both Convex deployments, the demo seed refresh (the 5 demo products now carry labelled, never-synced demo sources for users / activation / conversion so the public funnel, cohorts and conversion boards are demonstrable), rerank and daily sweep. Production was verified after the Railway deploy: `/s/demo-northwind`, `/best-conversion`, `/api/v1/saas/{slug}/funnel|conversion|engagement|cohorts`, `/api/openapi.json` (15 paths) and `/mcp` (27 tools) all respond. Payment-provider credentials (Stripe restricted keys, RevenueCat v2 keys, Paddle / Lemon Squeezy / Chargebee API keys) are entered **by each founder** for their own product in the dashboard or via MCP — they are not operator secrets and nothing is required from you. The only optional item is a sandbox key for a live end-to-end test of the Stripe adapter (see "Optional / Future").
 
 **v0.4 needed no new human action.** Everything in this phase (PostgreSQL / Supabase / Clerk / Firebase providers, activation + funnel, Trending Score v2, discovery feed, share cards + embeds, benchmarks, compare, API + MCP) is configured and deployed. The items below are unchanged from earlier phases; the domain item is now the most important one because every share card, embed snippet and MCP config snippet renders the Railway URL until `usertrack.dev` points at production.
+
+
+## v0.8 — Founder identity & sharing (X)
+
+Everything in this phase that runs without X API credentials is live: founder profiles, X handles, the Share Card Studio, automatic share events, the Share Center, X intents with generated drafts, OG images, API + MCP extensions. The two items below unlock the **optional** X account connection / auto-posting (founder accounts) and the **optional** UserTrack-owned posting account. Until they are done the features stay behind their flags and production behaves exactly as Phase 1 (no broken buttons: the settings page says the connection is not enabled).
+
+### Create X Developer App (founder "Connect X" + opt-in auto-posting)
+
+**Why**
+`/app/settings/social → Connect X` (OAuth 2.0 PKCE), import of handle/avatar and the opt-in auto-share categories need an X app with **user authentication settings** and the ability to post. X's free tier allows writes for a single app; reading `/2/users/me` and posting `/2/tweets` are covered. The code is deployed and feature-flagged on `X_CLIENT_ID` / `X_CLIENT_SECRET` (Convex prod env).
+
+**Where**
+X Developer Portal → https://developer.x.com/en/portal/dashboard (log in with the @usertrack account or your own)
+
+**Steps**
+1. Create a project + app (name e.g. `UserTrack`). Choose the free tier unless you already have Basic.
+2. App → **User authentication settings → Set up**:
+   - App permissions: **Read and write** (needed for posting; choose Read if you only want "Connect X" for handle/avatar import — auto-posting then fails with a clear 403 and stays off).
+   - Type of App: **Web App, Automated App or Bot** (confidential client).
+   - Callback URI / Redirect URL: `https://usertrack.dev/api/social/x/callback` (exact; add `http://localhost:3000/api/social/x/callback` for local testing).
+   - Website URL: `https://usertrack.dev` · Terms / Privacy: the legal pages once they exist.
+3. Save → copy **OAuth 2.0 Client ID** and generate a **Client Secret** (shown once).
+4. Set them on Convex **production** (the OAuth exchange and posting run in Convex actions, not on Railway):
+   ```bash
+   npx convex env set --prod X_CLIENT_ID "xxxxxxxxxxxxxxxxxxxxxx"
+   npx convex env set --prod X_CLIENT_SECRET "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ```
+   No redeploy needed; `social.status.oauthEnabled` flips to true immediately.
+5. Test: `https://usertrack.dev/app/settings/social` → **Connect X** → authorize → back on the page with "Connected" and your handle. Then switch one auto-share category on and (optionally) trigger `npx convex run --prod social:autoPost` once a share event is ready.
+
+**Required scopes**
+`tweet.read`, `tweet.write`, `users.read`, `offline.access` (requested by the app; the portal permission level must allow write).
+
+**Callback URL**
+`https://usertrack.dev/api/social/x/callback`
+
+**Environment variables**
+`X_CLIENT_ID`, `X_CLIENT_SECRET`
+
+**Where to put them**
+Convex dashboard → usertrack → **Production** → Settings → Environment Variables (or the CLI above). Not Railway.
+
+**Status**
+- [ ] Pending
+
+---
+
+### UserTrack X account (@usertrack) — bot posting credentials
+
+**Why**
+The separate "UserTrack-owned account" pathway posts major **verified** milestones (1K+ users, Top 10, new best rank ≤ #3, at most 3 posts/day platform-wide) and tags founders who allow it. It uses OAuth 1.0a user-context credentials of the @usertrack account (long-lived, no refresh), completely separate from founder connections. Off until all four variables exist.
+
+**Where**
+X Developer Portal → the same app → **Keys and tokens**; the account that owns the app must be @usertrack (or the account you want the posts to come from).
+
+**Steps**
+1. Register / secure the @usertrack handle (or decide on the brand account) and make it the owner of the developer app from the item above.
+2. Keys and tokens → **API Key and Secret** (consumer key/secret) → regenerate if unsure, copy both.
+3. Keys and tokens → **Access Token and Secret** → generate **with Read and Write** permissions (regenerate after changing app permissions), copy both.
+4. ```bash
+   npx convex env set --prod X_BOT_CONSUMER_KEY "…"
+   npx convex env set --prod X_BOT_CONSUMER_SECRET "…"
+   npx convex env set --prod X_BOT_ACCESS_TOKEN "…"
+   npx convex env set --prod X_BOT_ACCESS_SECRET "…"
+   ```
+5. Verify: `npx convex run --prod social:autoPost` — with no qualifying event nothing happens; the settings page shows "UserTrack account" as active. The first real post appears in `socialPosts` (account `usertrack`) with its X id.
+
+**Required values**
+Consumer key + secret, access token + secret (OAuth 1.0a, Read and Write).
+
+**Where to enter them**
+Convex prod env (see above).
+
+**Status**
+- [ ] Pending
+
+---
 
 ## Critical Before Production
 

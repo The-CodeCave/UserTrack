@@ -12,6 +12,7 @@ import { explainTrending, trendingFactors } from "./lib/trending";
 import { trendingInputs } from "./leaderboard";
 import { providerLabel } from "./providers";
 import { CATEGORIES } from "../src/lib/categories";
+import { aggregateHistory, founderAggregates } from "./lib/founder";
 
 const rangeArg = v.union(...RANGES.map((r) => v.literal(r)));
 // Secondary conversion boards only list products whose owner published the rate (visibility), never merely connected a source.
@@ -22,9 +23,12 @@ const windowArg = v.union(v.literal("24h"), v.literal("7d"), v.literal("30d"));
 const sizeArg = v.union(...SIZE_BUCKETS.map((b) => v.literal(b.key)));
 
 export function publicProfile(p: Doc<"profiles">) {
-  const { _id, username, displayName, avatarUrl, bio, website, x, github, linkedin, followerCount } = p;
-  return { _id, username, displayName, avatarUrl, bio, website, x, github, linkedin, followerCount: followerCount ?? 0 };
+  const { _id, username, displayName, avatarUrl, bio, website, x, github, linkedin, location, followerCount, _creationTime } = p;
+  // A connected X account is the only state that may be presented as more than a typed handle.
+  return { _id, username, displayName, avatarUrl, bio, website, x, xConnected: Boolean(p.xUserId), github, linkedin, location, followerCount: followerCount ?? 0, joinedAt: _creationTime };
 }
+
+export const isProfilePublic = (p: Doc<"profiles">) => p.profilePublic !== false && p.userId !== "demo";
 
 // Public-safe projection. Connection ≠ publication: every gated metric is removed unless its visibility key is on.
 export function publicSaas(s: Doc<"saas">) {
@@ -268,14 +272,40 @@ export const annotations = query({
   },
 });
 
+// Founder page: public projects only (private ones never leak, not even into the totals); aggregates in lib/founder.ts.
+export async function founderRows(ctx: QueryCtx, p: Doc<"profiles">) {
+  const all = await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", p._id)).collect();
+  return all.filter((s) => s.isPublic).sort((a, b) => b.newUsers30d - a.newUsers30d);
+}
+
 export const profileByUsername = query({
   args: { username: v.string() },
   handler: async (ctx, { username }) => {
-    const p = await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", username)).unique();
-    if (!p) return null;
-    const all = await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", p._id)).collect();
-    const saas = all.filter((s) => s.isPublic).sort((a, b) => b.newUsers30d - a.newUsers30d);
-    return { ...publicProfile(p), saas: await Promise.all(saas.map(async (s) => ({ ...publicSaas(s), spark: await sparkline(ctx, s._id) }))) };
+    const p = await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", username.toLowerCase())).unique();
+    if (!p || p.profilePublic === false) return null;
+    const saas = (await founderRows(ctx, p)).map(publicSaas);
+    return {
+      ...publicProfile(p),
+      aggregates: founderAggregates(saas),
+      saas: await Promise.all(saas.map(async (s) => ({ ...s, spark: await sparkline(ctx, s._id) }))),
+    };
+  },
+});
+
+// Aggregate user growth across the founder's public projects: daily totals summed with per-project forward fill.
+export const founderHistory = query({
+  args: { username: v.string(), range: rangeArg },
+  handler: async (ctx, { username, range }) => {
+    const p = await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", username.toLowerCase())).unique();
+    if (!p || p.profilePublic === false) return null;
+    const rows = await founderRows(ctx, p);
+    const ms = RANGE_MS[range === "24h" ? "7d" : range];
+    const from = ms === null ? "0000" : dayKey(Date.now() - ms);
+    const perProject = await Promise.all(rows.map((s) => ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).gte("day", from)).collect()));
+    return {
+      projects: rows.map((s) => ({ slug: s.slug, name: s.name, logoUrl: s.logoUrl })),
+      points: aggregateHistory(perProject.map((list) => list.map((r) => ({ day: r.day, totalUsers: r.totalUsers, newUsers: r.newUsers })))).map((pt) => ({ t: Date.parse(`${pt.day}T12:00:00Z`), total: pt.total, delta: pt.delta, byProject: pt.byProject })),
+    };
   },
 });
 
@@ -306,10 +336,12 @@ export const search = query({
     const saas = [...byName, ...byDesc, ...byTag].filter((s) => !seen.has(s._id) && seen.add(s._id)).slice(0, 12);
     const profiles = await ctx.db.query("profiles").withSearchIndex("search_name", (s) => s.search("displayName", term)).take(5);
     const byHandle = (await ctx.db.query("profiles").withIndex("by_username", (q) => q.gte("username", term).lt("username", `${term}￿`)).take(5)).filter((p) => !profiles.some((x) => x._id === p._id));
-    return {
-      saas: await Promise.all(saas.map((s) => withOwnerAndSpark(ctx, s))),
-      profiles: [...profiles, ...byHandle].filter((p) => p.userId !== "demo").map(publicProfile),
-    };
+    const founders = [];
+    for (const p of [...profiles, ...byHandle].filter(isProfilePublic)) {
+      const rows = await founderRows(ctx, p);
+      founders.push({ ...publicProfile(p), projectCount: rows.length, totalUsers: rows.reduce((a, s) => a + s.totalUsers, 0), newUsers30d: rows.reduce((a, s) => a + Math.max(0, s.newUsers30d), 0) });
+    }
+    return { saas: await Promise.all(saas.map((s) => withOwnerAndSpark(ctx, s))), profiles: founders };
   },
 });
 
@@ -426,7 +458,7 @@ export const sitemap = query({
     }
     return {
       saas: rows.map((s) => ({ slug: s.slug, updatedAt: s.lastSyncedAt ?? s._creationTime })),
-      profiles: [...owners.values()].map((p) => ({ username: p.username, updatedAt: p._creationTime })),
+      profiles: [...owners.values()].filter(isProfilePublic).map((p) => ({ username: p.username, updatedAt: p._creationTime })),
       categories: CATEGORIES.map((c) => c.slug).filter((c) => rows.some((s) => s.category === c)),
     };
   },

@@ -12,7 +12,7 @@ import { describeProvider, getProvider, normalizeRole, ProviderError, verificati
 import { detectedCount } from "./integrations";
 import { visibilityOf } from "./domain/visibility";
 import { fetchMetrics } from "./providerRun";
-import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, projectSummary, projectUrls, requireOwnedProject, updateProject } from "./domain/projects";
+import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, projectSummary, projectUrls, requireOwnedProject, siteUrl, updateProject } from "./domain/projects";
 import { connectIntegration, integrationView, listIntegrations, requestSync } from "./domain/integrations";
 import { TIMEFRAMES, metricsSummary, milestonesFor, seriesFor, shareData } from "./domain/metrics";
 import { INTEGRATION_CATALOG, conversionSetup as conversionPlan, identityMappingGuidance, integrationSetup, rankActivationEvents, recommendIntegrations } from "./lib/integrationSetup";
@@ -20,7 +20,14 @@ import { ENV_PROJECT_ID, ENV_SECRET, envSnippet, NATIVE_PACKAGE, nativeSetup } f
 import { createNativeIntegration, nativeSourceArg } from "./native";
 import { metricsUrl } from "./providers/native";
 import { normalizeSource, type NativeSource } from "./lib/nativeProtocol";
-import { publicProfile, publicSaas, sortBoard, trendingRankFor, HIDDEN_GEM_RULES } from "./public";
+import { founderRows, publicProfile, publicSaas, sortBoard, trendingRankFor, HIDDEN_GEM_RULES } from "./public";
+import { canonicalX } from "./profiles";
+import { founderAggregates } from "./lib/founder";
+import { normalizePrefs } from "./lib/shareRules";
+import { xConnectionState, xIntentUrl } from "../src/lib/social";
+import { xDraft, type DraftKind } from "../src/lib/x-drafts";
+import { CARD_RANGES, CARD_STYLES, cardQuery, type CardConfig } from "../src/lib/share-card";
+import { shareStatus } from "./schema";
 import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, STAGE_ORDER, funnelFor, funnelHistoryFor, funnelSources } from "./domain/funnel";
 import { cohortView } from "./cohorts";
 import { projectType as projectTypeArg } from "./schema";
@@ -731,4 +738,144 @@ export const embedCode = query({
         note: saas.isPublic ? undefined : "Drafts render a 'not found' badge until published.",
       };
     }),
+});
+
+// ---- v0.7: founder profile, share events, share cards, X drafts ------------------------------------------------------
+
+const cardUrls = (page: string, kind: string, c: Partial<CardConfig> = {}) => {
+  const q = cardQuery(c);
+  return { kind, page: `${page}/share/${kind}`, image: `${page}/share/${kind}/card${q}`, square: `${page}/share/${kind}/card${cardQuery({ ...c, size: "square" })}` };
+};
+
+function draftFor(e: Doc<"shareEvents">, saas: Doc<"saas">, profile: Doc<"profiles">, url: string) {
+  const text = xDraft({ kind: e.kind as DraftKind, name: saas.name, value: e.value, title: e.title, totalUsers: saas.totalUsers, newUsers30d: saas.newUsers30d, growth30dPct: saas.growth30dPct, rank: e.rank, percentile: e.percentile, verified: saas.trust === "verified", author: "founder", seed: e.key, founderHandle: profile.x });
+  return { text, xIntent: xIntentUrl(text, url) };
+}
+
+async function founderProfile(ctx: QueryCtx | MutationCtx, profile: Doc<"profiles">) {
+  const rows = (await founderRows(ctx, profile)).map(publicSaas);
+  const base = siteUrl();
+  return {
+    profile: { ...publicProfile(profile), location: profile.location, profilePublic: profile.profilePublic !== false, xState: xConnectionState({ handle: profile.x, connected: Boolean(profile.xUserId) }), socialPrefs: normalizePrefs(profile.socialPrefs) },
+    aggregates: founderAggregates(rows),
+    projects: rows.map((s) => ({ id: s._id, slug: s.slug, name: s.name, totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, growth30dPct: s.growth30dPct, rank: s.rank, trendingRank: s.trendingRank, verification: s.trust, url: `${base}/s/${s.slug}` })),
+    urls: { profile: `${base}/u/${profile.username}`, card: `${base}/u/${profile.username}/card`, api: `${base}/api/v1/users/${profile.username}`, settings: `${base}/app/settings/social` },
+    formulas: { activationRatePct: "sum(activated users) / sum(users of projects with an activation source)", growth30dPct: "sum(new users 30d) / (sum(total users) - sum(new users 30d))", totalUsers: "sum over public projects only" },
+  };
+}
+
+export const profileTool = query({
+  args: { auth: authArg },
+  handler: async (ctx, { auth }) => {
+    const { profile } = await authenticate(ctx, auth, "mcp", "profile:read");
+    return founderProfile(ctx, profile);
+  },
+});
+
+export const updateProfileTool = mutation({
+  args: { auth: authArg, displayName: v.optional(v.string()), bio: v.optional(v.string()), website: v.optional(v.string()), x: v.optional(v.string()), github: v.optional(v.string()), linkedin: v.optional(v.string()), location: v.optional(v.string()), avatarUrl: v.optional(v.string()), profilePublic: v.optional(v.boolean()) },
+  handler: async (ctx, { auth, ...patch }) =>
+    run(async () => {
+      const { token, profile } = await authenticate(ctx, auth, "mcp", "profile:write");
+      const strip = (s?: string) => s?.trim().replace(/^@/, "").replace(/^https?:\/\/(www\.)?(github\.com|linkedin\.com\/in)\//, "").replace(/\/$/, "") || undefined;
+      const next: Partial<Doc<"profiles">> = {};
+      if (patch.displayName !== undefined) {
+        if (patch.displayName.trim().length < 2) fail("bad_request", "displayName is too short");
+        next.displayName = patch.displayName.trim().slice(0, 60);
+      }
+      if (patch.bio !== undefined) next.bio = patch.bio.trim().slice(0, 160) || undefined;
+      if (patch.location !== undefined) next.location = patch.location.trim().slice(0, 60) || undefined;
+      if (patch.website !== undefined) {
+        if (patch.website && !/^https?:\/\//.test(patch.website.trim())) fail("bad_request", "website must start with https://");
+        next.website = patch.website.trim() || undefined;
+      }
+      if (patch.avatarUrl !== undefined) {
+        if (patch.avatarUrl && !/^https:\/\//.test(patch.avatarUrl.trim())) fail("bad_request", "avatarUrl must start with https://");
+        next.avatarUrl = patch.avatarUrl.trim() || undefined;
+      }
+      if (patch.x !== undefined) {
+        try { next.x = canonicalX(patch.x); } catch (e) { fail("bad_request", (e as Error).message); }
+      }
+      if (patch.github !== undefined) next.github = strip(patch.github);
+      if (patch.linkedin !== undefined) next.linkedin = strip(patch.linkedin);
+      if (patch.profilePublic !== undefined) next.profilePublic = patch.profilePublic;
+      await ctx.db.patch(profile._id, next);
+      await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "update_profile", ok: true, detail: Object.keys(next).join(",") });
+      return { updated: Object.keys(next), ...(await founderProfile(ctx, (await ctx.db.get(profile._id))!)) };
+    }),
+});
+
+export const shareEventsTool = query({
+  args: { auth: authArg, ...refArg, status: v.optional(shareStatus), limit: v.optional(v.number()) },
+  handler: async (ctx, { auth, projectId, slug, status, limit }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      const only = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
+      const rows = await ctx.db.query("shareEvents").withIndex("by_profile_status_time", (q) => q.eq("profileId", profile._id).eq("status", status ?? "ready")).order("desc").take(Math.min(limit ?? 20, 100));
+      const events = [];
+      for (const e of rows) {
+        if (only && e.saasId !== only._id) continue;
+        const saas = await ctx.db.get(e.saasId);
+        if (!saas) continue;
+        const page = projectUrls(saas).page;
+        const urls = cardUrls(page, e.cardKind);
+        events.push({ id: e._id, project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic }, kind: e.kind, category: e.category, title: e.title, detail: e.detail, metric: e.metric, value: e.value, rank: e.rank, percentile: e.percentile, timeframe: e.timeframe, score: e.score, status: e.status, createdAt: new Date(e.createdAt).toISOString(), card: urls, draft: draftFor(e, saas, profile, urls.page) });
+      }
+      events.sort((a, b) => b.score - a.score);
+      return { events, strongest: events[0] ?? null, note: events.length ? undefined : "No share-ready events yet. Significant milestones (100+ users, Top 100, records, top-10% benchmarks) create them automatically." };
+    }),
+});
+
+const cardStyleArg = v.union(...CARD_STYLES.map((s) => v.literal(s)));
+const cardRangeArg = v.union(...CARD_RANGES.map((r) => v.literal(r)));
+
+// Builds a card configuration + URLs. Marks the share event as shared when one is referenced (the agent is about to post it).
+export const createShareCardTool = mutation({
+  args: { auth: authArg, ...refArg, kind: v.optional(v.string()), shareEventId: v.optional(v.id("shareEvents")), style: v.optional(cardStyleArg), size: v.optional(v.union(v.literal("og"), v.literal("square"))), range: v.optional(cardRangeArg), chart: v.optional(v.boolean()), logo: v.optional(v.boolean()), founder: v.optional(v.boolean()), verified: v.optional(v.boolean()), dates: v.optional(v.boolean()), title: v.optional(v.string()) },
+  handler: async (ctx, { auth, projectId, slug, kind, shareEventId, ...config }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "profile:write");
+      let event: Doc<"shareEvents"> | null = null;
+      if (shareEventId) {
+        event = await ctx.db.get(shareEventId);
+        if (!event || event.profileId !== profile._id) fail("not_found", "Unknown share event");
+      }
+      const saas = event ? (await ctx.db.get(event.saasId))! : await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const kinds = ["users", "growth", "week", ...(saas.rank ? ["rank"] : []), ...(saas.trendingRank ? ["trending"] : []), ...(saas.activationRatePct !== undefined ? ["activation"] : []), ...(visibilityOf(saas).conversionRate && saas.signupToConvertedPct !== undefined ? ["conversion"] : []), "benchmark"];
+      const k = kind ?? event?.cardKind ?? "users";
+      if (!kinds.includes(k) && !/^(milestone|spike)-[a-z0-9]+$/i.test(k)) fail("bad_request", `kind must be one of ${kinds.join(", ")}, milestone-<id> or spike-<id>`);
+      const urls = cardUrls(projectUrls(saas).page, k, config);
+      if (event) await ctx.db.patch(event._id, { status: "shared", sharedAt: Date.now() });
+      const draft = event ? draftFor(event, saas, profile, urls.page) : (() => { const text = xDraft({ kind: (k.split("-")[0] as DraftKind), name: saas.name, value: saas.totalUsers, totalUsers: saas.totalUsers, newUsers30d: saas.newUsers30d, newUsers7d: saas.newUsers7d, growth30dPct: saas.growth30dPct, rank: k === "trending" ? saas.trendingRank : saas.rank, verified: saas.trust === "verified", author: "founder", seed: k }); return { text, xIntent: xIntentUrl(text, urls.page) }; })();
+      return { project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic }, config: { style: "blueprint", size: "og", range: "30d", chart: true, logo: true, founder: true, verified: true, dates: true, ...config }, card: urls, draft, styles: CARD_STYLES, ranges: CARD_RANGES, verificationLine: saas.trust === "verified" ? "Verified by UserTrack" : "Tracked on UserTrack", note: saas.isPublic ? undefined : "Publish the project first; share images 404 for drafts." };
+    }),
+});
+
+export const xDraftTool = query({
+  args: { auth: authArg, ...refArg, shareEventId: v.optional(v.id("shareEvents")), kind: v.optional(v.string()) },
+  handler: async (ctx, { auth, projectId, slug, shareEventId, kind }) =>
+    run(async () => {
+      const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
+      if (shareEventId) {
+        const e = await ctx.db.get(shareEventId);
+        if (!e || e.profileId !== profile._id) fail("not_found", "Unknown share event");
+        const saas = (await ctx.db.get(e!.saasId))!;
+        const page = `${projectUrls(saas).page}/share/${e!.cardKind}`;
+        return { project: { id: saas._id, slug: saas.slug, name: saas.name }, event: { id: e!._id, title: e!.title, kind: e!.kind }, url: page, ...draftFor(e!, saas, profile, page) };
+      }
+      const saas = await requireOwnedProject(ctx, profile._id, { id: projectId, slug });
+      const k = (kind ?? "users") as DraftKind;
+      const page = `${projectUrls(saas).page}/share/${kind ?? "users"}`;
+      const text = xDraft({ kind: k, name: saas.name, value: k === "users" ? saas.totalUsers : k === "growth" ? saas.newUsers30d : k === "week" ? saas.newUsers7d : k === "activation" ? (saas.activationRatePct ?? 0) : k === "trending" ? (saas.trendingRank ?? 0) : (saas.rank ?? 0), totalUsers: saas.totalUsers, newUsers30d: saas.newUsers30d, newUsers7d: saas.newUsers7d, growth30dPct: saas.growth30dPct, rank: k === "trending" ? saas.trendingRank : saas.rank, verified: saas.trust === "verified", author: "founder", seed: k, founderHandle: profile.x });
+      return { project: { id: saas._id, slug: saas.slug, name: saas.name }, url: page, text, xIntent: xIntentUrl(text, page) };
+    }),
+});
+
+export const founderUrlTool = query({
+  args: { auth: authArg },
+  handler: async (ctx, { auth }) => {
+    const { profile } = await authenticate(ctx, auth, "mcp", "profile:read");
+    const base = siteUrl();
+    return { username: profile.username, public: profile.profilePublic !== false, urls: { profile: `${base}/u/${profile.username}`, card: `${base}/u/${profile.username}/card`, ogImage: `${base}/u/${profile.username}/opengraph-image`, api: `${base}/api/v1/users/${profile.username}`, history: `${base}/api/v1/users/${profile.username}/history` } };
+  },
 });

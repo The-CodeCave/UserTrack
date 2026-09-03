@@ -125,15 +125,37 @@ export function metricsDto(r: SaasRow) {
   };
 }
 
-export function profileDto(p: { username: string; displayName: string; avatarUrl?: string; bio?: string; website?: string; x?: string; github?: string; linkedin?: string; followerCount: number }) {
+export function profileDto(p: { username: string; displayName: string; avatarUrl?: string; bio?: string; website?: string; x?: string; xConnected?: boolean; github?: string; linkedin?: string; location?: string; followerCount: number; joinedAt?: number }) {
   return {
     username: p.username,
     displayName: p.displayName,
     avatarUrl: p.avatarUrl,
     bio: p.bio,
+    location: p.location,
     links: { website: p.website, x: p.x, github: p.github, linkedin: p.linkedin },
+    // "connected" = the founder linked the X account through OAuth; "handle_provided" = typed in, unverified.
+    xState: p.x ? (p.xConnected ? "connected_via_oauth" : "handle_provided") : "unavailable",
     followers: p.followerCount,
-    urls: { profile: `${SITE_URL}/u/${p.username}` },
+    joinedAt: iso(p.joinedAt),
+    urls: { profile: `${SITE_URL}/u/${p.username}`, card: `${SITE_URL}/u/${p.username}/card`, history: `${SITE_URL}/api/v1/users/${p.username}/history` },
+  };
+}
+
+// Founder aggregates over public projects only. Activation is weighted (sum activated / sum users with an activation source).
+export function founderMetricsDto(a: { projectCount: number; verifiedCount: number; totalUsers: number; newUsers7d: number; newUsers30d: number; growth30dPct: number; changeVsPrev30dPct?: number; activatedUsers?: number; activationRatePct?: number; activationProjects: number; convertedUsers?: number; bestRank?: number; trendingCount: number; biggestGrowth?: { slug: string; name: string; newUsers30d: number } }) {
+  return {
+    projects: a.projectCount,
+    verifiedProjects: a.verifiedCount,
+    totalUsers: a.totalUsers,
+    newUsers7d: a.newUsers7d,
+    newUsers30d: a.newUsers30d,
+    growth30dPct: a.growth30dPct,
+    changeVsPrev30dPct: a.changeVsPrev30dPct,
+    activation: a.activationRatePct === undefined ? undefined : { activatedUsers: a.activatedUsers, ratePct: a.activationRatePct, projects: a.activationProjects, method: "weighted" as const },
+    convertedUsers: a.convertedUsers,
+    bestRank: a.bestRank,
+    trendingProjects: a.trendingCount,
+    biggestGrowth: a.biggestGrowth,
   };
 }
 

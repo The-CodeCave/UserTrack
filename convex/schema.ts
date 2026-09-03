@@ -51,6 +51,21 @@ export const emailStatus = v.union(
   v.literal("skipped"),
 );
 export const recipientStatus = v.union(v.literal("active"), v.literal("bounced"), v.literal("complained"), v.literal("suppressed"));
+// Share engine: which achievements become share-ready cards (convex/lib/shareRules.ts) and where they are in the founder's flow.
+export const shareCategory = v.union(v.literal("userMilestones"), v.literal("leaderboardMilestones"), v.literal("growthRecords"), v.literal("monthlyGrowth"), v.literal("activationBenchmarks"));
+export const shareStatus = v.union(v.literal("ready"), v.literal("shared"), v.literal("dismissed"));
+// Founder social preferences. Every auto-share flag is OFF unless the founder switches it on; tagging/promotion default to allowed.
+export const socialPrefs = v.object({
+  allowTagging: v.optional(v.boolean()),
+  allowPromotion: v.optional(v.boolean()),
+  autoShare: v.optional(v.object({
+    userMilestones: v.optional(v.boolean()),
+    leaderboardMilestones: v.optional(v.boolean()),
+    growthRecords: v.optional(v.boolean()),
+    monthlyGrowth: v.optional(v.boolean()),
+    activationBenchmarks: v.optional(v.boolean()),
+  })),
+});
 
 export default defineSchema({
   profiles: defineTable({
@@ -63,9 +78,16 @@ export default defineSchema({
     x: v.optional(v.string()),
     github: v.optional(v.string()),
     linkedin: v.optional(v.string()),
+    location: v.optional(v.string()),
     onboardingCompleted: v.boolean(),
     digestOptIn: v.optional(v.boolean()),
     followerCount: v.optional(v.number()),
+    // false hides /u/<username>, search and the API; default public.
+    profilePublic: v.optional(v.boolean()),
+    // Summary of a connected X account; tokens live in socialConnections and never here.
+    xUserId: v.optional(v.string()),
+    xConnectedAt: v.optional(v.number()),
+    socialPrefs: v.optional(socialPrefs),
   })
     .index("by_userId", ["userId"])
     .index("by_username", ["username"])
@@ -344,6 +366,93 @@ export default defineSchema({
     .index("by_saas_time", ["saasId", "at"])
     .index("by_saas_kind_day", ["saasId", "kind", "day"])
     .index("by_time", ["at"]),
+
+  // Share-ready events: one per significant achievement (milestone key, spike day, benchmark month), never re-created.
+  shareEvents: defineTable({
+    profileId: v.id("profiles"),
+    saasId: v.id("saas"),
+    key: v.string(),
+    kind: v.string(),
+    category: shareCategory,
+    title: v.string(),
+    detail: v.string(),
+    metric: v.string(),
+    value: v.number(),
+    previousValue: v.optional(v.number()),
+    timeframe: v.optional(v.string()),
+    rank: v.optional(v.number()),
+    percentile: v.optional(v.number()),
+    milestoneId: v.optional(v.id("milestones")),
+    eventId: v.optional(v.id("events")),
+    // Share kind rendered by /s/<slug>/share/<cardKind>.
+    cardKind: v.string(),
+    score: v.number(),
+    status: shareStatus,
+    createdAt: v.number(),
+    sharedAt: v.optional(v.number()),
+    dismissedAt: v.optional(v.number()),
+  })
+    .index("by_saas_key", ["saasId", "key"])
+    .index("by_profile_status_time", ["profileId", "status", "createdAt"])
+    .index("by_profile_time", ["profileId", "createdAt"])
+    .index("by_status_time", ["status", "createdAt"]),
+
+  // Connected social accounts. Tokens are server-only: never returned by a query, never logged.
+  socialConnections: defineTable({
+    profileId: v.id("profiles"),
+    provider: v.literal("x"),
+    providerUserId: v.string(),
+    handle: v.string(),
+    name: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    scopes: v.array(v.string()),
+    connectedAt: v.number(),
+    lastPostAt: v.optional(v.number()),
+    status: v.union(v.literal("active"), v.literal("revoked"), v.literal("error")),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_profile_provider", ["profileId", "provider"])
+    .index("by_provider_user", ["provider", "providerUserId"]),
+
+  // Posts made (or attempted) on a founder's behalf or by the UserTrack account. One row per event × account = dedupe.
+  socialPosts: defineTable({
+    profileId: v.optional(v.id("profiles")),
+    saasId: v.optional(v.id("saas")),
+    shareEventId: v.optional(v.id("shareEvents")),
+    account: v.union(v.literal("founder"), v.literal("usertrack")),
+    provider: v.literal("x"),
+    text: v.string(),
+    status: v.union(v.literal("queued"), v.literal("posted"), v.literal("failed"), v.literal("skipped")),
+    providerPostId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    postedAt: v.optional(v.number()),
+  })
+    .index("by_event_account", ["shareEventId", "account"])
+    .index("by_profile_time", ["profileId", "createdAt"])
+    .index("by_account_time", ["account", "createdAt"]),
+
+  // OAuth CSRF state + PKCE verifier, single use, expires after 10 minutes.
+  oauthStates: defineTable({
+    state: v.string(),
+    profileId: v.id("profiles"),
+    provider: v.literal("x"),
+    codeVerifier: v.string(),
+    redirectTo: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_state", ["state"]),
+
+  // Share usage counters per UTC day, card kind and action (generated · downloaded · copied · x). No user or IP data.
+  shareStats: defineTable({
+    day: v.string(),
+    kind: v.string(),
+    action: v.string(),
+    count: v.number(),
+    updatedAt: v.number(),
+  }).index("by_day_kind_action", ["day", "kind", "action"]),
 
   follows: defineTable({
     followerId: v.id("profiles"),

@@ -54,6 +54,7 @@ const fmtDuration = (ms: number) => {
 const saasUrl = (c: RenderContext, slug: string) => `${c.siteUrl}/s/${slug}`;
 const manageUrl = (c: RenderContext, saasId: string) => `${c.siteUrl}/app/saas/${saasId}`;
 const shareUrl = (c: RenderContext, slug: string, kind: string) => `${c.siteUrl}/s/${slug}/share/${kind}`;
+const shareCenter = (c: RenderContext) => muted(`A ready-made share card is waiting in your <a href="${c.siteUrl}/app/share" style="color:${BRAND.ink}">Share Center</a> — download the PNG or post it to X in one click.`);
 
 type Builder<T extends EmailType> = (data: TemplateData[T], c: RenderContext) => Rendered;
 
@@ -131,8 +132,8 @@ const userMilestone: Builder<"user-milestone"> = (d, c) => {
   return {
     subject: `${d.saasName} just crossed ${num(d.threshold)} users`,
     preheader: sub,
-    html: layout({ siteUrl: c.siteUrl, eyebrow: "MILESTONE", title: `${esc(d.saasName)} crossed ${num(d.threshold)} users`, intro: `Verified by your connected data source, not typed in. That is worth telling people about.`, body: metricRow([metric("Milestone", num(d.threshold), undefined, true), metric("Total now", num(d.totalUsers), d.previousThreshold && d.sinceMs !== undefined ? `since ${num(d.previousThreshold)}: ${fmtDuration(d.sinceMs)}` : undefined)]) + (d.isPublic ? "" : muted("Your page is a draft — publish it to get a share card with this milestone.")), cta, secondary: d.isPublic ? { label: "View public page", url: saasUrl(c, d.slug) } : undefined, footerNote: growthFooter(c), prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
-    text: text([`${d.saasName} just crossed ${num(d.threshold)} users (${num(d.totalUsers)} now).`, sub, `${cta.label}: ${cta.url}`]),
+    html: layout({ siteUrl: c.siteUrl, eyebrow: "MILESTONE", title: `${esc(d.saasName)} crossed ${num(d.threshold)} users`, intro: `Verified by your connected data source, not typed in. That is worth telling people about.`, body: metricRow([metric("Milestone", num(d.threshold), undefined, true), metric("Total now", num(d.totalUsers), d.previousThreshold && d.sinceMs !== undefined ? `since ${num(d.previousThreshold)}: ${fmtDuration(d.sinceMs)}` : undefined)]) + (d.isPublic ? shareCenter(c) : muted("Your page is a draft — publish it to get a share card with this milestone.")), cta, secondary: d.isPublic ? { label: "View public page", url: saasUrl(c, d.slug) } : undefined, footerNote: growthFooter(c), prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
+    text: text([`${d.saasName} just crossed ${num(d.threshold)} users (${num(d.totalUsers)} now).`, sub, `${cta.label}: ${cta.url}`, d.isPublic ? `Share Center: ${c.siteUrl}/app/share` : undefined]),
   };
 };
 
@@ -141,7 +142,7 @@ const rankMilestone: Builder<"rank-milestone"> = (d, c) => {
   return {
     subject: d.threshold === 1 ? `${d.saasName} is #1 on UserTrack` : `${d.saasName} entered the UserTrack ${tier}`,
     preheader: `#${d.rank} by verified new users in the last 30 days.`,
-    html: layout({ siteUrl: c.siteUrl, eyebrow: "LEADERBOARD", title: d.threshold === 1 ? `${esc(d.saasName)} is #1 on UserTrack` : `${esc(d.saasName)} entered the ${tier}`, intro: `Ranked by verified new users over the last 30 days, across every public product on UserTrack.`, body: metricRow([metric("Current rank", `#${d.rank}`, "last 30 days", true), metric("New users · 30d", delta(d.newUsers30d), pctStr(d.growth30dPct))]), cta: { label: "Share ranking", url: shareUrl(c, d.slug, "rank") }, secondary: { label: "View leaderboard", url: `${c.siteUrl}/leaderboard` }, footerNote: growthFooter(c) + " Ranking emails only go out at Top 100 / 50 / 25 / 10 / 5 / #1.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
+    html: layout({ siteUrl: c.siteUrl, eyebrow: "LEADERBOARD", title: d.threshold === 1 ? `${esc(d.saasName)} is #1 on UserTrack` : `${esc(d.saasName)} entered the ${tier}`, intro: `Ranked by verified new users over the last 30 days, across every public product on UserTrack.`, body: metricRow([metric("Current rank", `#${d.rank}`, "last 30 days", true), metric("New users · 30d", delta(d.newUsers30d), pctStr(d.growth30dPct))]) + shareCenter(c), cta: { label: "Share ranking", url: shareUrl(c, d.slug, "rank") }, secondary: { label: "View leaderboard", url: `${c.siteUrl}/leaderboard` }, footerNote: growthFooter(c) + " Ranking emails only go out at Top 100 / 50 / 25 / 10 / 5 / #1.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
     text: text([`${d.saasName} entered the UserTrack ${tier}: #${d.rank} by verified new users in the last 30 days (${delta(d.newUsers30d)}, ${pctStr(d.growth30dPct)}).`, `Share: ${shareUrl(c, d.slug, "rank")}`]),
   };
 };

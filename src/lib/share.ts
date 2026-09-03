@@ -7,8 +7,10 @@ export interface ShareSaas {
 // A stored achievement (milestone or growth spike) rendered as its own card.
 export interface ShareEvent { title: string; copy: string; kind: string; value?: number; achievedAt: number; eyebrow?: string }
 
-export type ShareKind = "users" | "growth" | "week" | "rank" | "trending" | "activation" | "conversion" | `milestone-${string}` | `spike-${string}`;
-export const SHARE_KINDS = ["users", "growth", "week", "rank", "trending", "activation", "conversion"] as const;
+export type ShareKind = "users" | "growth" | "week" | "rank" | "trending" | "activation" | "conversion" | "benchmark" | `milestone-${string}` | `spike-${string}`;
+export const SHARE_KINDS = ["users", "growth", "week", "rank", "trending", "activation", "conversion", "benchmark"] as const;
+// Kinds whose headline is a time series, where the studio offers a range picker.
+export const GRAPH_KINDS: ReadonlySet<string> = new Set(["users", "growth", "week"]);
 export type ShareSize = "og" | "square";
 export const SHARE_SIZES: Record<ShareSize, { width: number; height: number }> = { og: { width: 1200, height: 630 }, square: { width: 1080, height: 1080 } };
 
@@ -22,7 +24,7 @@ export const parseShareSize = (v: string | null | undefined): ShareSize => (v ==
 
 // Headline / value / sub copy for every card kind. Used by the share page, its OG image and the share text.
 export function shareCopy(s: ShareSaas, kind: ShareKind, m?: ShareEvent | null) {
-  if (m) return { eyebrow: m.eyebrow ?? (kind.startsWith("spike-") ? "GROWTH SPIKE" : "MILESTONE"), value: m.title, sub: m.copy, text: `${m.copy} ${hashtag(s)}` };
+  if (m) return { eyebrow: m.eyebrow ?? (kind.startsWith("spike-") ? "GROWTH SPIKE" : kind === "benchmark" ? "BENCHMARK" : "MILESTONE"), value: m.title, sub: m.copy, text: `${m.copy} ${hashtag(s)}` };
   switch (kind) {
     case "growth":
       return { eyebrow: "LAST 30 DAYS", value: formatDelta(s.newUsers30d), sub: `${formatPct(s.growth30dPct)} growth · ${formatCompact(s.totalUsers)} users total`, text: `${s.name} gained ${formatDelta(s.newUsers30d)} users in the last 30 days (${formatPct(s.growth30dPct)}). ${hashtag(s)}` };
@@ -34,6 +36,8 @@ export function shareCopy(s: ShareSaas, kind: ShareKind, m?: ShareEvent | null) 
       return { eyebrow: "TRENDING NOW", value: s.trendingRank ? `#${s.trendingRank}` : "—", sub: `${formatDelta(s.newUsers7d)} new users this week · momentum, not size`, text: `${s.name} is #${s.trendingRank} trending on UserTrack right now. ${hashtag(s)}` };
     case "activation":
       return { eyebrow: "ACTIVATION", value: formatRate(s.activationRatePct), sub: `${formatCompact(s.activatedUsers ?? 0)} of ${formatCompact(s.totalUsers)} users activated`, text: `${formatRate(s.activationRatePct)} of ${s.name} users activate. ${hashtag(s)}` };
+    case "benchmark":
+      return { eyebrow: "BENCHMARK", value: "Top quarter", sub: "Compared with verified products on UserTrack", text: `${s.name} ranks in the top quarter of verified products on UserTrack. ${hashtag(s)}` };
     case "conversion":
       return { eyebrow: "CONVERSION", value: formatRate(s.signupToConvertedPct), sub: "Signup → Converted · users who convert, never revenue", text: `${formatRate(s.signupToConvertedPct)} of ${s.name} signups convert. ${hashtag(s)}` };
     default:

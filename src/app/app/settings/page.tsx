@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { toast } from "sonner";
-import { Bell, ChevronRight, FileBarChart } from "lucide-react";
+import { Bell, ChevronRight, FileBarChart, Share2 } from "lucide-react";
 import { api } from "../../../../convex/_generated/api";
 import { authClient } from "@/lib/auth-client";
 import { SectionLabel } from "@/components/blueprint/section-label";
@@ -53,6 +53,13 @@ export default function SettingsPage() {
           <Panel className="flex h-full items-center gap-3 p-4 transition-colors group-hover:border-line-strong">
             <Bell className="size-4 text-pink" />
             <div className="flex-1"><div className="text-sm font-medium">Email notifications</div><div className="text-xs text-muted-foreground">Reminders, milestones, alerts, reports.</div></div>
+            <ChevronRight className="size-4 text-muted-foreground" />
+          </Panel>
+        </Link>
+        <Link href="/app/settings/social" className="group">
+          <Panel className="flex h-full items-center gap-3 p-4 transition-colors group-hover:border-line-strong">
+            <Share2 className="size-4 text-pink" />
+            <div className="flex-1"><div className="text-sm font-medium">Social &amp; X</div><div className="text-xs text-muted-foreground">X handle, connected account, auto-share.</div></div>
             <ChevronRight className="size-4 text-muted-foreground" />
           </Panel>
         </Link>

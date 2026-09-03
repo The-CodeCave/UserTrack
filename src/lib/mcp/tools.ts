@@ -5,6 +5,8 @@ import { api } from "@convex/_generated/api";
 import { RANGES } from "@convex/lib/time";
 import { TIMEFRAMES } from "@convex/domain/metrics";
 import type { Scope } from "@convex/lib/tokens";
+import { CARD_RANGES, CARD_STYLES } from "@/lib/share-card";
+import type { Id } from "@convex/_generated/dataModel";
 
 type Auth = { hash: string; gateway?: string };
 const ROLES = ["users", "activation", "traffic", "conversion"] as const;
@@ -370,6 +372,93 @@ const TOOLS_NATIVE: Tool[] = [
 ];
 TOOLS.push(...TOOLS_NATIVE);
 
+const TOOLS_SHARE: Tool[] = [
+  tool({
+    name: "usertrack_get_profile",
+    title: "Get founder profile",
+    description: "The founder's public profile (name, username, bio, links, X handle + connection state, location, visibility), founder-level aggregates across public projects (total users, new users 30d, weighted activation rate, best rank, trending count, biggest-growth project — formulas included), the public project list and the profile / card / API URLs.",
+    scope: "profile:read",
+    readOnly: true,
+    input: {},
+    run: (auth) => fetchQuery(api.gateway.profileTool, { auth }),
+  }),
+  tool({
+    name: "usertrack_update_profile",
+    title: "Update founder profile",
+    description: "Edit the founder profile: displayName, bio (≤160), website (https), x (accepts '@name', 'name' or an x.com URL — stored canonically as 'name'), github, linkedin, location, avatarUrl (https), profilePublic. Only the fields you pass change. Never touches tokens or the username.",
+    scope: "profile:write",
+    readOnly: false,
+    input: {
+      displayName: z.string().min(2).max(60).optional(),
+      bio: z.string().max(160).optional(),
+      website: z.string().optional(),
+      x: z.string().optional().describe("X / Twitter handle, with or without @"),
+      github: z.string().optional(),
+      linkedin: z.string().optional(),
+      location: z.string().max(60).optional(),
+      avatarUrl: z.string().optional(),
+      profilePublic: z.boolean().optional().describe("false hides /u/<username> from the public, search and the API"),
+    },
+    run: (auth, a) => fetchMutation(api.gateway.updateProfileTool, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_get_share_events",
+    title: "Share-ready events",
+    description: "Share-ready events for this account (optionally one project): significant milestones, records, rank achievements, spikes and top-10% benchmarks that UserTrack turned into cards automatically. Each comes with score (strongest first), card URLs (page, 1200×630 image, 1080×1080 square) and an X draft + intent link. Use `strongest` to answer 'my best milestone this month'.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { ...ref, status: z.enum(["ready", "shared", "dismissed"]).optional().describe("Default ready"), limit: z.number().int().min(1).max(100).optional() },
+    run: (auth, a) => fetchQuery(api.gateway.shareEventsTool, { auth, ...a }),
+  }),
+  tool({
+    name: "usertrack_create_share_card",
+    title: "Create share card",
+    description: "Build a share card configuration and get its deterministic PNG URLs: pass a project + kind (users, growth, week, rank, trending, activation, conversion, benchmark, milestone-<id>, spike-<id>) or a shareEventId, plus optional style (blueprint | aurora | minimal), size (og | square), range (7d | 30d | 90d | 1y | all, for the chart), chart / logo / founder / verified / dates toggles and a short custom title. Returns page, image and square URLs, the X draft and the verification wording. Referencing a share event marks it as shared.",
+    scope: "profile:write",
+    readOnly: false,
+    input: {
+      ...ref,
+      kind: z.string().optional(),
+      shareEventId: z.string().optional(),
+      style: z.enum(CARD_STYLES).optional(),
+      size: z.enum(["og", "square"]).optional(),
+      range: z.enum(CARD_RANGES).optional(),
+      chart: z.boolean().optional(),
+      logo: z.boolean().optional(),
+      founder: z.boolean().optional().describe("Show the founder's @handle on the card"),
+      verified: z.boolean().optional().describe("Show the 'Verified by UserTrack' / 'Tracked on UserTrack' line"),
+      dates: z.boolean().optional(),
+      title: z.string().max(60).optional(),
+    },
+    run: (auth, a) => fetchMutation(api.gateway.createShareCardTool, { auth, ...a, shareEventId: a.shareEventId as Id<"shareEvents"> | undefined }),
+  }),
+  tool({
+    name: "usertrack_get_x_draft",
+    title: "X post draft",
+    description: "A concise, data-driven X post for a share event or a card kind (users, growth, week, rank, trending, activation), with the share URL and a ready x.com intent link. Wording rotates per event and only says 'verified' for verified sources.",
+    scope: "metrics:read",
+    readOnly: true,
+    input: { ...ref, shareEventId: z.string().optional(), kind: z.string().optional() },
+    run: (auth, a) => fetchQuery(api.gateway.xDraftTool, { auth, ...a, shareEventId: a.shareEventId as Id<"shareEvents"> | undefined }),
+  }),
+  tool({
+    name: "usertrack_get_founder_url",
+    title: "Founder URLs",
+    description: "Public founder profile URL (/u/<username>), the founder card PNG, the OG image and the public API endpoints for the profile and its aggregate history.",
+    scope: "profile:read",
+    readOnly: true,
+    input: {},
+    run: (auth) => fetchQuery(api.gateway.founderUrlTool, { auth }),
+  }),
+];
+TOOLS.push(...TOOLS_SHARE);
+
+export const SHARE_WORKFLOW = [
+  "usertrack_get_share_events (strongest first; or usertrack_get_milestones for the raw list)",
+  "usertrack_create_share_card { shareEventId, style, size, range } → image / square PNG URLs + draft",
+  "usertrack_get_x_draft if the founder wants alternative wording; hand back the intent link — never post without an explicit ask",
+];
+
 export const SETUP_WORKFLOW = [
   "usertrack_get_account",
   "usertrack_get_provider_recommendation (pass detectedProviders / detectedAuth / detectedAnalytics / detectedPayments + framework + projectType from the repo: native SDK (Better Auth plugin, or @usertrack/node for Auth.js / Convex / Prisma / Drizzle / custom) → Supabase → Clerk → Firebase → PostgreSQL → endpoint for users; Sign in with Apple / Google are auth methods, never the users source)",
@@ -393,5 +482,7 @@ ${SETUP_WORKFLOW.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 Mobile flow ("Add this iOS app to UserTrack"): projectType "mobile"; users from where accounts are stored (Firebase Auth, Supabase, Auth0, a database or a backend JSON endpoint) — Sign in with Apple / Google are auth methods, never the users source; activation from PostHog (identify(uid) + an outcome event); Trial / Converted from RevenueCat (or Stripe / endpoint); then usertrack_update_project with projectType, appStoreUrl / playStoreUrl and authMethods.
 
 Native SDK flow ("Add this project to UserTrack" when the repo owns its user store — Better Auth, Auth.js / NextAuth, Convex, Prisma, Drizzle or a custom database): usertrack_create_project → usertrack_create_integration { provider: "native", source } (the secret is returned once) → usertrack_get_native_setup { source } → install the package with the repo's package manager (@usertrack/better-auth: append userTrack({ projectId: process.env.USERTRACK_PROJECT_ID!, secret: process.env.USERTRACK_SECRET! }) to the existing plugins array without touching other options; @usertrack/node: add app/api/usertrack/metrics/route.ts exporting createUserTrackHandler with a users count source, optionally activation / conversion), add both variables to .env.example and the local env, typecheck, deploy → usertrack_verify_integration → usertrack_sync_project → usertrack_get_share_url.
+
+Share flow ("Create a share card for my best milestone this month"): ${SHARE_WORKFLOW.join(" → ")}. Founder identity: usertrack_get_profile / usertrack_update_profile (X handle accepted as @name or name), usertrack_get_founder_url for the public profile.
 
 Rules: never print or log credentials; prefer verified providers over manual numbers; only aggregate counts are ever sent to UserTrack; payment providers are read for conversion state only, never revenue (no amounts, prices, invoices or MRR); never send emails, names or phone numbers — identities are stable ids only; ask the founder for any credential you cannot find in the repo's env files.`;

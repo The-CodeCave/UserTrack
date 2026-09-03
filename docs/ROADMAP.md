@@ -59,6 +59,13 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 - One provider kind `native` for every client of the native protocol; `better_auth` migrated (`migrations:nativeV1`) and kept as an alias. Users, activation and conversion from one signed handler; extra roles attach automatically.
 - `@usertrack/protocol` (signing + wire types, zero deps), `@usertrack/node` (handler, Node adapter, tracker; Prisma / Drizzle / Convex / Auth.js adapters, 22 tests + e2e), `@usertrack/better-auth` 0.2.0 as a thin wrapper. One tag-driven release workflow for all three packages.
 - Setup knowledge per source (`convex/lib/nativeSetup.ts`) shared by the "My app (SDK)" wizard, `/developers/integrations/native` and MCP `usertrack_get_native_setup`; recommendation ranks Better Auth / Auth.js / Convex first and ORM-only signals after hosted auth providers.
+### v0.8 — Founder identity & sharing
+- Public founder profiles with weighted aggregates, aggregate growth chart, project grid, founder card / OG, `profilePublic`, search integration. `docs/PROFILES.md`.
+- X handle support (canonical, validated, optional), connection states, `/app/settings/social`.
+- Share Card Studio (Blueprint / Aurora / Minimal, 1200×630 + 1080×1080, timeframes, toggles, title; Download / Copy image / Copy link / Post to X) with share buttons on every major metric, chart, rank, benchmark, milestone and the founder page; deterministic, rate-limited, cacheable card URLs; honest chart scale. `docs/SHARING.md`.
+- Share engine (`shareEvents`, significance floors, one-time keys, monthly benchmark cards) + Share Center; drafts for X; milestone emails link to the Center.
+- X OAuth 2.0 PKCE + opt-in auto-posting and the separate UserTrack-account pathway (OAuth 1.0a), all feature-flagged with human setup in `HUMAN_TODO.md`. `docs/SOCIAL.md`.
+- API `/users/{username}` aggregates + `/history`; MCP +6 tools (35) and the share workflow.
 
 ## Next opportunities
 0. **Real-world adapter runs** — the Prisma / Drizzle / Convex / Auth.js adapters are tested against fakes and rendered SQL; one live founder integration per adapter (see `packages/node/HUMAN_TODO.md`) would confirm the count semantics end to end, then publish the three packages.
@@ -71,6 +78,7 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 6. **More sources**: Umami, Fathom (traffic); Amplitude, Mixpanel, Firebase Analytics via BigQuery (activation, today through the endpoint); RevenueCat identities (customers API or webhooks) and per-day trial flows; StoreKit / Google Play Billing directly; more databases (MySQL, MongoDB) behind the same Node-runtime pattern.
 6b. **Cohort-verified benchmarks** once enough products are `cohort_verified` (kept separate from aggregate cohorts by construction).
 7. **Notifications**: in-app + email on milestones / rank changes for followed products (the `events`/`milestones` data already exists).
+7b. **Sharing follow-ups**: materialize founder aggregates/history on the profile row once founders have many projects; media upload for X posts (today the card comes from the URL unfurl); LinkedIn / Bluesky intents and connections; calendar-month growth cards; per-project X handles; share-stats dashboard for operators; "Import from X" in onboarding once the X app exists.
 8. **"vs" SEO pages** for popular compare pairs (compare permalinks + OG images exist since v0.4).
 9. **OAuth for MCP** (authorization-code flow with dynamic client registration) so clients can connect without copying tokens.
 10. **SDKs**: `@usertrack/api` (typed client generated from `/api/openapi.json`) and a Python equivalent.

@@ -36,13 +36,19 @@ const EXPECTED = [
   "usertrack_get_native_setup",
   "usertrack_get_better_auth_setup",
   "usertrack_create_integration",
+  "usertrack_get_profile",
+  "usertrack_update_profile",
+  "usertrack_get_share_events",
+  "usertrack_create_share_card",
+  "usertrack_get_x_draft",
+  "usertrack_get_founder_url",
 ];
 
 describe("MCP tool set", () => {
-  it("exposes exactly the 30 expected tools with unique names", () => {
+  it("exposes exactly the 36 expected tools with unique names", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toEqual(EXPECTED);
-    expect(new Set(names).size).toBe(30);
+    expect(new Set(names).size).toBe(36);
   });
 
   it("gives every tool a title, description and a known scope", () => {
@@ -60,7 +66,7 @@ describe("MCP tool set", () => {
       if (t.readOnly) expect(t.scope, t.name).toMatch(/:read$/);
       else expect(t.scope, t.name).toMatch(/:write$/);
     }
-    expect(TOOLS.filter((t) => !t.readOnly).map((t) => t.name)).toEqual(["usertrack_create_project", "usertrack_update_project", "usertrack_configure_integration", "usertrack_verify_integration", "usertrack_sync_project", "usertrack_create_integration"]);
+    expect(TOOLS.filter((t) => !t.readOnly).map((t) => t.name)).toEqual(["usertrack_create_project", "usertrack_update_project", "usertrack_configure_integration", "usertrack_verify_integration", "usertrack_sync_project", "usertrack_create_integration", "usertrack_update_profile", "usertrack_create_share_card"]);
   });
 
   it("describes the setup workflow in order", () => {

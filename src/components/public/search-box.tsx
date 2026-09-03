@@ -49,12 +49,18 @@ export function SearchBox({ autoFocus, placeholder = "Search SaaS, founders, cat
           {results.profiles.map((p) => (
             <Link key={p._id} href={`/u/${p.username}`} className="group block">
               <Panel className="flex items-center gap-3 p-3 transition-colors group-hover:border-line-strong">
-                <div className="grid size-9 place-items-center border border-line bg-background font-mono text-sm">{p.displayName.slice(0, 1).toUpperCase()}</div>
+                <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full border border-line bg-background font-mono text-sm">{p.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.avatarUrl} alt="" className="size-full object-cover" />
+                ) : p.displayName.slice(0, 1).toUpperCase()}</div>
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">{p.displayName}</div>
-                  <div className="truncate font-mono text-[11px] text-muted-foreground">@{p.username}{p.bio ? ` · ${p.bio}` : ""}</div>
+                  <div className="truncate font-mono text-[11px] text-muted-foreground">@{p.username}{p.x ? ` · 𝕏 @${p.x}` : ""}{p.bio ? ` · ${p.bio}` : ""}</div>
                 </div>
-                <span className="text-label">Founder</span>
+                <div className="text-right">
+                  <div className="font-semibold">{formatCompact(p.totalUsers)}</div>
+                  <div className="font-mono text-[11px] text-muted-foreground">{p.projectCount} SaaS · <span className="text-pink">{formatDelta(p.newUsers30d)}</span></div>
+                </div>
               </Panel>
             </Link>
           ))}

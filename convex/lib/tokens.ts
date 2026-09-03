@@ -11,11 +11,12 @@ export const SCOPES = [
   { key: "integrations:write", label: "Configure integrations", description: "Connect data sources, verify connections, trigger syncs." },
   { key: "metrics:read", label: "Read metrics", description: "Growth metrics, history, ranks, milestones and share URLs." },
   { key: "profile:read", label: "Read profile", description: "Your founder profile and account summary." },
+  { key: "profile:write", label: "Update profile", description: "Edit your founder profile (name, bio, links, X handle) and create share cards from your events." },
 ] as const;
 
 export type Scope = (typeof SCOPES)[number]["key"];
 export const SCOPE_KEYS = new Set<string>(SCOPES.map((s) => s.key));
-export const DEFAULT_MCP_SCOPES: Scope[] = ["projects:read", "projects:write", "integrations:read", "integrations:write", "metrics:read", "profile:read"];
+export const DEFAULT_MCP_SCOPES: Scope[] = ["projects:read", "projects:write", "integrations:read", "integrations:write", "metrics:read", "profile:read", "profile:write"];
 export const API_SCOPES: Scope[] = ["metrics:read"];
 
 // Free plan. Structured so limits can later differ per plan without touching call sites.

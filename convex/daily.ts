@@ -26,6 +26,7 @@ export const run = internalMutation({
     }
     await ctx.scheduler.runAfter(0, internal.daily.benchmarks, {});
     await ctx.scheduler.runAfter(5_000, internal.trust.dailyReview, {});
+    await ctx.scheduler.runAfter(30_000, internal.share.benchmarkSweep, {});
     await ctx.scheduler.runAfter(10_000, internal.email.lifecycle.noGrowthSweep, {});
     await ctx.scheduler.runAfter(15_000, internal.cohorts.rebuildAll, {});
     await ctx.scheduler.runAfter(20_000, internal.native.pruneEvents, {});

@@ -15,6 +15,7 @@ import { checkSnapshot } from "./lib/trust";
 import { addMilestones, openFlags, refreshTrust } from "./trust";
 import { onSourceFailure, onSourceSuccess } from "./email/lifecycle";
 import { onSpikeCheck, onUsersSnapshot } from "./email/growth";
+import { recordSpikeShare } from "./share";
 import { addOnceEvent } from "./domain/events";
 import { conversionMode, integrationRole, lifecycleStage, providerKind, trustLevel } from "./schema";
 
@@ -235,7 +236,10 @@ export const recordSuccess = internalMutation({
         if (prev) await addMilestones(ctx, saasId, thresholdMilestones(prev.totalUsers, totalUsers, saas.name));
         const history = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", saasId).lt("day", day)).order("desc").take(14);
         const spike = detectSpike(history.reverse().map((r) => r.newUsers), newToday);
-        if (spike) await addEvent(ctx, saasId, "spike", day, now, `${spike.multiple}× a normal day`, `Gained ${newToday} users today vs a ${spike.average}/day average.`, newToday, spike.multiple);
+        if (spike) {
+          const eventId = await addEvent(ctx, saasId, "spike", day, now, `${spike.multiple}× a normal day`, `Gained ${newToday} users today vs a ${spike.average}/day average.`, newToday, spike.multiple);
+          if (eventId) await recordSpikeShare(ctx, saas, eventId, day, spike.multiple, newToday);
+        }
         const reconnects = await ctx.db.query("events").withIndex("by_saas_time", (q) => q.eq("saasId", saasId).gte("at", now - 7 * DAY)).collect();
         const flags = checkSnapshot({
           prevTotal: prev?.totalUsers ?? null,
@@ -412,8 +416,8 @@ export const recordHistory = internalMutation({
 
 export async function addEvent(ctx: MutationCtx, saasId: Id<"saas">, kind: Doc<"events">["kind"], day: string, at: number, title: string, detail: string, value?: number, multiple?: number) {
   const existing = await ctx.db.query("events").withIndex("by_saas_kind_day", (q) => q.eq("saasId", saasId).eq("kind", kind).eq("day", day)).first();
-  if (existing) return;
-  await ctx.db.insert("events", { saasId, kind, day, at, title, detail, value, multiple });
+  if (existing) return null;
+  return ctx.db.insert("events", { saasId, kind, day, at, title, detail, value, multiple });
 }
 
 export type { History };

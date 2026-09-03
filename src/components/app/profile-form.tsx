@@ -7,12 +7,13 @@ import { Check, Loader2, X } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Doc } from "../../../convex/_generated/dataModel";
 import { slugify } from "@/lib/slug";
+import { normalizeXHandle, xHandleError } from "@/lib/social";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-type Initial = Partial<Pick<Doc<"profiles">, "username" | "displayName" | "avatarUrl" | "bio" | "website" | "x" | "github" | "linkedin">>;
+type Initial = Partial<Pick<Doc<"profiles">, "username" | "displayName" | "avatarUrl" | "bio" | "website" | "x" | "github" | "linkedin" | "location">>;
 
 export function ProfileForm({
   initial,
@@ -32,6 +33,8 @@ export function ProfileForm({
   const [username, setUsername] = useState(initial?.username ?? slugify(defaultName ?? ""));
   const [touched, setTouched] = useState(Boolean(initial?.username));
   const [saving, setSaving] = useState(false);
+  const [x, setX] = useState(initial?.x ?? "");
+  const xError = xHandleError(x);
   const check = useQuery(api.profiles.usernameAvailable, username.length >= 3 ? { username } : "skip");
 
   function onName(v: string) {
@@ -46,7 +49,7 @@ export function ProfileForm({
     setSaving(true);
     try {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
-      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: opt("x"), github: opt("github"), linkedin: opt("linkedin"), avatarUrl: opt("avatarUrl"), timezone });
+      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: normalizeXHandle(x) || undefined, github: opt("github"), linkedin: opt("linkedin"), avatarUrl: opt("avatarUrl"), location: opt("location"), timezone });
       toast.success("Profile saved");
       onSaved?.();
     } catch (err) {
@@ -83,16 +86,26 @@ export function ProfileForm({
         <Label htmlFor="bio" className="text-label">Bio {compact && <span className="normal-case tracking-normal">(optional)</span>}</Label>
         <Textarea id="bio" name="bio" defaultValue={initial?.bio} placeholder="Building in public since 2024." maxLength={160} rows={2} className="bg-background" />
       </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="x" className="text-label">X handle {compact && <span className="normal-case tracking-normal">(optional)</span>}</Label>
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center font-mono text-sm text-muted-foreground">@</span>
+            <Input id="x" value={x} onChange={(e) => setX(e.target.value)} placeholder="yourhandle" aria-invalid={Boolean(xError)} className="h-11 bg-background pl-8 font-mono" />
+          </div>
+          <p className={xError ? "font-mono text-[11px] text-destructive" : "font-mono text-[11px] text-muted-foreground"}>{xError ?? (normalizeXHandle(x) ? `Shown as @${normalizeXHandle(x)}` : "@name, name or your x.com URL")}</p>
+        </div>
+        <Field label={<>Avatar URL {compact && <span className="normal-case tracking-normal">(optional)</span>}</>} name="avatarUrl" defaultValue={initial?.avatarUrl} placeholder="https://…/me.png" type="url" />
+      </div>
       {!compact && (
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Avatar URL" name="avatarUrl" defaultValue={initial?.avatarUrl} placeholder="https://…/me.png" type="url" />
           <Field label="Website" name="website" defaultValue={initial?.website} placeholder="https://yourdomain.com" type="url" />
-          <Field label="X handle" name="x" defaultValue={initial?.x} placeholder="ada" />
+          <Field label="Location" name="location" defaultValue={initial?.location} placeholder="Berlin, DE" maxLength={60} />
           <Field label="GitHub" name="github" defaultValue={initial?.github} placeholder="ada" />
           <Field label="LinkedIn" name="linkedin" defaultValue={initial?.linkedin} placeholder="ada-lovelace" />
         </div>
       )}
-      <Button type="submit" className="h-11 w-full sm:w-auto" disabled={saving || status === "taken" || status === "invalid"}>
+      <Button type="submit" className="h-11 w-full sm:w-auto" disabled={saving || status === "taken" || status === "invalid" || Boolean(xError)}>
         {saving && <Loader2 className="size-4 animate-spin" />}
         {submitLabel}
       </Button>
@@ -100,7 +113,7 @@ export function ProfileForm({
   );
 }
 
-function Field({ label, name, ...props }: { label: string; name: string } & React.ComponentProps<typeof Input>) {
+function Field({ label, name, ...props }: { label: React.ReactNode; name: string } & React.ComponentProps<typeof Input>) {
   return (
     <div className="space-y-1.5">
       <Label htmlFor={name} className="text-label">{label}</Label>

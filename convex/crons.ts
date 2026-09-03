@@ -13,4 +13,7 @@ crons.cron("weekly digest", "0 8 * * 1", internal.digest.generate, {});
 // Monthly report for the completed month, generated on the 1st at 05:00 UTC and delivered at 09:00 local time.
 crons.cron("monthly growth report", "0 5 1 * *", internal.email.reports.generateMonthly, {});
 
+// Opt-in auto-posting of share-ready events (founder-connected X accounts and the UserTrack account). No-op unless enabled.
+crons.interval("social auto-post", { hours: 1 }, internal.social.autoPost, {});
+
 export default crons;

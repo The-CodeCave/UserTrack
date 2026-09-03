@@ -25,7 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { saasUrl, shareUrl } from "@/lib/site";
-import { availableShareKinds } from "@/lib/share";
+import { availableShareKinds, shareCopy, type ShareKind } from "@/lib/share";
+import { ShareButton } from "@/components/share/share-button";
 import { formatCompact, formatDelta, formatPct, formatRate, timeAgo } from "@/lib/format";
 import { NO_REVENUE_NOTE, ROLE_META, ROLES, type Role } from "@/lib/providers-ui";
 import { cn } from "@/lib/utils";
@@ -75,6 +76,8 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
   const velocity = saas.newUsersPrev30d !== undefined && saas.newUsersPrev30d > 0 ? Math.round(((saas.newUsers30d - saas.newUsersPrev30d) / saas.newUsersPrev30d) * 1000) / 10 : undefined;
   // Owner sees a conversion share card only once the rate is public — the public card would render "—" otherwise.
   const shareKinds = availableShareKinds({ ...saas, signupToConvertedPct: saas.visibility.conversionRate ? saas.signupToConvertedPct : undefined });
+  const share = (kind: ShareKind, label: string, graph = false) => ({ page: shareUrl(saas.slug, kind), slug: saas.slug, kind, label: `${saas.name} · ${label}`, trust: saas.trust, graph, text: shareCopy(saas, kind).text });
+  const canShare = saas.isPublic;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
@@ -131,10 +134,10 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
       <section id="growth" className="scroll-mt-14 space-y-3">
         <GroupHeader title="Growth" integ={users} />
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricCard label={mobile ? "Registered users" : "Total users"} value={saas.totalUsers} accent />
+          <MetricCard label={mobile ? "Registered users" : "Total users"} value={saas.totalUsers} accent action={canShare && <ShareButton target={share("users", `${formatCompact(saas.totalUsers)} users`, true)} />} />
           <MetricCard label="New users · 24h" value={saas.newUsers24h} />
-          <MetricCard label="New users · 7d" value={saas.newUsers7d}><div className="mt-1 font-mono text-xs text-muted-foreground">{formatPct(saas.growth7dPct ?? 0)} growth</div></MetricCard>
-          <MetricCard label="New users · 30d" value={saas.newUsers30d}>
+          <MetricCard label="New users · 7d" value={saas.newUsers7d} action={canShare && <ShareButton target={share("week", `${formatDelta(saas.newUsers7d)} this week`, true)} />}><div className="mt-1 font-mono text-xs text-muted-foreground">{formatPct(saas.growth7dPct ?? 0)} growth</div></MetricCard>
+          <MetricCard label="New users · 30d" value={saas.newUsers30d} action={canShare && <ShareButton target={share("growth", `${formatDelta(saas.newUsers30d)} in 30 days`, true)} />}>
             <div className="mt-1 font-mono text-xs text-muted-foreground">{formatPct(saas.growth30dPct)} growth · rank {saas.rank ?? "—"}{saas.trendingRank ? ` · trending #${saas.trendingRank}` : ""}</div>
           </MetricCard>
         </div>
@@ -144,7 +147,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
         </Panel>
         {saas.isPublic ? (
           <Panel className="p-4 sm:p-5">
-            <div className="mb-3 flex items-center justify-between"><span className="text-sm font-medium">Users over time</span><span className="font-mono text-[11px] text-muted-foreground">{saas.lastSyncedAt ? `synced ${timeAgo(saas.lastSyncedAt)}` : "no sync yet"}</span></div>
+            <div className="mb-3 flex items-center justify-between gap-2"><span className="text-sm font-medium">Users over time</span><div className="flex items-center gap-2"><span className="font-mono text-[11px] text-muted-foreground">{saas.lastSyncedAt ? `synced ${timeAgo(saas.lastSyncedAt)}` : "no sync yet"}</span><ShareButton variant="chip" target={share("users", "growth chart", true)}>Share as card</ShareButton></div></div>
             <SaasGrowth slug={saas.slug} compact />
           </Panel>
         ) : (
@@ -157,7 +160,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
         {activation ? (
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <MetricCard label="Activated users" value={saas.activatedUsers ?? 0} delta={saas.activated30d}><div className="mt-1 font-mono text-xs text-muted-foreground">in 30d</div></MetricCard>
-            <Stat label="Activation rate" value={formatRate(saas.activationRatePct)} sub="activated ÷ users" />
+            <Stat label="Activation rate" value={formatRate(saas.activationRatePct)} sub="activated ÷ users" action={canShare && <ShareButton target={share("activation", `${formatRate(saas.activationRatePct)} activation`)} />} />
             {saas.retentionRatePct !== undefined && <Stat label="Retention · 30d" value={formatRate(saas.retentionRatePct)} sub={`estimated · ${formatCompact(saas.churnedUsers ?? 0)} churned`} />}
           </div>
         ) : (
@@ -172,7 +175,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
               {saas.trialUsers !== undefined && <MetricCard label="Trial users" value={saas.trialUsers} delta={saas.newTrials30d}><div className="mt-1 font-mono text-xs text-muted-foreground">new trials in 30d</div></MetricCard>}
               <MetricCard label="Converted users" value={saas.convertedUsers ?? 0} delta={saas.newConverted30d}><div className="mt-1 font-mono text-xs text-muted-foreground">{saas.convertedGrowth30dPct !== undefined ? `${formatPct(saas.convertedGrowth30dPct)} in 30d` : "in 30d"}</div></MetricCard>
-              <Stat label="Signup → Converted" value={formatRate(saas.signupToConvertedPct)} sub="of all users" />
+              <Stat label="Signup → Converted" value={formatRate(saas.signupToConvertedPct)} sub={saas.visibility.conversionRate ? "of all users · public" : "of all users · private"} action={canShare && saas.visibility.conversionRate && <ShareButton target={share("conversion", `${formatRate(saas.signupToConvertedPct)} signup → converted`)} />} />
               <Stat label="Activated → Converted" value={formatRate(saas.activatedToConvertedPct)} sub={activation ? "of activated users" : "needs an activation source"} />
               {saas.trialUsers !== undefined && <Stat label="Trial → Converted" value={formatRate(saas.trialToConvertedPct)} sub="of trial users" />}
             </div>
@@ -197,7 +200,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
       </section>
 
       <section id="benchmarks" className="scroll-mt-14 space-y-3">
-        <SectionLabel>Benchmarks</SectionLabel>
+        <div className="flex flex-wrap items-center justify-between gap-2"><SectionLabel>Benchmarks</SectionLabel>{canShare && saas.trust === "verified" && <ShareButton variant="chip" target={share("benchmark", "benchmark")}>Share benchmark</ShareButton>}</div>
         <BenchmarkCards saasId={saasId} />
       </section>
 
@@ -230,7 +233,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
       </section>
 
       <section id="sharing" className="scroll-mt-14 space-y-3">
-        <SectionLabel>Sharing</SectionLabel>
+        <div className="flex flex-wrap items-center justify-between gap-2"><SectionLabel>Sharing</SectionLabel><Button variant="outline" size="sm" render={<Link href="/app/share" />}>Share Center <ArrowRight className="size-3.5" /></Button></div>
         <div className="flex items-center gap-2 border border-line bg-card px-3 py-2 font-mono text-sm">
           <span className="truncate">{url}</span>
           <button onClick={() => copy("url", url)} className="ml-auto shrink-0 text-muted-foreground hover:text-foreground" aria-label="Copy link">
@@ -249,6 +252,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
                 </div>
                 <div className="mt-3 flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.label}</span>
+                  {canShare && <ShareButton variant="chip" target={share(c.kind, c.label, ["users", "growth", "week"].includes(c.kind))}>Studio</ShareButton>}
                   <Button variant="ghost" size="sm" onClick={() => copy(c.kind, href)}>{copied === c.kind ? <Check className="size-3.5 text-pink" /> : <Copy className="size-3.5" />} Copy link</Button>
                   <Button variant="outline" size="sm" render={<Link href={href} />}>Open <ExternalLink className="size-3.5" /></Button>
                 </div>
@@ -365,10 +369,10 @@ function GroupHeader({ title, integ }: { title: string; integ?: Integ }) {
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Stat({ label, value, sub, action }: { label: string; value: string; sub?: string; action?: React.ReactNode }) {
   return (
     <Panel className="p-4 sm:p-5">
-      <div className="text-label">{label}</div>
+      <div className="flex items-start justify-between gap-2"><div className="text-label">{label}</div>{action && <div className="-mr-2 -mt-2">{action}</div>}</div>
       <div className="tabular mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">{value}</div>
       {sub && <div className="mt-1 font-mono text-xs text-muted-foreground">{sub}</div>}
     </Panel>

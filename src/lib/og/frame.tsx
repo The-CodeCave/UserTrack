@@ -4,6 +4,7 @@ import path from "node:path";
 import { ImageResponse } from "next/og";
 import { ogFonts } from "@/lib/og/fonts";
 import { SITE_HOST } from "@/lib/site";
+import type { CardStyle } from "@/lib/share-card";
 
 export const OG_SIZE = { width: 1200, height: 630 };
 
@@ -59,20 +60,50 @@ interface FrameProps {
   align?: "center" | "flex-end";
   /** Render the chart as a full-bleed layer behind the content instead of a band under it. */
   chartFloat?: boolean;
+  /** Share-card preset. Blueprint is the house style; Aurora and Minimal keep the type, wordmark and footer. */
+  style?: CardStyle;
 }
 
-export function OgFrame({ wordmark, children, chips, top, chart, footerLeft, footerRight, square, align = "center", chartFloat }: FrameProps) {
-  const pad = square ? 72 : 60;
+// Background layers per preset. Everything else on the card (type, chips, chart, footer) is shared.
+function Backdrop({ style }: { style: CardStyle }) {
+  if (style === "aurora") {
+    return (
+      <>
+        <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "linear-gradient(135deg, #150a1f 0%, #0a0b0d 46%, #061a22 100%)" }} />
+        <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(820px 560px at 8% 100%, rgba(251,1,132,0.55), transparent 62%)" }} />
+        <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(700px 520px at 100% 0%, rgba(96,165,250,0.34), transparent 64%)" }} />
+        <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(600px 420px at 60% 110%, rgba(167,139,250,0.30), transparent 66%)" }} />
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, display: "flex", backgroundImage: `linear-gradient(90deg, ${PINK}, #a78bfa 50%, #60a5fa)` }} />
+      </>
+    );
+  }
+  if (style === "minimal") {
+    return (
+      <>
+        <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(900px 500px at 50% 120%, rgba(251,1,132,0.12), transparent 70%)" }} />
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, display: "flex", background: "rgba(255,255,255,0.22)" }} />
+      </>
+    );
+  }
   return (
-    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", background: BG, color: INK, fontFamily: "Geist", position: "relative" }}>
+    <>
       <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: `linear-gradient(${LINE_SOFT} 1px, transparent 1px), linear-gradient(90deg, ${LINE_SOFT} 1px, transparent 1px)`, backgroundSize: "48px 48px" }} />
       <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(760px 620px at 14% 72%, rgba(251,1,132,0.30), transparent 66%)" }} />
       <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(760px 420px at 98% -14%, rgba(255,255,255,0.11), transparent 68%)" }} />
       <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(520px 300px at 88% 118%, rgba(251,1,132,0.22), transparent 70%)" }} />
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, display: "flex", backgroundImage: `linear-gradient(90deg, ${PINK}, rgba(251,1,132,0.22) 52%, rgba(251,1,132,0) 88%)` }} />
+    </>
+  );
+}
+
+export function OgFrame({ wordmark, children, chips, top, chart, footerLeft, footerRight, square, align = "center", chartFloat, style = "blueprint" }: FrameProps) {
+  const pad = square ? 72 : 60;
+  return (
+    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", background: BG, color: INK, fontFamily: "Geist", position: "relative" }}>
+      <Backdrop style={style} />
       {chartFloat && (
         <div style={{ position: "absolute", left: 0, right: 0, bottom: square ? 88 : 76, display: "flex" }}>{chart}</div>
       )}
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, display: "flex", backgroundImage: `linear-gradient(90deg, ${PINK}, rgba(251,1,132,0.22) 52%, rgba(251,1,132,0) 88%)` }} />
 
       <div style={{ display: "flex", alignItems: "center", padding: `${pad - 16}px ${pad}px 0` }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -224,5 +255,30 @@ export function OgSpark({ values, width = 140, height = 40, color = PINK }: { va
       <path d={`${line} L${xy[xy.length - 1][0]} ${height} L${xy[0][0]} ${height} Z`} fill={color} fillOpacity="0.14" />
       <path d={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
+  );
+}
+
+// Range chart for share cards: same faithful min→max scaling as the site charts, but the scale is printed (min / max
+// values and the first / last date) so the reader can see exactly what the curve spans. Never cropped or smoothed.
+export function OgRangeChart({ values, dates, width = OG_SIZE.width, height = 176, color = PINK, fade, labels = true }: { values: number[]; dates?: [number, number]; width?: number; height?: number; color?: string; fade?: boolean; labels?: boolean }) {
+  if (values.length < 2) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const fmt = (n: number) => new Intl.NumberFormat("en", { notation: n >= 10_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(n);
+  const day = (t: number) => new Date(t).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  return (
+    <div style={{ display: "flex", position: "relative", width, height }}>
+      <OgChart values={values} width={width} height={height} color={color} fade={fade} />
+      {labels && (
+        <div style={{ position: "absolute", left: 60, right: 60, bottom: 8, display: "flex", justifyContent: "space-between", fontFamily: "Geist Mono", fontSize: 15, letterSpacing: 1.2, color: MUTED }}>
+          <div style={{ display: "flex" }}>{dates ? day(dates[0]).toUpperCase() : ""}</div>
+          <div style={{ display: "flex", gap: 18 }}>
+            <div style={{ display: "flex" }}>MIN {fmt(min)}</div>
+            <div style={{ display: "flex" }}>MAX {fmt(max)}</div>
+            {dates && <div style={{ display: "flex" }}>{day(dates[1]).toUpperCase()}</div>}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

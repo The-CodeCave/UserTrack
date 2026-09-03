@@ -146,7 +146,7 @@ export default function OnboardingPage() {
               <Panel className="p-6">
                 <SectionLabel>Step 1 of {DONE}</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Create your founder profile</h1>
-                <p className="mb-6 mt-1 text-sm text-muted-foreground">This is the page your SaaS listings link back to.</p>
+                <p className="mb-6 mt-1 text-sm text-muted-foreground">Your public founder profile groups all your SaaS and growth metrics in one place. Your X handle is optional and never posted to without your say-so.</p>
                 <ProfileForm compact defaultName={me?.user.name} submitLabel="Continue" onSaved={() => setStep(1)} />
               </Panel>
             )}

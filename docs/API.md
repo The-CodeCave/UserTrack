@@ -531,7 +531,9 @@ curl "https://usertrack.dev/api/v1/compare?s=acme,globex&days=90"
 
 ## `GET /api/v1/users/{username}`
 
-Public founder profile plus their public SaaS projects (full SaaS objects, without milestones). Usernames are case-insensitive.
+Public founder profile, founder-level aggregates (`metrics`) and their public SaaS projects (full SaaS objects, without milestones). Usernames are case-insensitive. Hidden profiles (`profilePublic = false`) are `404`.
+
+`metrics` (aggregates over **public** projects only, after per-metric visibility — `docs/PROFILES.md`): `projects`, `verifiedProjects`, `totalUsers`, `newUsers7d`, `newUsers30d`, `growth30dPct` (new ÷ users at the start of the window), `changeVsPrev30dPct?` (only when every project has a previous window), `activation? { activatedUsers, ratePct, projects, method: "weighted" }` (Σ activated ÷ Σ users of projects with an activation source — never a mean of rates), `convertedUsers?` (published counts only), `bestRank?`, `trendingProjects`, `biggestGrowth? { slug, name, newUsers30d }`. Profile fields added in v0.8: `location?`, `xState` (`connected_via_oauth` · `handle_provided` · `unavailable` — a typed handle is never presented as verified), `joinedAt`, `urls.card`, `urls.history`.
 
 ```bash
 curl https://usertrack.dev/api/v1/users/jane
@@ -544,9 +546,13 @@ curl https://usertrack.dev/api/v1/users/jane
     "displayName": "Jane Doe",
     "avatarUrl": "https://usertrack.dev/avatars/jane.png",
     "bio": "Building Acme. Previously at Stripe.",
+    "location": "Berlin, DE",
     "links": { "website": "https://jane.dev", "x": "janedoe", "github": "janedoe" },
+    "xState": "handle_provided",
     "followers": 118,
-    "urls": { "profile": "https://usertrack.dev/u/jane" },
+    "joinedAt": "2026-06-01T09:00:00.000Z",
+    "urls": { "profile": "https://usertrack.dev/u/jane", "card": "https://usertrack.dev/u/jane/card", "history": "https://usertrack.dev/api/v1/users/jane/history" },
+    "metrics": { "projects": 2, "verifiedProjects": 2, "totalUsers": 28481, "newUsers7d": 812, "newUsers30d": 3281, "growth30dPct": 13.0, "activation": { "activatedUsers": 11200, "ratePct": 41.4, "projects": 1, "method": "weighted" }, "bestRank": 7, "trendingProjects": 1, "biggestGrowth": { "slug": "acme", "name": "Acme", "newUsers30d": 2900 } },
     "saas": [
       { "slug": "acme", "name": "Acme", "...": "remaining SaaS object fields" }
     ]
@@ -629,3 +635,33 @@ Cached like badges (`max-age=300, s-maxage=3600, stale-while-revalidate=86400`).
 ## Writing data
 
 The public API is read-only. Founders create projects, connect data sources and publish through the dashboard or through the MCP server (`https://usertrack.dev/mcp`), see `docs/MCP.md`.
+
+## `GET /api/v1/users/{username}/history`
+
+Aggregate user growth across the founder's public projects. `range` = `7d` · `30d` (default) · `90d` · `1y` · `all` (`24h` is rejected — the aggregate is daily).
+
+```bash
+curl "https://usertrack.dev/api/v1/users/jane/history?range=90d"
+```
+
+```json
+{
+  "data": {
+    "username": "jane",
+    "range": "90d",
+    "projects": [{ "slug": "acme", "name": "Acme" }, { "slug": "globex", "name": "Globex" }],
+    "points": [
+      { "t": "2026-06-05T12:00:00.000Z", "totalUsers": 21040, "newUsers": 96, "byProject": [18000, 3040] },
+      { "t": "2026-06-06T12:00:00.000Z", "totalUsers": 21151, "newUsers": 111, "byProject": [18090, 3061] }
+    ],
+    "method": "Daily totals summed across public projects; a project without a row for a day keeps its last known total (forward fill) and contributes 0 before its first day."
+  },
+  "meta": { "version": "v1", "generatedAt": "2026-09-03T10:15:00.000Z" }
+}
+```
+
+`byProject[i]` matches `projects[i]`. `400 bad_request` for an invalid range, `404 not_found` for unknown or hidden founders.
+
+## Share cards
+
+Share cards are public URLs, not API endpoints: `/s/{slug}/share/{kind}/card?style=blueprint|aurora|minimal&size=og|square&range=7d|30d|90d|1y|all&chart=1&logo=1&founder=1&verified=1&dates=1&title=…` and `/u/{username}/card?…` (see `docs/SHARING.md`). They render only the public projection of a project (visibility applied), 404 for drafts, are cached for 5 minutes and limited to 40 renders per minute per IP. Private share events, drafts and social preferences are never exposed by the API.

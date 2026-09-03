@@ -4,6 +4,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { DAY, HOUR, dayKey } from "./lib/time";
 import { recomputeDerived } from "./sync";
+import { addMilestones } from "./trust";
+import { thresholdMilestones } from "./lib/milestones";
 
 interface Demo {
   name: string; slug: string; description: string; category: string; tags: string[]; start: number; growth: number; site: string; activation?: number;
@@ -187,5 +189,21 @@ export const removeProfile = internalMutation({
     await ctx.db.delete(p._id);
     await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
     return `removed ${username} (${list.length} saas)`;
+  },
+});
+
+// Dev / QA helper: append a users snapshot for a product and run the same milestone + share-event hooks the sync engine
+// runs, so the Share Center can be exercised without a real provider. Never touches demo products.
+export const simulateGrowth = internalMutation({
+  args: { slug: v.string(), totalUsers: v.number() },
+  handler: async (ctx, { slug, totalUsers }) => {
+    const saas = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    if (!saas || saas.isDemo) throw new Error("Unknown or demo product");
+    const prev = await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", saas._id)).order("desc").first();
+    const now = Date.now();
+    await ctx.db.insert("snapshots", { saasId: saas._id, totalUsers, capturedAt: now, source: "manual", trust: saas.trust });
+    await ctx.db.patch(saas._id, { totalUsers, newUsers30d: Math.max(0, totalUsers - (prev?.totalUsers ?? totalUsers)), lastSyncedAt: now });
+    await addMilestones(ctx, saas._id, thresholdMilestones(prev?.totalUsers ?? 0, totalUsers, saas.name));
+    return { previous: prev?.totalUsers ?? null, totalUsers };
   },
 });

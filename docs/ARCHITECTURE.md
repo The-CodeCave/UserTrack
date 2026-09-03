@@ -9,7 +9,8 @@ Browser ──► Next.js (Railway)
               ├─ /api/v1/* (DTO + rate limit) · /api/badge/*.svg (SVG, per-IP burst) ─► Convex queries
               ├─ /mcp (Streamable HTTP, stateless) ─ 23 tools ─► Convex gateway (token hash + UT_GATEWAY_SECRET)
               ├─ /api/auth/[...all] ─────────────────────────────► Convex HTTP (Better Auth)
-              ├─ opengraph-image · /s/[slug]/share/[kind]/card[?size=square] · /compare/og ─► next/og (vendored Geist)
+              ├─ opengraph-image · /s/[slug]/share/[kind]/card[?style&size&range&…] · /u/[username]/card · /compare/og ─► next/og (vendored Geist; presets Blueprint / Aurora / Minimal, labelled range chart)
+              ├─ /api/social/x/connect · /callback (OAuth 2.0 PKCE, session-bound) ─► Convex social.beginOAuth / completeOAuth
               └─ client: ConvexBetterAuthProvider (live queries, follow/connect mutations, wizards)
 
 Convex
@@ -19,7 +20,8 @@ Convex
   │          emailPreferences, emailEvents, emailRecipients, monthlyReports
   ├─ domain/: projects · integrations · metrics · funnel · visibility · events (shared rules) ◄── saas.ts / integrations.ts / public.ts / gateway.ts
   ├─ cohorts.ts: identity-link paging → signup cohorts + identity quality (daily, action) · migrations.ts (lifecycleV1)
-  ├─ crons: sync every 4h (staggered) · rerank+trending +20min · daily sweep 03:30 UTC (milestones → benchmarks → trust review → cohorts)
+  ├─ share.ts: share events (hooks in trust.addMilestones + sync spikes, daily benchmarkSweep), Share Center, shareStats · social.ts: X OAuth PKCE, prefs, hourly autoPost, deliverPost (founder OAuth2 / bot OAuth1a) ──► api.x.com
+  ├─ crons: sync every 4h (staggered) · rerank+trending +20min · daily sweep 03:30 UTC (milestones → benchmarks → benchmark share sweep → trust review → cohorts) · social auto-post hourly
   │         · digest Mon 08:00 UTC · monthly report 1st 05:00 UTC · per-entity scheduled reminders (24h)
   ├─ email/: send (Resend) · templates · prefs · lifecycle · growth · reports · webhook  ──► api.resend.com
   ├─ HTTP: /api/auth/* (Better Auth) · /webhooks/resend (Svix-verified) · /email/unsubscribe (one-click)
@@ -35,7 +37,7 @@ Better Auth (email + password, Google) runs inside Convex via `@convex-dev/bette
 ## Data model
 | Table | Purpose | Indexes |
 |---|---|---|
-| `profiles` | founder identity, links (website/X/GitHub/LinkedIn), `digestOptIn`, `followerCount` | `by_userId`, `by_username`, search `displayName` |
+| `profiles` | founder identity, links (website / canonical X handle / GitHub / LinkedIn), `location`, `profilePublic`, X connection summary (`xUserId`, `xConnectedAt` — set only by OAuth), `socialPrefs` (tagging / promotion opt-outs, per-category auto-share opt-ins), `digestOptIn`, `followerCount` | `by_userId`, `by_username`, search `displayName` |
 | `saas` | listing + category + visibility + **all derived metrics**: totals, new 24h/7d/30d (+ previous windows), growth %, ranks (+ prev/best), trending scores 24h/7d/30d + **per-window ranks** (`trendingRank24h` / `trendingRank` (7d) / `trendingRank30d`, each with `prev*`), activation, retention (estimated), traffic/revenue (+ `showTraffic`/`showRevenue`), `trustScore`/`trustState`, `followerCount`, `streakDays`, `firstSnapshotAt`, **`launchedAt`** (first publish) and **`verifiedAt`** (first verified users sync) | `by_slug`, `by_owner`, `by_public_trust_new30d`, `by_public_new30d`, `by_public_category`, search `name` + `description` |
 | `integrations` | one per SaaS **per role** (`users` · `activation` · `traffic` · `conversion`; legacy `revenue` rows are migrated and normalized by `normalizeRole`); `provider` now includes `postgres`; `config` holds secrets (incl. connection strings) and is only read by `internal.integrations.getForSync` and the owner-only `integrations.test` / `introspectPostgres` actions; status, trust, last success/failure, consecutive failures, `connectedAt`, `backfilledAt` | `by_saas`, `by_saas_role` |
 | `snapshots` | append-only `{totalUsers, capturedAt, source, trust, syncRunId, backfilled?}` | `by_saas_time` |
@@ -46,6 +48,11 @@ Better Auth (email + password, Google) runs inside Convex via `@convex-dev/bette
 | `syncRuns` | audit log per attempt: role, provider, duration, attempt, status, error | `by_saas_time` |
 | `milestones` | persisted achievements, unique `key` per SaaS, title + shareable copy | `by_saas_key`, `by_saas_time`, `by_time` |
 | `events` | chart annotations **and discovery-feed items**: `spike`, `activation_spike`, `reconnect`, `source_changed` (one per kind per day) plus the once-per-SaaS `launched` and `verified` events (`convex/domain/events.ts`, keyed by kind); `value` / `multiple` on spikes | `by_saas_time`, `by_saas_kind_day`, `by_time` |
+| `shareEvents` | share-ready achievements, one per `(saasId, key)`: `kind`, `category`, title / detail, `metric`, `value`, `rank?`, `percentile?`, `milestoneId?` / `eventId?`, `cardKind` (share kind that renders it), `score`, `status` (ready · shared · dismissed) — `convex/share.ts`, rules in `lib/shareRules.ts` | `by_saas_key`, `by_profile_status_time`, `by_profile_time`, `by_status_time` |
+| `socialConnections` | connected X account per profile: provider user id, handle, avatar, **tokens (server-only, never returned)**, scopes, status, `lastPostAt`, `lastError` | `by_profile_provider`, `by_provider_user` |
+| `socialPosts` | one row per (share event × account `founder` / `usertrack`): text, status (queued · posted · failed · skipped), `providerPostId`, error | `by_event_account`, `by_profile_time`, `by_account_time` |
+| `oauthStates` | single-use PKCE state bound to a profile, 10-minute TTL | `by_state` |
+| `shareStats` | anonymous counters per day × card kind × action | `by_day_kind_action` |
 | `follows` | profile → saas/profile | `by_follower`, `by_target`, `by_follower_target` |
 | `fraudFlags` | internal anomaly model (kind, severity, detail, resolvedAt); never rendered verbatim publicly | `by_saas`, `by_saas_open` |
 | `benchmarkAggregates` | deciles per `(groupKey, metric)`; individual values are never stored | `by_group_metric` |
@@ -224,3 +231,9 @@ Recharts 3. `public.series` returns snapshots for 24H/7D and daily rows for 30D+
 
 ## Environments
 See `docs/DEPLOYMENT.md`.
+
+## Founder identity & sharing (v0.8)
+- **Founder profiles** aggregate public projects only, after visibility (`convex/lib/founder.ts`), with a forward-filled aggregate history (`public.founderHistory`). Formulas: `docs/PROFILES.md`.
+- **Share cards** are rendered by one server-side renderer (`src/lib/og/share-card.tsx`) for the share page OG image, the `/card` PNG and the founder card; configuration lives in the URL (`src/lib/share-card.ts`), so the studio never persists previews and every URL is deterministic and cacheable. Card routes are rate-limited per IP. Details and honesty rules: `docs/SHARING.md`.
+- **Share engine**: `trust.addMilestones` and the spike path in `sync.ts` call `share.recordShareEvent`; the daily sweep runs `share.benchmarkSweep`. Everything is keyed so nothing repeats; floors keep minor events out (`convex/lib/shareRules.ts`).
+- **Social**: handles are pure functions (`src/lib/social.ts`), drafts are pure templates (`src/lib/x-drafts.ts`). OAuth and posting run entirely in Convex (`convex/social.ts`, `convex/lib/xApi.ts`); Next only holds the two redirect routes. Founder connections (OAuth 2.0, refreshable tokens in `socialConnections`) and the UserTrack account (OAuth 1.0a env credentials) are separate pathways that never share code paths or tokens. Flags: `X_CLIENT_ID`/`X_CLIENT_SECRET`, `X_BOT_*`. `docs/SOCIAL.md`.

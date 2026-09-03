@@ -9,6 +9,7 @@ export function MetricCard({
   accent,
   className,
   children,
+  action,
 }: {
   label: string;
   value: number;
@@ -16,10 +17,12 @@ export function MetricCard({
   accent?: boolean;
   className?: string;
   children?: React.ReactNode;
+  /** Top-right affordance, e.g. a Share button. */
+  action?: React.ReactNode;
 }) {
   return (
     <Panel className={cn("p-4 sm:p-5", className)}>
-      <div className="text-label">{label}</div>
+      <div className="flex items-start justify-between gap-2"><div className="text-label">{label}</div>{action && <div className="-mr-2 -mt-2">{action}</div>}</div>
       <div
         className={cn(
           "mt-2 text-3xl font-semibold tracking-tight sm:text-4xl",

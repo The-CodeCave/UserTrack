@@ -3,13 +3,15 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { DAY } from "./lib/time";
 import { trustScore, trustState, type Flag } from "./lib/trust";
 import type { Milestone } from "./lib/milestones";
+import { recordMilestoneShare } from "./share";
 
 export async function addMilestones(ctx: MutationCtx, saasId: Id<"saas">, list: Milestone[]) {
   const now = Date.now();
   for (const m of list) {
     const exists = await ctx.db.query("milestones").withIndex("by_saas_key", (q) => q.eq("saasId", saasId).eq("key", m.key)).first();
     if (exists) continue;
-    await ctx.db.insert("milestones", { saasId, key: m.key, kind: m.kind, metric: m.metric, value: m.value, title: m.title, copy: m.copy, achievedAt: now });
+    const id = await ctx.db.insert("milestones", { saasId, key: m.key, kind: m.kind, metric: m.metric, value: m.value, title: m.title, copy: m.copy, achievedAt: now });
+    await recordMilestoneShare(ctx, saasId, id, m);
   }
 }
 

@@ -13,6 +13,8 @@ import { MovementTag } from "@/components/blueprint/movement";
 import { SaasLogo, DemoTag } from "@/components/public/saas-card";
 import { SaasGrowth } from "@/components/public/saas-growth";
 import { ShareButtons } from "@/components/public/share-buttons";
+import { ShareButton } from "@/components/share/share-button";
+import { shareCopy, type ShareKind } from "@/lib/share";
 import { FollowButton } from "@/components/public/follow-button";
 import { CohortTable, Funnel } from "@/components/public/funnel";
 import { FunnelHistory } from "@/components/charts/funnel-history-chart";
@@ -62,6 +64,8 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
     ...(s.owner ? { author: { "@type": "Person", name: s.owner.displayName, url: `${url.replace(/\/s\/.*$/, "")}/u/${s.owner.username}` } } : {}),
   };
   const storeChip = "inline-flex items-center gap-1.5 border border-line px-2.5 py-1 text-xs transition-colors hover:border-pink hover:text-pink";
+  // One studio target per shareable metric; the card renders from the same public projection this page shows.
+  const share = (kind: ShareKind, label: string, graph = false) => ({ page: shareUrl(slug, kind), slug, kind, label: `${s.name} · ${label}`, trust: s.trust, graph, text: shareCopy(s, kind).text });
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
@@ -77,6 +81,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
               {s.rank && <Link href="/leaderboard" className="inline-flex items-center gap-1 border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider hover:border-line-strong">#{s.rank} · 30d <MovementTag m={s.prevRank !== undefined ? { kind: s.prevRank > s.rank ? "up" : s.prevRank < s.rank ? "down" : "same", delta: s.prevRank - s.rank } : null} /></Link>}
               {s.trendingRank && <Link href="/trending" className="inline-flex items-center gap-1 border border-pink/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-pink hover:bg-pink/10"><Flame className="size-3" />#{s.trendingRank} trending</Link>}
               {s.trendingRank && <TrendingExplain slug={slug} />}
+              {(s.rank || s.trendingRank) && <ShareButton target={share(s.trendingRank ? "trending" : "rank", s.trendingRank ? `#${s.trendingRank} trending` : `#${s.rank} on UserTrack`)} className="size-6" />}
             </div>
             <p className="mt-2 max-w-xl text-muted-foreground">{s.description}</p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
@@ -101,24 +106,24 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
       <section className="mt-8">
         <SectionLabel>Growth</SectionLabel>
         <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <MetricCard label={mobile ? "Registered users" : "Total users"} value={s.totalUsers} accent>
+          <MetricCard label={mobile ? "Registered users" : "Total users"} value={s.totalUsers} accent action={<ShareButton target={share("users", `${formatCompact(s.totalUsers)} users`, true)} />}>
             <div className="mt-1 font-mono text-xs text-muted-foreground">{formatDelta(s.newUsers30d)} this month</div>
           </MetricCard>
           <MetricCard label="New users · 24h" value={s.newUsers24h} />
-          <MetricCard label="New users · 7d" value={s.newUsers7d}>
+          <MetricCard label="New users · 7d" value={s.newUsers7d} action={<ShareButton target={share("week", `${formatDelta(s.newUsers7d)} this week`, true)} />}>
             {s.growth7dPct !== undefined && <div className="mt-1 font-mono text-xs text-muted-foreground">{formatPct(s.growth7dPct)} growth</div>}
           </MetricCard>
-          <MetricCard label="New users · 30d" value={s.newUsers30d}>
+          <MetricCard label="New users · 30d" value={s.newUsers30d} action={<ShareButton target={share("growth", `${formatDelta(s.newUsers30d)} in 30 days`, true)} />}>
             <div className="mt-1 font-mono text-xs text-muted-foreground">{formatPct(s.growth30dPct)} growth</div>
           </MetricCard>
         </div>
         {bench && (
-          <div className="mt-3"><span title={`Compared with ${formatCompact(bench.sampleSize)} verified products. Refreshed daily.`} className="inline-flex max-w-full items-center gap-1.5 border border-pink/60 px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-pink"><Award className="size-3 shrink-0" /><span className="truncate">{bench.statement}</span></span></div>
+          <div className="mt-3 flex flex-wrap items-center gap-2"><span title={`Compared with ${formatCompact(bench.sampleSize)} verified products. Refreshed daily.`} className="inline-flex max-w-full items-center gap-1.5 border border-pink/60 px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-pink"><Award className="size-3 shrink-0" /><span className="truncate">{bench.statement}</span></span><ShareButton variant="chip" target={share("benchmark", bench.statement)}>Share</ShareButton></div>
         )}
         <Panel className="mt-3 p-4 sm:p-5">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between gap-2">
             <SectionLabel>Users over time</SectionLabel>
-            <span className="font-mono text-[11px] text-muted-foreground">{s.lastSyncedAt ? `synced ${timeAgo(s.lastSyncedAt)}` : "no sync yet"}</span>
+            <div className="flex items-center gap-2"><span className="font-mono text-[11px] text-muted-foreground">{s.lastSyncedAt ? `synced ${timeAgo(s.lastSyncedAt)}` : "no sync yet"}</span><ShareButton variant="chip" target={share("users", "growth chart", true)}>Share as card</ShareButton></div>
           </div>
           <SaasGrowth slug={slug} />
         </Panel>
@@ -141,7 +146,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {hasActivation && (
               <Panel className="p-4 sm:p-5">
-                <div className="flex items-center justify-between"><SectionLabel>Activated users</SectionLabel><Zap className="size-4 text-pink" /></div>
+                <div className="flex items-center justify-between"><SectionLabel>Activated users</SectionLabel><div className="flex items-center gap-1"><Zap className="size-4 text-pink" /><ShareButton target={share("activation", `${formatRate(s.activationRatePct)} activation`)} /></div></div>
                 <div className="mt-2 text-3xl font-semibold tracking-tight">{formatRate(s.activationRatePct)}</div>
                 <div className="mt-1 font-mono text-xs text-muted-foreground">{formatCompact(s.activatedUsers!)} of all {userWord} activated</div>
                 <div className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-3">
@@ -167,7 +172,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
           <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
             {s.signupToConvertedPct !== undefined && (
               <Panel className="p-4 sm:p-5">
-                <div className="flex items-center justify-between"><SectionLabel>Signup → Converted</SectionLabel><Target className="size-4 text-pink" /></div>
+                <div className="flex items-center justify-between"><SectionLabel>Signup → Converted</SectionLabel><div className="flex items-center gap-1"><Target className="size-4 text-pink" /><ShareButton target={share("conversion", `${formatRate(s.signupToConvertedPct)} signup → converted`)} /></div></div>
                 <div className="mt-2 text-3xl font-semibold tracking-tight">{formatRate(s.signupToConvertedPct)}</div>
                 <div className="mt-1 font-mono text-xs text-muted-foreground">{s.activatedToConvertedPct !== undefined ? `${formatRate(s.activatedToConvertedPct)} activated → converted` : "of all signups convert"}</div>
               </Panel>
