@@ -42,6 +42,7 @@ import type * as gateway from "../gateway.js";
 import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
 import type * as leaderboard from "../leaderboard.js";
+import type * as lib_analytics from "../lib/analytics.js";
 import type * as lib_benchmarks from "../lib/benchmarks.js";
 import type * as lib_domain from "../lib/domain.js";
 import type * as lib_emailRules from "../lib/emailRules.js";
@@ -143,6 +144,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   integrations: typeof integrations;
   leaderboard: typeof leaderboard;
+  "lib/analytics": typeof lib_analytics;
   "lib/benchmarks": typeof lib_benchmarks;
   "lib/domain": typeof lib_domain;
   "lib/emailRules": typeof lib_emailRules;

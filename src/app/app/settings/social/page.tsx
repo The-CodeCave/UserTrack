@@ -17,6 +17,7 @@ import { SHARE_CATEGORIES, SHARE_CATEGORY_META, type ShareCategory } from "@conv
 import { X_STATE_LABEL, normalizeXHandle, xHandleError, xProfileUrl } from "@/lib/social";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { track } from "@/lib/analytics";
 
 export default function SocialSettingsPage() {
   return <Suspense fallback={<div className="mx-auto max-w-2xl p-6"><Skeleton className="h-8 w-48" /><Skeleton className="mt-6 h-64" /></div>}><SocialSettings /></Suspense>;
@@ -36,7 +37,10 @@ function SocialSettings() {
 
   useEffect(() => {
     const st = params.get("x");
-    if (st === "connected") toast.success("X account connected");
+    if (st === "connected") {
+      track("x_connected");
+      toast.success("X account connected");
+    }
     else if (st === "error") toast.error(params.get("reason") || "Could not connect X");
   }, [params]);
 
@@ -100,7 +104,7 @@ function SocialSettings() {
               <div className="font-mono text-[11px] text-muted-foreground">Connected {timeAgo(s.connection.connectedAt)}{s.connection.lastPostAt ? ` · last post ${timeAgo(s.connection.lastPostAt)}` : ""}{s.connection.status === "error" ? " · needs reconnecting" : ""}</div>
               {s.connection.lastError && <div className="mt-1 font-mono text-[11px] text-destructive">{s.connection.lastError}</div>}
             </div>
-            <Button variant="outline" size="sm" disabled={busy} onClick={async () => { setBusy(true); try { await disconnect({}); toast.success("Disconnected"); } finally { setBusy(false); } }}><Unplug className="size-4" /> Disconnect</Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={async () => { setBusy(true); try { await disconnect({}); track("x_disconnected"); toast.success("Disconnected"); } finally { setBusy(false); } }}><Unplug className="size-4" /> Disconnect</Button>
           </div>
         ) : s.oauthEnabled ? (
           <>

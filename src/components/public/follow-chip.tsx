@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Bell, BellRing, Loader2 } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { cn } from "@/lib/utils";
+import { track } from "@/lib/analytics";
 
 // Icon-only follow toggle for cards and rows. One `follows.ids` subscription serves every chip on the page.
 // Render it as a sibling of the card's <Link>, never inside it.
@@ -27,6 +28,7 @@ export function FollowChip({ targetType, targetId, className }: { targetType: "s
     setBusy(true);
     try {
       await (following ? unfollow({ targetType, targetId }) : follow({ targetType, targetId }));
+      track(following ? "unfollow" : "follow", { targetType });
       toast.success(following ? "Unfollowed" : "Following — rank moves, spikes and milestones show up in your feed");
     } catch (err) {
       toast.error((err as Error).message.replace(/^.*Uncaught Error: /, "").split("\n")[0]);

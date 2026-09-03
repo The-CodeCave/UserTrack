@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { track } from "@/lib/analytics";
 import { CATEGORIES } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 import { BOARD_META, PLATFORMS, PRIMARY_BOARDS, SECONDARY_BOARDS, boardWindows, defaultWindow } from "@/lib/boards";
@@ -38,14 +39,16 @@ export function BoardFilters({ state, base, lockCategory, lockBoard, lockPlatfor
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const changed = (patch: Partial<BoardState>) => track("board_filter_change", { board: patch.board ?? state.board, window: patch.window ?? state.window, category: (patch.category ?? state.category) || "" });
   const set = (patch: Partial<BoardState>) => {
+    changed(patch);
     const href = boardHref(base, patch, state);
     router.push(href === base && pathname === base && params.size === 0 ? base : href);
   };
   const windows = boardWindows(state.board);
   const select = "h-8 border border-line bg-background px-2 font-mono text-[11px] uppercase tracking-wider text-foreground";
   const boardLink = (key: string) => (
-    <Link key={key} href={boardHref(base, { board: key, window: defaultWindow(key) }, state)} className={cn("whitespace-nowrap px-3 py-2 font-mono text-[11px] uppercase tracking-wider", state.board === key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
+    <Link key={key} href={boardHref(base, { board: key, window: defaultWindow(key) }, state)} onClick={() => changed({ board: key, window: defaultWindow(key) })} className={cn("whitespace-nowrap px-3 py-2 font-mono text-[11px] uppercase tracking-wider", state.board === key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
       {BOARD_META[key].short}
     </Link>
   );
@@ -64,7 +67,7 @@ export function BoardFilters({ state, base, lockCategory, lockBoard, lockPlatfor
         {windows.length > 1 && (
           <div className="flex border border-line">
             {windows.map((w) => (
-              <Link key={w} href={boardHref(base, { window: w }, state)} className={cn("px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider", state.window === w ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{w}</Link>
+              <Link key={w} href={boardHref(base, { window: w }, state)} onClick={() => changed({ window: w })} className={cn("px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider", state.window === w ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{w}</Link>
             ))}
           </div>
         )}

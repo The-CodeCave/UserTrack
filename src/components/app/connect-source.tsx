@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Loader2, RefreshCw, AlertTriangle, CheckCircle2, Unplug, ChevronDown, FlaskConical } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { track } from "@/lib/analytics";
 import { PROVIDERS, providersForRole, ROLE_META, type ProviderKind, type Role } from "@/lib/providers-ui";
 import { cn } from "@/lib/utils";
 import { formatCompact, timeAgo } from "@/lib/format";
@@ -72,6 +73,7 @@ export function ConnectSource({ saasId, role = "users", current, onConnected, pl
     setResult(null);
     try {
       const r = await testSource({ saasId, role, provider: kind, config: readConfig(form) });
+      track("integration_test", { provider: kind, ok: r.ok });
       setResult(r);
       if (!r.ok) toast.error(r.error);
     } catch (err) {
@@ -86,6 +88,7 @@ export function ConnectSource({ saasId, role = "users", current, onConnected, pl
     setSaving(true);
     try {
       await connect({ saasId, role, provider: kind, config: readConfig(e.currentTarget) });
+      track("integration_connected", { provider: kind, role, verification: list.find((p) => p.kind === kind)?.trust ?? "unknown" });
       toast.success("Connected — fetching the first snapshot");
       onConnected?.();
     } catch (err) {
@@ -101,7 +104,7 @@ export function ConnectSource({ saasId, role = "users", current, onConnected, pl
     <div className="space-y-5">
       <div className={cn("grid gap-2", list.length > 4 ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" : "grid-cols-2 sm:grid-cols-4")}>
         {list.map((p) => (
-          <button key={p.kind} type="button" onClick={() => setKind(p.kind)} className={cn("flex min-h-[64px] flex-col items-start gap-1 border p-3 text-left transition-colors", kind === p.kind ? "border-pink bg-pink/5" : "border-line hover:border-line-strong")}>
+          <button key={p.kind} type="button" onClick={() => { setKind(p.kind); track("integration_connect_opened", { provider: p.kind, role }); }} className={cn("flex min-h-[64px] flex-col items-start gap-1 border p-3 text-left transition-colors", kind === p.kind ? "border-pink bg-pink/5" : "border-line hover:border-line-strong")}>
             <span className="flex w-full items-center justify-between gap-1 text-sm font-medium">{p.label}{p.kind === recommended ? <span className="border border-pink/60 px-1 font-mono text-[9px] uppercase tracking-wider text-pink">Rec</span> : p.kind === "native" ? <span className="border border-line px-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">SDK · 2 min</span> : null}</span>
             <span className={cn("font-mono text-[10px] uppercase tracking-wider", p.trust === "verified" ? "text-pink" : "text-muted-foreground")}>
               {p.trust === "verified" ? "Verified" : p.trust === "conditional" ? "Verified on your domain" : "Self-reported"}
@@ -243,9 +246,9 @@ export function SourceStatus({ saasId, integration, totalUsers, trust, trustLabe
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => run(() => syncNow({ saasId, role }))} disabled={busy || running} className="h-9"><RefreshCw className={cn("size-4", busy && "animate-spin")} /> Sync now</Button>
+        <Button variant="outline" size="sm" onClick={() => run(async () => { await syncNow({ saasId, role }); track("sync_triggered", { role }); })} disabled={busy || running} className="h-9"><RefreshCw className={cn("size-4", busy && "animate-spin")} /> Sync now</Button>
         {onReplace && <Button variant="ghost" size="sm" className="h-9" onClick={onReplace}>Replace</Button>}
-        {role !== "users" && <Button variant="ghost" size="sm" className="h-9 text-muted-foreground" onClick={() => run(async () => { await disconnect({ saasId, role }); onDisconnect?.(); })} disabled={busy} aria-label="Disconnect"><Unplug className="size-4" /></Button>}
+        {role !== "users" && <Button variant="ghost" size="sm" className="h-9 text-muted-foreground" onClick={() => run(async () => { await disconnect({ saasId, role }); track("integration_removed", { provider: integration.provider }); onDisconnect?.(); })} disabled={busy} aria-label="Disconnect"><Unplug className="size-4" /></Button>}
       </div>
     </div>
   );

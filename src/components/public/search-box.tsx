@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/blueprint/panel";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { SaasLogo } from "@/components/public/saas-card";
+import { track } from "@/lib/analytics";
 import { formatCompact, formatDelta } from "@/lib/format";
 import { categoryLabel } from "@/lib/categories";
 
@@ -21,6 +22,9 @@ export function SearchBox({ autoFocus, placeholder = "Search SaaS, founders, cat
   }, [value]);
   const results = useQuery(api.public.search, q.length >= 2 ? { q } : "skip");
   const loading = q.length >= 2 && results === undefined;
+  useEffect(() => {
+    if (results) track("search", { termLength: q.length, results: results.saas.length + results.profiles.length + results.categories.length });
+  }, [results, q]);
   return (
     <div>
       <div className="relative">

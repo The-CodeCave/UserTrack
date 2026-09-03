@@ -12,6 +12,7 @@ import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { Button } from "@/components/ui/button";
 import { DataPrivacyPanel } from "@/components/app/settings/data-privacy";
+import { track } from "@/lib/analytics";
 
 export default function SettingsPage() {
   const me = useQuery(api.profiles.me);
@@ -47,7 +48,7 @@ export default function SettingsPage() {
           <div className="text-label">Sync schedule</div>
           <div className="mt-1 text-sm text-muted-foreground">Every 4 hours, automatically, spread over 10 minutes. Failed syncs retry twice. Snapshots are immutable.</div>
         </div>
-        <Button variant="outline" onClick={async () => { await authClient.signOut(); router.push("/"); router.refresh(); }}>Sign out</Button>
+        <Button variant="outline" onClick={async () => { track("sign_out"); await authClient.signOut(); router.push("/"); router.refresh(); }}>Sign out</Button>
       </Panel>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <Link href="/app/settings/notifications" className="group">

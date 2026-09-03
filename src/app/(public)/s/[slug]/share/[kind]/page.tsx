@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
+import { TrackedA, TrackOnMount } from "@/components/analytics/analytics";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { ShareButtons } from "@/components/public/share-buttons";
@@ -45,8 +46,9 @@ export default async function SharePage({ params }: { params: Promise<{ slug: st
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <ShareButton target={target} variant="button" className="h-9 border-pink/60 text-pink hover:bg-pink/10">Customize in Studio</ShareButton>
         <ShareButtons url={url} text={c.text} />
-        <Button size="sm" variant="outline" render={<a href={image} download={`${slug}-${kind}.png`} />}><Download className="size-4" /> PNG</Button>
-        <Button size="sm" variant="outline" render={<a href={`${image}?size=square`} download={`${slug}-${kind}-square.png`} />}><Download className="size-4" /> Square</Button>
+        <TrackOnMount event="share_card_viewed" props={{ kind }} />
+        <Button size="sm" variant="outline" render={<TrackedA event="share_card_downloaded" props={{ kind, range: "30d" }} href={image} download={`${slug}-${kind}.png`} />}><Download className="size-4" /> PNG</Button>
+        <Button size="sm" variant="outline" render={<TrackedA event="share_card_downloaded" props={{ kind, range: "30d" }} href={`${image}?size=square`} download={`${slug}-${kind}-square.png`} />}><Download className="size-4" /> Square</Button>
       </div>
       <p className="mt-6 text-xs text-muted-foreground">This link unfurls with the image above on X, LinkedIn, Slack, Discord, iMessage and WhatsApp. Numbers are re-rendered on every share, so the card never goes stale. Open the Studio for Blueprint / Aurora / Minimal styles, a square format, timeframes and toggles. {verificationLine(d.s.trust)}.</p>
     </div>

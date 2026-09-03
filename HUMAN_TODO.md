@@ -2,7 +2,9 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and deployed.
 
-Last updated: 2026-09-03 (v0.9: discovery v3, follow + watchlists, ranking / trending / benchmark history, benchmarks v2, public datasets + SEO pages, webhooks — see the v0.9 section; v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
+Last updated: 2026-09-04 (v1.0 launch hardening: ANALYTICS-1 Rybbit dashboard task; v0.9: discovery v3, follow + watchlists, ranking / trending / benchmark history, benchmarks v2, public datasets + SEO pages, webhooks — see the v0.9 section; v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
+
+**v1.0 launch hardening (ANALYTICS-1).** One dashboard task: configure the Rybbit site (settings toggles, 9 goals, 2 funnels) and create an API key — see *Rybbit — site settings, goals, funnels and API key* below. Optional env: `RYBBIT_API_KEY` on Railway, `RYBBIT_SITE_ID` (+ `RYBBIT_API_KEY`) on Convex prod for the two Convex-side events.
 
 **v1.0 launch hardening (LEGAL-2).** Nothing to create. Self-service deletion and export are live at `/app/settings#data-privacy` and need no new variable: the confirmation email goes through the existing `RESEND_API_KEY`, the X token revocation uses the existing `X_CLIENT_ID` / `X_CLIENT_SECRET` (skipped when absent), and the Better Auth rows are removed through the component adapter. One check after the prod deploy: delete a throwaway account in production and confirm in the Convex dashboard that `profiles` / `saas` no longer list it and the `betterAuth` component's `user` table has no row for that email.
 
@@ -325,6 +327,53 @@ Every email sets `Reply-To: hello@usertrack.dev` (`EMAIL_REPLY_TO`, already conf
 
 **Status**
 * [ ] Decide
+
+---
+
+### Rybbit — site settings, goals, funnels and API key (ANALYTICS-1)
+
+**Why this is needed**
+The tracker, the event catalog (`docs/ANALYTICS.md`) and the server-side events are deployed. Rybbit exposes no API for site settings, goals or funnels, and the script only takes skip / mask patterns as attributes — everything else is a dashboard toggle. Until the goals exist the events are collected but no conversion rate is shown.
+
+**Where**
+`https://rybbit.internal.thecodecave.de` → site **usertrack.dev** (id `753f44fa9c50`) → Settings / Goals / Funnels
+
+**Steps**
+1. **Site settings → Tracking**: SPA navigation **on**, initial page view **on**, outbound links **on**, web vitals **on**, error tracking **on**, autocapture: button clicks **on**, form submissions **on**, copy **on**, input changes **off**; URL parameters **off**; **Session replay OFF** (the privacy policy promises this); Track IP **off**; User-ID salting **on**; Block bot traffic **on**.
+2. **Traffic filtering → Hostname exclusions**: add `localhost*` (local dev sends the production site id).
+3. **Goals → Create goal** (name · type · value):
+   | Name | Type | Value |
+   |---|---|---|
+   | Signed up | Custom event | `sign_up_completed` |
+   | Project created | Custom event | `project_created` |
+   | Source connected | Custom event | `integration_connected` |
+   | Page published | Custom event | `project_published` |
+   | Token created | Custom event | `token_created` |
+   | Webhook created | Custom event | `webhook_created` |
+   | Visited sign-up | Page | `/sign-up` |
+   | Reached onboarding | Page | `/app/onboarding` |
+   | Viewed a growth page | Page | `/s/*` |
+4. **Funnels → Create funnel**:
+   | Funnel | Steps |
+   |---|---|
+   | Founder activation | page `/` → page `/sign-up` → event `onboarding_completed` → event `project_created` → event `integration_connected` → event `project_published` |
+   | Developer | page `/developers` → event `token_created` → event `mcp_tool_called` |
+5. **API key** (Site settings → API keys → create, name `usertrack-server`) so server-side events bypass bot detection / domain validation:
+   ```bash
+   railway variables set RYBBIT_API_KEY=rb_xxx            # Next.js server events (api_request, mcp_tool_called, badge_rendered, embed_rendered, native_event_ingested)
+   npx convex env set --prod RYBBIT_SITE_ID 753f44fa9c50   # enables webhook_delivered + sync_completed from Convex
+   npx convex env set --prod RYBBIT_API_KEY rb_xxx
+   ```
+6. Verify: open https://usertrack.dev, then Rybbit → Realtime shows the page view; `curl https://usertrack.dev/api/v1/categories` → an `api_request` event appears under Events within a minute.
+
+**Legal note for the lawyer review (LEGAL-1 item above)**
+`identify()` stores the pseudonymous Better Auth user id in the visitor's local storage while signed in (cleared on sign-out). `/privacy` §7 + §8 describe it; counsel should confirm this stays within the consent-free § 25 TDDDG / Art. 6(1)(f) reading. If not, remove `<AnalyticsIdentity/>` from `src/app/layout.tsx` — nothing else depends on it.
+
+**Values**
+`RYBBIT_API_KEY` (Railway + Convex prod), `RYBBIT_SITE_ID=753f44fa9c50` (Convex prod)
+
+**Status**
+* [ ] **Required** — without the goals the funnels in the dashboard stay empty
 
 ---
 

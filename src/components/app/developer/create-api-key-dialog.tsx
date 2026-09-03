@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CopyBlock, SecretReveal, errMsg } from "./copy-block";
+import { track } from "@/lib/analytics";
 
 export function CreateApiKeyDialog() {
   const create = useMutation(api.tokens.create);
@@ -24,6 +25,7 @@ export function CreateApiKeyDialog() {
     setBusy(true);
     try {
       const r = await create({ type: "api", name });
+      track("token_created", { type: "api", origin: "dashboard" });
       setSecret(r.secret);
     } catch (err) {
       toast.error(errMsg(err));

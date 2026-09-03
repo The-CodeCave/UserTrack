@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AnalyticsIdentity, AnalyticsScript } from "@/components/analytics/analytics";
 import { ConvexClientProvider } from "@/components/providers/convex-client-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { getToken } from "@/lib/auth-server";
@@ -28,7 +29,11 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <link rel="privacy-policy" href="/privacy" />
         <link rel="terms-of-service" href="/terms" />
-        <ConvexClientProvider initialToken={token}>{children}</ConvexClientProvider>
+        <ConvexClientProvider initialToken={token}>
+          {children}
+          <AnalyticsIdentity />
+        </ConvexClientProvider>
+        <AnalyticsScript />
         <Toaster position="bottom-center" />
       </body>
     </html>

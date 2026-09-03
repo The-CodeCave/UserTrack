@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const RYBBIT = "https://rybbit.internal.thecodecave.de";
+const RYBBIT = process.env.NEXT_PUBLIC_RYBBIT_HOST || "https://rybbit.internal.thecodecave.de";
 const csp = (frameAncestors: string) =>
   [
     "default-src 'self'",

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CopyBlock, SecretReveal, errMsg } from "../copy-block";
 import { nodeVerifySnippet } from "./snippets";
+import { track } from "@/lib/analytics";
 
 type EventType = Exclude<WebhookEventType, "webhook.test">;
 
@@ -31,6 +32,7 @@ export function CreateWebhookDialog({ projects, disabled }: { projects: { id: Id
     setBusy(true);
     try {
       const r = await create({ url: String(fd.get("url") ?? ""), description: String(fd.get("description") ?? "") || undefined, events, saasId: saasId ? (saasId as Id<"saas">) : undefined });
+      track("webhook_created", { events: events.join(",") });
       setSecret(r.secret);
     } catch (err) {
       toast.error(errMsg(err));

@@ -1,6 +1,7 @@
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
 import { BADGE_TYPES, renderBadge, renderNotFoundBadge, type BadgeTheme, type BadgeType, type BadgeWindow } from "@/lib/badge";
+import { serverTrack } from "@/lib/analytics-server";
 import { limit, tooMany } from "@/lib/api/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   const window: BadgeWindow = q.get("window") === "7d" ? "7d" : "30d";
   const compact = q.get("compact") === "1";
   const s = await fetchQuery(api.public.saasBySlug, { slug });
+  if (s) serverTrack(req, "badge_rendered", { type });
   const svg = s
     ? renderBadge({ type, theme, window, compact, name: s.name, totalUsers: s.totalUsers, newUsers7d: s.newUsers7d, newUsers30d: s.newUsers30d, growth7dPct: s.growth7dPct, growth30dPct: s.growth30dPct, trendingRank: s.trendingRank, trustLabel: s.trustLabel, spark: s.spark })
     : renderNotFoundBadge(theme);

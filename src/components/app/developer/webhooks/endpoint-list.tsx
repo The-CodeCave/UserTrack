@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Chip } from "../token-list";
 import { SecretReveal, errMsg } from "../copy-block";
+import { track } from "@/lib/analytics";
 
 type List = FunctionReturnType<typeof api.webhooks.list>;
 type Endpoint = List["endpoints"][number];
@@ -82,7 +83,7 @@ function EndpointRow({ ep, project, maxAttempts }: { ep: Endpoint; project?: str
             </>
           ) : (
             <>
-              <Button variant="outline" size="sm" className="h-10 sm:h-8" disabled={busy !== null || !active} onClick={() => run("test", () => sendTest({ id: ep.id }), "Test event queued")}>{busy === "test" ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} Send test</Button>
+              <Button variant="outline" size="sm" className="h-10 sm:h-8" disabled={busy !== null || !active} onClick={() => run("test", async () => { await sendTest({ id: ep.id }); track("webhook_test_sent"); }, "Test event queued")}>{busy === "test" ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} Send test</Button>
               <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => setShowDeliveries((v) => !v)}>Deliveries {showDeliveries ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}</Button>
               <Button variant="outline" size="sm" className="h-10 sm:h-8" disabled={busy !== null} onClick={() => run("status", () => update({ id: ep.id, status: active ? "disabled" : "active" }), active ? "Endpoint disabled" : "Endpoint enabled")}>{active ? "Disable" : "Enable"}</Button>
               <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => setConfirm("rotate")}><KeyRound className="size-3.5" /> Rotate secret</Button>

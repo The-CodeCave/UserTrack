@@ -7,6 +7,7 @@ import { Plus, X } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { Input } from "@/components/ui/input";
 import { SaasLogo } from "@/components/public/saas-card";
+import { track } from "@/lib/analytics";
 import { formatCompact } from "@/lib/format";
 
 // days: numeric window, 0 = all history (serialised as ?days=all).
@@ -16,7 +17,10 @@ export function ComparePicker({ selected, days }: { selected: { slug: string; na
   const [open, setOpen] = useState(false);
   const slugs = selected.map((s) => s.slug);
   const suggestions = useQuery(api.public.suggest, open ? { q, exclude: slugs } : "skip");
-  const go = (next: string[]) => router.push(next.length ? `/compare?s=${next.join(",")}&days=${days === 0 ? "all" : days}` : "/compare");
+  const go = (next: string[]) => {
+    if (next.length >= 2) track("compare_opened");
+    router.push(next.length ? `/compare?s=${next.join(",")}&days=${days === 0 ? "all" : days}` : "/compare");
+  };
   return (
     <div className="flex flex-wrap items-center gap-2">
       {selected.map((s) => (

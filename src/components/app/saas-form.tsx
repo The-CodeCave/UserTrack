@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +46,8 @@ export function SaasForm({
     setSaving(true);
     try {
       const id = initial ? (await update({ id: initial._id, slug: s("slug") || undefined, ...data }), initial._id) : await create(data);
+      if (initial) track("project_updated", { fields: changedFields(initial, data) });
+      else track("project_created", { source: "form" });
       toast.success(initial ? "Saved" : "SaaS created");
       onSaved?.(id);
     } catch (err) {
@@ -103,4 +106,10 @@ function Field({ label, name, className, ...props }: { label: string; name: stri
       <Input id={name} name={name} className={`h-11 bg-background ${className ?? ""}`} {...props} />
     </div>
   );
+}
+
+// Names of the submitted fields whose value differs from the stored project (never the values themselves).
+function changedFields(initial: Doc<"saas">, data: Record<string, unknown>) {
+  const before = initial as unknown as Record<string, unknown>;
+  return Object.keys(data).filter((k) => JSON.stringify(data[k] ?? null) !== JSON.stringify(before[k] ?? null)).join(",");
 }

@@ -6,6 +6,7 @@ import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowRight, Check, Database, Loader2, Search, ShieldCheck, Table2 } from "lucide-react";
 import { api } from "@convex/_generated/api";
+import { track } from "@/lib/analytics";
 import type { Id } from "@convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,6 +82,7 @@ export function PostgresWizard({ saasId, role, provider = "postgres", onConnecte
       setMapping((m) => ({ ...m, createdAtColumn: "created_at", createdAtKind: "timestamp", deletedAtColumn: "deleted_at" }));
     }
     setStep("table");
+    track("postgres_wizard_step", { step: 2 });
     toast.success(`Connected to ${r.server}`);
   }
 
@@ -93,13 +95,17 @@ export function PostgresWizard({ saasId, role, provider = "postgres", onConnecte
     setCols(r);
     setMapping({ idColumn: r.suggested.idColumn ?? "", createdAtColumn: r.suggested.createdAtColumn ?? "", createdAtKind: r.suggested.createdAtKind ?? "timestamp", deletedAtColumn: r.suggested.deletedAtColumn ?? "", statusColumn: "", activeStatus: "" });
     setStep("columns");
+    track("postgres_wizard_step", { step: 3 });
   }
 
   async function preview() {
     const r = await run(() => test({ saasId, role, provider, config: config() }));
     if (!r) return;
     setResult(r);
-    if (r.ok) setStep("confirm");
+    if (r.ok) {
+      setStep("confirm");
+      track("postgres_wizard_step", { step: 4 });
+    }
     else toast.error(r.error);
   }
 

@@ -9,6 +9,7 @@ import { formatDate, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { errMsg } from "./copy-block";
+import { track } from "@/lib/analytics";
 
 export type Token = FunctionReturnType<typeof api.tokens.list>[number];
 
@@ -31,6 +32,7 @@ function TokenRow({ token: t }: { token: Token }) {
     setBusy(true);
     try {
       await revoke({ id: t.id });
+      track("token_revoked");
       toast.success(`Revoked ${t.name}`);
     } catch (err) {
       toast.error(errMsg(err));

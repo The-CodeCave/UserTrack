@@ -9,6 +9,7 @@ import { SETUP_WORKFLOW, TOOLS } from "@/lib/mcp/tools";
 import { AGENT_PROMPT, MCP_URL, mcpSnippets } from "@/lib/mcp/snippets";
 import { PLANS, SCOPES } from "@convex/lib/tokens";
 import { SITE_URL } from "@/lib/site";
+import { TrackedA } from "@/components/analytics/analytics";
 
 export const metadata: Metadata = {
   title: "Developers — Public API & MCP",
@@ -52,6 +53,8 @@ const ENDPOINTS = [
   { path: "/users/{username}", params: "—", desc: "Public founder profile with links and their public SaaS projects." },
   { path: "/users/{username}/history", params: "range = 7d · 30d · 90d · 1y · all", desc: "Aggregate user growth across the founder's public projects." },
 ];
+
+const DATASET_NAMES = ["trending", "fastest-growing", "new-and-rising", "hidden-gems", "movers"];
 
 const ERRORS = [
   ["400", "bad_request", "Invalid query parameter; the message lists accepted values."],
@@ -221,6 +224,12 @@ export default function DevelopersPage() {
             />
           ))}
         </Panel>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Download:{" "}
+          {DATASET_NAMES.map((d, i) => (
+            <span key={d}>{i > 0 && " · "}{d} (<TrackedA event="dataset_downloaded" props={{ dataset: d, format: "json" }} href={`/api/v1/datasets/${d}`} className="font-mono underline underline-offset-4">JSON</TrackedA> / <TrackedA event="dataset_downloaded" props={{ dataset: d, format: "csv" }} href={`/api/v1/datasets/${d}?format=csv`} className="font-mono underline underline-offset-4">CSV</TrackedA>)</span>
+          ))}
+        </p>
         <p className="mt-2 text-xs text-muted-foreground">
           Leaderboard values: board = trending · fastest · most-users · most-new · most-activated · activation-rate · new-rising · hidden-gems · movers · best-conversion · best-trial-conversion · converted-growth; window = 24h · 7d · 30d; size = 0-100 · 100-1k · 1k-10k · 10k-100k · 100k+; platform = web · mobile · hybrid; verified = true (default) · false. Datasets share the API rate-limit buckets (CSV included) and are capped at 100 rows per window.
         </p>

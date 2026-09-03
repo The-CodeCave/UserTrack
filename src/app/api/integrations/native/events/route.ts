@@ -3,6 +3,7 @@
 import { fetchAction } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
 import { EVENTS_PATH, HEADER_NONCE, HEADER_PROJECT, HEADER_SIGNATURE, HEADER_TIMESTAMP } from "@convex/lib/nativeProtocol";
+import { serverTrack } from "@/lib/analytics-server";
 import { limit } from "@/lib/api/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export function eventsHandler(path: string) {
       headers: { timestamp: req.headers.get(HEADER_TIMESTAMP) ?? undefined, nonce: req.headers.get(HEADER_NONCE) ?? undefined, signature: req.headers.get(HEADER_SIGNATURE) ?? undefined },
     });
     if (!r.ok) return Response.json({ error: r.error }, { status: r.status, headers: { "Cache-Control": "no-store" } });
+    if (!r.duplicate) serverTrack(req, "native_event_ingested");
     return Response.json({ ok: true, duplicate: r.duplicate }, { status: r.duplicate ? 200 : 202, headers: { "Cache-Control": "no-store" } });
   };
 }

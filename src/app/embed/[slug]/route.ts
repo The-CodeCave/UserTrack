@@ -3,6 +3,7 @@ import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
 import { parseWidgetParams, widgetPageUrl } from "@/lib/embed";
 import { renderWidgetHtml } from "@/lib/widget";
+import { serverTrack } from "@/lib/analytics-server";
 import { limit, take, tooMany } from "@/lib/api/rate-limit";
 import { SITE_HOST, SITE_URL } from "@/lib/site";
 
@@ -28,6 +29,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   const p = parseWidgetParams(new URL(req.url).searchParams);
   const data = await fetchQuery(api.public.widget, { slug });
   const host = data ? embedHost(req.headers.get("referer")) : null;
+  if (data) serverTrack(req, "embed_rendered", { widget: p.type });
   // At most one write per host and project per minute; loads are a signal, not analytics.
   if (host && take(`embed-site:${slug}:${host}`, Date.now(), 1).allowed) {
     after(() => fetchMutation(api.embeds.record, { gateway: process.env.UT_GATEWAY_SECRET, slug, host }).catch((e) => console.error("[embed] record", e)));

@@ -31,6 +31,7 @@ import { formatCompact, formatDelta, formatPct, formatRate, timeAgo } from "@/li
 import { NO_REVENUE_NOTE, ROLE_META, ROLES, type Role } from "@/lib/providers-ui";
 import { cn } from "@/lib/utils";
 import { errMsg } from "@/components/app/developer/copy-block";
+import { track } from "@/lib/analytics";
 
 const NAV = [["growth", "Growth"], ["engagement", "Engagement"], ["conversion", "Conversion"], ["funnel", "Funnel"], ["benchmarks", "Benchmarks"], ["integrations", "Integrations"], ["sharing", "Sharing"], ["embeds", "Embeds"], ["visibility", "Visibility"], ["settings", "Settings"]] as const;
 const GROUPS = ["growth", "engagement", "conversion"] as const;
@@ -66,7 +67,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
   const embedHref = `/app/saas/${id}/embed`;
   const mobile = saas.projectType === "mobile";
   const byRole = (r: Role) => saas.integrations.find((i) => i.role === r);
-  const publish = (v: boolean) => setPublic({ id: saasId, isPublic: v }).catch((e: Error) => toast.error(/Uncaught \w*Error: ([^\n]*)/.exec(e.message)?.[1] ?? "Could not update the page"));
+  const publish = (v: boolean) => setPublic({ id: saasId, isPublic: v }).then(() => track(v ? "project_published" : "project_unpublished")).catch((e: Error) => toast.error(/Uncaught \w*Error: ([^\n]*)/.exec(e.message)?.[1] ?? "Could not update the page"));
   const copy = async (key: string, text: string) => { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(null), 1500); };
   // Derived from state only; disappears as the founder completes each item.
   const nextSteps = [
@@ -240,7 +241,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
             <p className="mt-1 text-xs text-muted-foreground">Re-import the last 30 days of daily user counts from your users source. Useful after connecting a new source or fixing a broken one.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="outline" size="sm" disabled={!users?.capabilities.historicalUsers || backfills?.[0]?.status === "running"} onClick={() => backfill({ saasId, role: "users", days: 30 }).then(() => toast.success("Backfill started — points land within a minute")).catch((e) => toast.error(errMsg(e)))}><History className="size-4" /> Backfill last 30 days</Button>
+            <Button variant="outline" size="sm" disabled={!users?.capabilities.historicalUsers || backfills?.[0]?.status === "running"} onClick={() => backfill({ saasId, role: "users", days: 30 }).then(() => track("backfill_triggered")).then(() => toast.success("Backfill started — points land within a minute")).catch((e) => toast.error(errMsg(e)))}><History className="size-4" /> Backfill last 30 days</Button>
             {users && !users.capabilities.historicalUsers && <span className="font-mono text-[11px] text-muted-foreground">Your {users.provider} source cannot read history.</span>}
           </div>
           {backfills && backfills.length > 0 && (

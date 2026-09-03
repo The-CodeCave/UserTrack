@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import type { Snippet } from "@/lib/mcp/snippets";
 import { cn } from "@/lib/utils";
+import { track } from "@/lib/analytics";
 
 // Tabbed config snippets (one per MCP client) with a copy button.
 export function SnippetTabs({ snippets }: { snippets: Snippet[] }) {
@@ -29,7 +30,7 @@ export function SnippetTabs({ snippets }: { snippets: Snippet[] }) {
         <pre className="min-w-0 flex-1 overflow-x-auto font-mono text-[12px] leading-relaxed">{active.text}</pre>
         <button
           type="button"
-          onClick={async () => { await navigator.clipboard.writeText(active.text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+          onClick={async () => { await navigator.clipboard.writeText(active.text); track("mcp_config_copied", { client: active.id }); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
           className="shrink-0 text-muted-foreground hover:text-foreground"
           aria-label={`Copy ${active.label} configuration`}
         >

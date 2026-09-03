@@ -6,12 +6,12 @@ import { cn } from "@/lib/utils";
 
 export const errMsg = (err: unknown) => (err as Error).message.replace(/^.*Uncaught Error: /, "").split("\n")[0];
 
-export function CopyButton({ text, label, className }: { text: string; label: string; className?: string }) {
+export function CopyButton({ text, label, className, onCopy }: { text: string; label: string; className?: string; onCopy?: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
-      onClick={async () => { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+      onClick={async () => { await navigator.clipboard.writeText(text); onCopy?.(); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
       aria-label={`Copy ${label}`}
       className={cn("flex size-10 shrink-0 items-center justify-center border border-line text-muted-foreground transition-colors hover:border-line-strong hover:text-foreground", className)}
     >
@@ -20,13 +20,13 @@ export function CopyButton({ text, label, className }: { text: string; label: st
   );
 }
 
-export function CopyBlock({ label, text, hint }: { label?: string; text: string; hint?: string }) {
+export function CopyBlock({ label, text, hint, onCopy }: { label?: string; text: string; hint?: string; onCopy?: () => void }) {
   return (
     <div>
       {label && <div className="mb-1 text-label">{label}</div>}
       <div className="flex items-start gap-2 border border-line bg-background p-3">
         <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed">{text}</code>
-        <CopyButton text={text} label={label ?? "snippet"} />
+        <CopyButton text={text} label={label ?? "snippet"} onCopy={onCopy} />
       </div>
       {hint && <p className="mt-1 font-mono text-[11px] text-muted-foreground">{hint}</p>}
     </div>

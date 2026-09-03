@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { Bell, BellRing, Loader2 } from "lucide-react";
 import { api } from "@convex/_generated/api";
+import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +29,7 @@ export function FollowButton({ targetType, targetId, count, size = "sm", classNa
     setBusy(true);
     try {
       await (next ? follow({ targetType, targetId }) : unfollow({ targetType, targetId }));
+      track(next ? "follow" : "unfollow", { targetType });
       toast.success(next ? "Following — major milestones, rank moves and spikes show up in your feed" : "Unfollowed");
     } catch (e) {
       setOptimistic(null);

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Check, Copy, Download, ImageIcon, Loader2, Share2 } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
+import { track as analytics } from "@/lib/analytics";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,7 +50,11 @@ export function ShareStudio({ target, open, onOpenChange }: { target: StudioTarg
   const loaded = loadedFor === image;
   // Milestone / spike / benchmark cards are statements, not series — no chart to toggle.
   const hasChart = target.graph || !/^(milestone|spike|benchmark)/.test(target.kind);
-  useEffect(() => { if (open) void track({ kind: target.kind, action: "generated" }).catch(() => {}); }, [open, target.kind, track]);
+  useEffect(() => {
+    if (!open) return;
+    analytics("share_card_viewed", { kind: target.kind });
+    void track({ kind: target.kind, action: "generated" }).catch(() => {});
+  }, [open, target.kind, track]);
 
   const set = <K extends keyof CardConfig>(k: K, v: CardConfig[K]) => setCfg((c) => ({ ...c, [k]: v }));
   const flash = (k: string) => { setDone(k); setTimeout(() => setDone(null), 1600); };
@@ -69,6 +74,7 @@ export function ShareStudio({ target, open, onOpenChange }: { target: StudioTarg
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
       void track({ kind: target.kind, action: "downloaded" });
+      analytics("share_card_downloaded", { kind: target.kind, range: String(cfg.range) });
       shared();
       flash("download");
     } catch (e) {
@@ -99,6 +105,7 @@ export function ShareStudio({ target, open, onOpenChange }: { target: StudioTarg
   }
   function postToX() {
     void track({ kind: target.kind, action: "x_intent" });
+    analytics("share_intent_opened", { network: "x" });
     shared();
     window.open(xIntentUrl(target.text, target.page), "_blank", "noopener,noreferrer");
   }

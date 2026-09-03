@@ -8,6 +8,7 @@ import { widgetHasWindow, widgetSnippets, type WidgetTheme, type WidgetType } fr
 import { formatDate, timeAgo } from "@/lib/format";
 import { SITE_URL, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
+import { track } from "@/lib/analytics";
 
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => <div className="space-y-1"><div className="text-label">{label}</div>{children}</div>;
 const WIN = [{ key: "7d", label: "7d" }, { key: "30d", label: "30d" }] as const;
@@ -46,9 +47,9 @@ function WidgetConfigurator({ slug, name }: { slug: string; name: string }) {
         </div>
       </Panel>
       <Panel className="space-y-4 p-4 sm:p-5">
-        <Snippet label="Script (recommended)" text={s.script} />
-        <Snippet label="iframe" text={s.iframe} />
-        <Snippet label="JSON" text={s.jsonUrl} />
+        <Snippet label="Script (recommended)" text={s.script} onCopy={() => track("embed_snippet_copied", { widget: type })} />
+        <Snippet label="iframe" text={s.iframe} onCopy={() => track("embed_snippet_copied", { widget: type })} />
+        <Snippet label="JSON" text={s.jsonUrl} onCopy={() => track("embed_snippet_copied", { widget: type })} />
       </Panel>
     </>
   );
@@ -94,9 +95,9 @@ function BadgeConfigurator({ slug, name }: { slug: string; name: string }) {
         </div>
       </Panel>
       <Panel className="space-y-4 p-4 sm:p-5">
-        <Snippet label="HTML" text={html} />
-        <Snippet label="Markdown" text={md} />
-        <Snippet label="Image URL" text={src} />
+        <Snippet label="HTML" text={html} onCopy={() => track("badge_snippet_copied")} />
+        <Snippet label="Markdown" text={md} onCopy={() => track("badge_snippet_copied")} />
+        <Snippet label="Image URL" text={src} onCopy={() => track("badge_snippet_copied")} />
       </Panel>
     </>
   );

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, MailCheck } from "lucide-react";
+import { track } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { safeInternalPath } from "@/lib/safe-redirect";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
 
   async function signInWithGoogle() {
     setGoogleLoading(true);
+    track(mode === "sign-up" ? "sign_up_started" : "sign_in", { method: "google" });
     const res = await authClient.signIn.social({
       provider: "google",
       callbackURL: next,
@@ -46,7 +48,10 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
     const res = await authClient.sendVerificationEmail({ email, callbackURL: mode === "sign-up" ? "/app/onboarding" : next });
     setSending(false);
     if (res.error) toast.error(res.error.message ?? "Could not send verification email");
-    else toast.success("Verification email sent");
+    else {
+      track("email_verification_resent");
+      toast.success("Verification email sent");
+    }
   }
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -57,6 +62,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
     const name = String(fd.get("name") ?? "").trim();
     setLoading(true);
     setUnverified(null);
+    if (mode === "sign-up") track("sign_up_started", { method: "email" });
     const res =
       mode === "sign-up"
         ? await authClient.signUp.email({ email, password, name, callbackURL: "/app/onboarding" })
@@ -68,9 +74,11 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
       return;
     }
     if (mode === "sign-up") {
+      track("sign_up_completed", { method: "email" });
       setSignedUp(email);
       return;
     }
+    track("sign_in", { method: "email" });
     router.push(next);
     router.refresh();
   }

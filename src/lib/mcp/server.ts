@@ -8,6 +8,7 @@ import { SERVER_INSTRUCTIONS, TOOLS } from "./tools";
 import { authorize, gatewayAuth, toFailure, type GatewayFailure } from "@/lib/api/gateway";
 import { hashSecret } from "@/lib/api/gateway";
 import { limit } from "@/lib/api/rate-limit";
+import { serverTrack } from "@/lib/analytics-server";
 
 export const MCP_VERSION = "1.0.0";
 
@@ -38,9 +39,12 @@ export function createMcpServer(req: Request, secret: string) {
         if (!burst.allowed) return errorResult({ code: "rate_limited", message: `Burst limit of ${burst.limit} tool calls per minute exceeded`, retryAfterSec: burst.retryAfterSec });
         try {
           await authorize(secret, "mcp", t.name, t.scope);
-          return textResult(await t.run(auth, args));
+          const out = await t.run(auth, args);
+          serverTrack(req, "mcp_tool_called", { tool: t.name, ok: true });
+          return textResult(out);
         } catch (e) {
           const f = toFailure(e);
+          serverTrack(req, "mcp_tool_called", { tool: t.name, ok: false, code: f?.code ?? "internal" });
           if (f && !t.readOnly && !["unauthorized", "revoked", "expired", "forbidden"].includes(f.code)) {
             void fetchMutation(api.gateway.auditFailure, { auth, action: t.name, detail: f.message, projectId: args.projectId as string | undefined, slug: args.slug as string | undefined }).catch(() => {});
           }

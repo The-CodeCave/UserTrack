@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyBlock, SecretReveal, errMsg } from "./copy-block";
+import { track } from "@/lib/analytics";
 
 const EXPIRY = [
   { value: "0", label: "Never" },
@@ -44,6 +45,7 @@ export function CreateMcpTokenDialog() {
     setBusy(true);
     try {
       const r = await create({ type: "mcp", name, scopes, expiresInDays: Number(expiry) || undefined });
+      track("token_created", { type: "mcp", origin: "dashboard" });
       setSecret(r.secret);
     } catch (err) {
       toast.error(errMsg(err));
@@ -69,7 +71,7 @@ export function CreateMcpTokenDialog() {
               <TabsList variant="line" className="h-auto! max-w-full flex-wrap justify-start">
                 {snippets.map((s) => <TabsTrigger key={s.id} value={s.id} className="flex-none font-mono text-[11px] uppercase tracking-wider">{s.label}</TabsTrigger>)}
               </TabsList>
-              {snippets.map((s) => <TabsContent key={s.id} value={s.id} className="mt-2"><CopyBlock text={s.text} hint={s.hint} /></TabsContent>)}
+              {snippets.map((s) => <TabsContent key={s.id} value={s.id} className="mt-2"><CopyBlock text={s.text} hint={s.hint} onCopy={() => track("mcp_config_copied", { client: s.id })} /></TabsContent>)}
             </Tabs>
             <CopyBlock label="Prompt for your agent" text={AGENT_PROMPT} />
             <div className="flex flex-col gap-2 sm:flex-row">

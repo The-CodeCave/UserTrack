@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { useQuery } from "convex/react";
 import { LayoutGrid, Boxes, Bell, Mail, UserRound, Code2, Settings, LogOut, Share2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
+import { track } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/site/logo";
@@ -40,6 +41,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!me?.profile?.onboardingCompleted) return <ShellSkeleton />;
 
   async function signOut() {
+    track("sign_out");
     await authClient.signOut();
     router.push("/");
     router.refresh();

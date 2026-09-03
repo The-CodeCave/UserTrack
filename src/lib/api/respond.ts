@@ -1,4 +1,5 @@
 import { PLANS } from "@convex/lib/tokens";
+import { serverTrack } from "@/lib/analytics-server";
 import { limit } from "./rate-limit";
 import { authorize, bearer, hashSecret, STATUS, toFailure, type GatewayCode } from "./gateway";
 
@@ -31,21 +32,25 @@ export function withApi<C>(category: string, handler: (req: Request, ctx: C) => 
     const key = bearer(req);
     let res: Response;
     let limits: Limits;
+    const done = (r: Response, l: Limits) => {
+      serverTrack(req, "api_request", { category, status: r.status, authenticated: !!key });
+      return finish(r, l);
+    };
     if (key) {
       const b = await limit(req, "apiKey", hashSecret(key));
-      if (!b.allowed) return finish(fail("rate_limited", `Burst limit of ${b.limit} requests per minute exceeded`, 429, { "Retry-After": String(b.retryAfterSec) }), { limit: b.limit, remaining: 0, window: "minute" });
+      if (!b.allowed) return done(fail("rate_limited", `Burst limit of ${b.limit} requests per minute exceeded`, 429, { "Retry-After": String(b.retryAfterSec) }), { limit: b.limit, remaining: 0, window: "minute" });
       try {
         const a = await authorize(key, "api", category);
         limits = { limit: a.limit.perDay, remaining: a.limit.remaining, window: "day", resetAt: a.limit.resetAt };
       } catch (e) {
         const f = toFailure(e);
         if (!f) throw e;
-        return finish(fail(f.code, f.message, STATUS[f.code], f.retryAfterSec ? { "Retry-After": String(f.retryAfterSec) } : {}), { limit: f.limit ?? PLANS.free.api.perDay, remaining: 0, window: "day", resetAt: f.resetAt });
+        return done(fail(f.code, f.message, STATUS[f.code], f.retryAfterSec ? { "Retry-After": String(f.retryAfterSec) } : {}), { limit: f.limit ?? PLANS.free.api.perDay, remaining: 0, window: "day", resetAt: f.resetAt });
       }
     } else {
       const rl = await limit(req, "anonApi");
       limits = { limit: rl.limit, remaining: rl.remaining, window: "minute" };
-      if (!rl.allowed) return finish(fail("rate_limited", `Rate limit of ${rl.limit} requests per minute exceeded. Use an API key for ${PLANS.free.api.perDay.toLocaleString("en")} requests per day.`, 429, { "Retry-After": String(rl.retryAfterSec) }), limits);
+      if (!rl.allowed) return done(fail("rate_limited", `Rate limit of ${rl.limit} requests per minute exceeded. Use an API key for ${PLANS.free.api.perDay.toLocaleString("en")} requests per day.`, 429, { "Retry-After": String(rl.retryAfterSec) }), limits);
     }
     try {
       res = await handler(req, ctx);
@@ -54,7 +59,7 @@ export function withApi<C>(category: string, handler: (req: Request, ctx: C) => 
       res = fail("internal", "Internal error", 500);
     }
     if (key) res.headers.set("Cache-Control", "private, no-store");
-    return finish(res, limits);
+    return done(res, limits);
   };
 }
 

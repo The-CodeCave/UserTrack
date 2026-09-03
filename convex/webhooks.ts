@@ -12,6 +12,7 @@ import {
   nextAttemptDelay, serializePayload, signPayload, signatureHeaders, type WebhookEventType, type WebhookProject,
 } from "./lib/webhooks";
 import { resolvePublicHost } from "./lib/ssrf";
+import { trackEvent } from "./lib/analytics";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -98,10 +99,12 @@ export const deliver = internalAction({
       const latencyMs = Date.now() - started;
       const ok = res.status >= 200 && res.status < 300;
       await ctx.runMutation(internal.webhooks.recordAttempt, { deliveryId, ok, httpStatus: res.status, latencyMs, retryable: !ok && (res.status >= 500 || RETRYABLE.has(res.status)), error: ok ? undefined : `HTTP ${res.status}` });
+      await trackEvent("webhook_delivered", { ok, attempt: delivery.attempt + 1 });
     } catch (e) {
       const err = e as Error;
       const timeout = err.name === "TimeoutError" || err.name === "AbortError";
       await ctx.runMutation(internal.webhooks.recordAttempt, { deliveryId, ok: false, retryable: true, latencyMs: Date.now() - started, error: (timeout ? `timeout after ${WEBHOOK_TIMEOUT_MS / 1000}s` : err.message).slice(0, 200) });
+      await trackEvent("webhook_delivered", { ok: false, attempt: delivery.attempt + 1 });
     }
   },
 });

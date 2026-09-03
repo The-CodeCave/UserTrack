@@ -10,6 +10,7 @@ import { Panel } from "@/components/blueprint/panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { NotificationPreferences, type PrefKey } from "@/components/app/notification-preferences";
+import { track } from "@/lib/analytics";
 
 export default function NotificationSettingsPage() {
   const prefs = useQuery(api.email.prefs.mine);
@@ -24,6 +25,7 @@ export default function NotificationSettingsPage() {
   async function change(key: PrefKey, value: boolean) {
     try {
       await update({ [key]: value });
+      track("notification_pref_changed", { key, value });
     } catch (e) {
       toast.error((e as Error).message);
     }

@@ -19,6 +19,7 @@ import { recordSpikeShare } from "./share";
 import { addEvent, addOnceEvent } from "./domain/events";
 import { dispatchEvent } from "./webhooks";
 import { conversionMode, integrationRole, lifecycleStage, providerKind, trustLevel } from "./schema";
+import { trackEvent } from "./lib/analytics";
 
 const STAGGER_WINDOW_MS = 10 * 60_000;
 const MAX_ATTEMPTS = 3;
@@ -91,10 +92,12 @@ export const runOne = internalAction({
       if (hasHistory(integration.provider, integration.config) && (!integration.backfilledAt || role === "traffic")) {
         await runBackfill(ctx, integration, role, integration.backfilledAt ? 7 : BACKFILL_DAYS, integration.backfilledAt ? "rolling" : "first_sync");
       }
+      await trackEvent("sync_completed", { provider: integration.provider, role, ok: true });
     } catch (e) {
       const err = e as Error;
       const retryable = err instanceof ProviderError ? err.retryable : true;
       await ctx.runMutation(internal.sync.recordFailure, { integrationId, startedAt, attempt, error: err.message.slice(0, 300) });
+      await trackEvent("sync_completed", { provider: integration.provider, role, ok: false });
       if (retryable && attempt < MAX_ATTEMPTS) await ctx.scheduler.runAfter(attempt * 10 * 60_000, internal.sync.runOne, { integrationId, attempt: attempt + 1 });
     }
   },

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Check, Copy, ExternalLink, PartyPopper } from "lucide-react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import { track as analytics } from "@/lib/analytics";
 import { Logo } from "@/components/site/logo";
 import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
@@ -63,7 +64,10 @@ export default function OnboardingPage() {
     : first.trust === "pending" && !first.lastSyncedAt ? (stackDone(stack) ? 4 : 3)
     : 7;
   const step = override?.step ?? derived;
-  const setStep = (s: number, id?: Id<"saas">) => setOverride({ step: s, saasId: id ?? override?.saasId });
+  const setStep = (s: number, id?: Id<"saas">) => {
+    setOverride({ step: s, saasId: id ?? override?.saasId });
+    analytics("onboarding_step", { step: STEPS[s] ?? "done", platform: saas?.projectType });
+  };
   const saas = useQuery(api.saas.getMine, saasId ? { id: saasId } : "skip");
   const update = useMutation(api.saas.update);
   const setPublic = useMutation(api.saas.setPublic);
@@ -107,6 +111,7 @@ export default function OnboardingPage() {
     setAiDone(true);
     sessionStorage.removeItem(MODE_KEY);
     await complete();
+    analytics("onboarding_completed");
     await track({ event: "mcp_setup_completed" });
     toast.success("You're live!");
   }
@@ -116,6 +121,8 @@ export default function OnboardingPage() {
     try {
       await setPublic({ id: saasId, isPublic: true });
       await complete();
+      analytics("project_published");
+      analytics("onboarding_completed");
     } catch (err) {
       toast.error(/Uncaught \w*Error: ([^\n]*)/.exec((err as Error).message)?.[1] ?? "Could not publish the page");
       return;

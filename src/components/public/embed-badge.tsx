@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Check, Copy } from "lucide-react";
+import { track } from "@/lib/analytics";
 import { badgeUrl, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
@@ -54,13 +55,13 @@ export function EmbedBadge({ slug, name, manageHref }: { slug: string; name: str
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt={`${name} on UserTrack`} height={height} className="max-w-none" />
       </div>
-      <Snippet label="HTML" text={html} />
-      <Snippet label="Markdown" text={md} />
+      <Snippet label="HTML" text={html} onCopy={() => track("badge_snippet_copied")} />
+      <Snippet label="Markdown" text={md} onCopy={() => track("badge_snippet_copied")} />
     </div>
   );
 }
 
-export function Snippet({ label, text }: { label: string; text: string }) {
+export function Snippet({ label, text, onCopy }: { label: string; text: string; onCopy?: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <div>
@@ -68,7 +69,7 @@ export function Snippet({ label, text }: { label: string; text: string }) {
       <div className="flex items-start gap-2 border border-line bg-background p-3">
         <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-[12px] leading-relaxed">{text}</code>
         <button
-          onClick={async () => { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+          onClick={async () => { await navigator.clipboard.writeText(text); onCopy?.(); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
           className="shrink-0 text-muted-foreground hover:text-foreground"
           aria-label={`Copy ${label}`}
         >

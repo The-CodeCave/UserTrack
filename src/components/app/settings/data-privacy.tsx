@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { FLASH_KEY } from "@/components/site/flash-toast";
+import { track } from "@/lib/analytics";
 
 const REMOVED = [
   "Your founder profile and public page (/u/…)",
@@ -29,7 +30,7 @@ export function DataPrivacyPanel() {
       <div>
         <SectionLabel>Data &amp; privacy</SectionLabel>
         <p className="mt-2 text-sm text-muted-foreground">Everything UserTrack stores about you, as one JSON file (GDPR Art. 20). Credentials and secrets are never included. Details in the <Link href="/privacy#self-service" className="underline underline-offset-4 hover:text-foreground">privacy policy</Link>.</p>
-        <a href="/api/account/export" download="usertrack-export.json" className={cn(buttonVariants({ variant: "outline" }), "mt-3")}>
+        <a href="/api/account/export" download="usertrack-export.json" onClick={() => track("account_export_downloaded")} className={cn(buttonVariants({ variant: "outline" }), "mt-3")}>
           <Download className="size-4" /> Download my data
         </a>
       </div>
@@ -54,6 +55,7 @@ function DeleteAccountDialog() {
     setBusy(true);
     try {
       await deleteAccount({ confirm: "DELETE" });
+      track("account_deleted");
       await authClient.signOut().catch(() => undefined);
       // Hard navigation: the app shell would otherwise bounce the signed-out session to /sign-in.
       sessionStorage.setItem(FLASH_KEY, "Your account has been deleted");
