@@ -130,7 +130,7 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
           </div>
           <CopyBlock label={`2 · ${files.route.title} — ${files.route.path}`} text={files.route.code} hint={files.notes[0]} />
           <CopyBlock label="3 · Environment" text={cred ? envSnippet(cred.projectId, cred.secret) : `${ENV_PROJECT_ID}=${saasId}\n${ENV_SECRET}=ut_int_… (shown once at creation)`} hint="Then deploy your app." />
-          {files.push && <CopyBlock label={`Optional · ${files.push.title} — ${files.push.path}`} text={files.push.code} hint="Signups show up on the dashboard between syncs. Fire-and-forget, never blocks a signup." />}
+          {files.push && <CopyBlock label={`${files.push.title} — ${files.push.path}`} text={files.push.code} hint="Signups show up on the dashboard between syncs. Fire-and-forget, never blocks a signup." />}
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button className="h-11" onClick={() => setStep("verify")}>Deployed — verify now</Button>
             <Button variant="ghost" className="h-11" render={<a href={source === "better-auth" ? "/developers/integrations/better-auth" : `/developers/integrations/native#${source}`} target="_blank" rel="noreferrer" />}>Docs <ExternalLink className="size-4" /></Button>

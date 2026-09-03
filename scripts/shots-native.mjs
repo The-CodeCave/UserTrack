@@ -65,6 +65,9 @@ if (phase === "create") {
   }
   await page.waitForSelector("text=Connect a data source", { timeout: 60000 });
   await page.click("button:has-text('My app (SDK)')");
+  await page.waitForSelector("text=Create integration", { timeout: 30000 });
+  await page.click(`button[role=radio]:has-text('${sourceLabel}')`);
+  await page.click("button:has-text('Create integration')");
   await page.waitForSelector("text=Rotate secret", { timeout: 30000 });
   await shot(page, "05-wizard-existing-integration");
   await page.click("text=Deployed — verify now");

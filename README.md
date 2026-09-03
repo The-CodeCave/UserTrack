@@ -11,7 +11,7 @@ UserTrack is a public growth and discovery platform for SaaS and mobile apps. Fo
 | Area | Features |
 |---|---|
 | **Lifecycle model** | One normalized funnel for web SaaS and mobile apps: Reached → Signed up → Activated → Trial → Converted. Every project combines several provider roles (identity · activation · reach · conversion); only stages with real connected data are shown (Signups → Converted, Signups → Activated, full funnel…). Two confidence levels: **Aggregate** (period ratios) and **Cohort Verified** (anonymized users traced across stages). `docs/FUNNEL.md`, `docs/IDENTITY.md`. |
-| **Verified data** | **Better Auth** (official plugin `@usertrack/better-auth`: signed aggregate metrics from the app's own Better Auth database, native verified, ~2 min, `docs/PROVIDERS.md` + `/developers/integrations/better-auth`) · Clerk · Supabase (read-only database mode via the session pooler, or service-role API mode) · **PostgreSQL** (read-only role, aggregate SQL only, 4-step wizard) · Firebase Auth (signup scan ≤100k accounts) · Auth0 · JSON endpoint (verified on own domain) · Manual (self-reported, never ranked). Per-source capability model + verification level (verified / partially verified / self-reported), live "Test connection" before saving, 30-day history backfill where the source supports it. `docs/PROVIDERS.md`. |
+| **Verified data** | **Native SDK** (`@usertrack/node` for Prisma, Drizzle, Convex, Auth.js / NextAuth and custom apps, `@usertrack/better-auth` for Better Auth: the app answers signed aggregate requests itself — users, optionally activation + conversion from one handler — native verified, ~2 min, `docs/PROVIDERS.md` + `/developers/integrations/native`) · Clerk · Supabase (read-only database mode via the session pooler, or service-role API mode) · **PostgreSQL** (read-only role, aggregate SQL only, 4-step wizard) · Firebase Auth (signup scan ≤100k accounts) · Auth0 · JSON endpoint (verified on own domain) · Manual (self-reported, never ranked). Per-source capability model + verification level (verified / partially verified / self-reported), live "Test connection" before saving, 30-day history backfill where the source supports it. `docs/PROVIDERS.md`. |
 | **Activation** | Optional activation source (PostHog event, Supabase / PostgreSQL table or custom `$1` SELECT, endpoint) → activated users 24h/7d/30d, activation rate, second chart series; optional onboarding step. |
 | **Retention** | Estimated retained / churned / retention rate from providers that expose "active in 30 days" (Clerk, Auth0, endpoint). Labelled *estimated*; never fabricated. |
 | **Conversion (no revenue)** | Stripe · **RevenueCat** (iOS/Android subscriptions) · Paddle · Lemon Squeezy · Chargebee · endpoint, read-only and amount-free → Trial Users, Converted Users, Signup → Converted, Activated → Converted, Trial → Converted, converted-user growth. Provider-independent definition of "converted" (active paid · ever paid · first payment). A Stripe customer or a RevenueCat install is never a converted user. |
@@ -53,7 +53,7 @@ Set up with AI in 60 seconds:
    ```
    (Cursor, Codex CLI, VS Code and generic snippets are on `/developers#mcp`.)
 3. Tell the agent: *"Add this project to UserTrack. Detect the current authentication/user stack, choose the safest supported UserTrack integration, configure it, verify it, and return the public UserTrack URL."*
-4. The agent asks for a provider recommendation (Better Auth plugin → Supabase → Clerk → Firebase → PostgreSQL → endpoint), creates the project, connects the source (for Better Auth: `usertrack_create_integration` issues the credential once, `usertrack_get_better_auth_setup` returns the package-manager-aware install plan and the agent adds `userTrack()` to the existing plugins array; otherwise a read-only key, a read-only database role, or a tiny count endpoint), verifies, publishes, optionally adds an activation source, and hands back the public URL.
+4. The agent asks for a provider recommendation (native SDK → Supabase → Clerk → Firebase → PostgreSQL → endpoint), creates the project, connects the source (native: `usertrack_create_integration { provider: "native", source }` issues the credential once, `usertrack_get_native_setup` returns the package-manager-aware install plan and the agent adds `userTrack()` to the Better Auth plugins array or one `@usertrack/node` route file with a count source; otherwise a read-only key, a read-only database role, or a tiny count endpoint), verifies, publishes, optionally adds an activation source, and hands back the public URL.
 
 Tools, scopes, limits, security model and troubleshooting: [docs/MCP.md](docs/MCP.md).
 
@@ -83,8 +83,9 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | Command | Purpose |
 |---|---|
 | `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
-| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (262 tests in 28 files: metrics, funnel, trending, trust, milestones, benchmarks, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, share, rate limit, email rules, templates, tokens, webhook signatures, MCP tools, and `convex-test` function tests for discovery / dedupe / preferences / lifecycle / milestones / reports / gateway) |
+| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (363 tests in 40 files: metrics, funnel, trending, trust, milestones, benchmarks, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, share, rate limit, email rules, templates, tokens, webhook signatures, MCP tools, and `convex-test` function tests for discovery / dedupe / preferences / lifecycle / milestones / reports / gateway) |
 | `node scripts/email-preview.mjs` | Render every email template with sample data to `/tmp/ut-emails/*.html` |
+| `pnpm packages:build` · `pnpm packages:test` · `pnpm packages:typecheck` | Build / test / typecheck every workspace package (`@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth`; 61 tests) |
 | `pnpm convex:dev` · `pnpm convex:deploy` | Convex dev watch · deploy to prod |
 | `node scripts/smoke.mjs [base] [mobile]` | E2E: sign-up → onboarding → publish → public page → dashboard (needs Chrome) |
 | `node scripts/shot.mjs <url> <out.png> [w] [h] [full]` · `node scripts/console.mjs <urls…>` · `node scripts/og.mjs [base]` | Screenshot · console-error sweep · OG image download |
@@ -111,10 +112,12 @@ Provider credentials (Clerk keys, service accounts, Stripe restricted keys, read
 ## Layout
 
 ```
-packages/better-auth/  @usertrack/better-auth — the official Better Auth plugin (own tests, README, HUMAN_TODO, release workflow); independent of the app
-packages/better-auth/e2e/  local HTTP end-to-end sample (pnpm --filter usertrack-better-auth-e2e e2e)
-convex/betterAuth.ts   integration credentials (ut_int_ secret, shown once, rotate), event ingestion, event summary
-convex/lib/betterAuthProtocol.ts / betterAuthSetup.ts  protocol v1 twin (frozen fixtures) · install plan shared by dashboard, docs and MCP
+packages/protocol/     @usertrack/protocol — native protocol v1 (HMAC signing, nonce cache, wire types), zero deps, frozen fixtures
+packages/node/         @usertrack/node — createUserTrackHandler + toNodeHandler + createTracker; adapters /prisma /drizzle /convex /authjs (own tests, README, AGENTS.md, HUMAN_TODO)
+packages/better-auth/  @usertrack/better-auth 0.2.0 — the official Better Auth plugin, a thin wrapper over the two packages above
+packages/*/e2e/        local HTTP end-to-end samples (pnpm --filter usertrack-node-e2e e2e · pnpm --filter usertrack-better-auth-e2e e2e)
+convex/native.ts       native integration credentials (ut_int_ secret, shown once, rotate), event ingestion (5 event types, legacy path), event summary
+convex/lib/nativeProtocol.ts / nativeSetup.ts  protocol v1 twin (fixtures + cross-implementation test) · per-source install plan shared by dashboard, docs and MCP
 ```
 ```
 convex/                schema, auth, profiles, saas, integrations (+ live test, Postgres introspection), sync engine,
@@ -122,11 +125,11 @@ convex/                schema, auth, profiles, saas, integrations (+ live test, 
                        follows, digest, public queries (boards, discover, feed, funnel, compare, benchmark highlight,
                        trending explain), seed, crons, tokens (developer credentials), onboarding (AI setup status)
 convex/domain/         projects · integrations · metrics · funnel · visibility · events — the rules shared by dashboard, REST API and MCP
-convex/cohorts.ts      identity-link paging → signup cohorts, identity quality, Cohort Verified · convex/migrations.ts (lifecycleV1)
+convex/cohorts.ts      identity-link paging → signup cohorts, identity quality, Cohort Verified · convex/migrations.ts (lifecycleV1, nativeV1)
 convex/gateway.ts      token-authenticated entry points: scopes, ownership, quotas, audit, idempotent create, all MCP tool backends
 convex/email/          mailer: send (dedupe + prefs + Resend), templates, prefs + signed tokens, lifecycle,
                        growth (milestones/rank/spike/followers), reports (monthly), webhook, testSend
-convex/providers/      provider adapters behind one interface (better_auth, clerk, supabase, firebase, auth0, posthog, plausible, ga4,
+convex/providers/      provider adapters behind one interface (native, clerk, supabase, firebase, auth0, posthog, plausible, ga4,
                        stripe, revenuecat, paddle, lemonsqueezy, chargebee, postgres, endpoint, manual) + google service-account
                        helper + conversion.ts (shared trial/converted aggregation); capability model + verification levels in types.ts
 convex/node/           postgres.ts — the only Node-runtime action ("use node", pg): read-only TCP, aggregate SQL, introspection
@@ -142,7 +145,7 @@ src/app/email/         /email/preferences — signed-link preference page (no lo
 src/components/        blueprint primitives, charts (growth w/ annotations, compare), public cards (funnel, discovery feed,
                        trending explain, embed badge), app forms (connect source, postgres wizard, test result, embed configurator)
 src/lib/api/           respond (rate limits + envelope), gateway bridge, DTOs (incl. funnel / feed / compare), OpenAPI
-src/lib/mcp/           server, tools (23) + setup workflow, config snippets + agent prompt
+src/lib/mcp/           server, tools (30) + setup workflow, config snippets + agent prompts
 src/lib/               format, categories, providers-ui (setup instructions), share copy + kinds, badge SVG (+ chart widget), og renderers
 docs/                  ARCHITECTURE · API · MCP · PROVIDERS · FUNNEL · IDENTITY · METRICS · TRENDING · BENCHMARKS · BACKLOG · ASSUMPTIONS · DEPLOYMENT · ROADMAP · CHANGELOG
 HUMAN_TODO.md          the only things left that need a human

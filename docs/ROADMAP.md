@@ -55,7 +55,13 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 - Provider `better_auth` (native verified), `ut_int_` credentials shown once, awaiting-verification state, verify → first sync, event ingestion, plugin/protocol version diagnostics.
 - Dashboard wizard, AI-onboarding step, MCP tools `usertrack_get_better_auth_setup` / `usertrack_create_integration`, prompt, Better Auth first in the users priority, public docs `/developers/integrations/better-auth`.
 
+### v0.7 — Native SDK integrations (`@usertrack/node`)
+- One provider kind `native` for every client of the native protocol; `better_auth` migrated (`migrations:nativeV1`) and kept as an alias. Users, activation and conversion from one signed handler; extra roles attach automatically.
+- `@usertrack/protocol` (signing + wire types, zero deps), `@usertrack/node` (handler, Node adapter, tracker; Prisma / Drizzle / Convex / Auth.js adapters, 22 tests + e2e), `@usertrack/better-auth` 0.2.0 as a thin wrapper. One tag-driven release workflow for all three packages.
+- Setup knowledge per source (`convex/lib/nativeSetup.ts`) shared by the "My app (SDK)" wizard, `/developers/integrations/native` and MCP `usertrack_get_native_setup`; recommendation ranks Better Auth / Auth.js / Convex first and ORM-only signals after hosted auth providers.
+
 ## Next opportunities
+0. **Real-world adapter runs** — the Prisma / Drizzle / Convex / Auth.js adapters are tested against fakes and rendered SQL; one live founder integration per adapter (see `packages/node/HUMAN_TODO.md`) would confirm the count semantics end to end, then publish the three packages.
 1. **Verified retention cohorts** — providers with per-user `last_active_at` (Clerk list API, Auth0 logs) could yield true cohort retention instead of the estimate; also weekly cohort curves.
 2. **Domain verification** (DNS TXT / meta tag) so endpoints on other hosts can become verified, and to strengthen the trust score.
 3. **Envelope encryption** of `integrations.config` with a KMS-style key in env (Convex already encrypts at rest).

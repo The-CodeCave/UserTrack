@@ -8,7 +8,7 @@ Read-only JSON API over everything that is public on UserTrack: SaaS profiles, m
 - **OpenAPI:** `https://usertrack.dev/api/openapi.json` (OpenAPI 3.1, generated from the route code in `src/lib/api/openapi.ts`).
 
 
-> Provider identifiers that can appear in `source.provider` (funnel stages): `better_auth`, `clerk`, `supabase`, `firebase`, `auth0`, `postgres`, `posthog`, `plausible`, `ga4`, `stripe`, `revenuecat`, `paddle`, `lemonsqueezy`, `chargebee`, `endpoint`, `manual`. `better_auth` is a native verified source (`verification: "verified"`); no integration URLs or secrets are ever exposed.
+> Provider identifiers that can appear in `source.provider` (funnel stages): `native`, `clerk`, `supabase`, `firebase`, `auth0`, `postgres`, `posthog`, `plausible`, `ga4`, `stripe`, `revenuecat`, `paddle`, `lemonsqueezy`, `chargebee`, `endpoint`, `manual`. `native` is the app's own SDK integration (`@usertrack/better-auth` or `@usertrack/node`; the `source.label` names the adapter, e.g. "Better Auth" or "Prisma (UserTrack SDK)") and is always `verification: "verified"`. v0.6 rows named `better_auth` are migrated to `native`. No integration URLs or secrets are ever exposed.
 
 ## Versioning
 

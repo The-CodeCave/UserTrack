@@ -24,7 +24,7 @@ export async function signedRequest(body: Partial<MetricsRequest> | null = {}, o
   const raw = o.rawBody ?? (body === null ? "" : JSON.stringify({ protocolVersion: 1, ...body }));
   const headers = await signedHeaders(o.secret ?? SECRET, o.projectId ?? PROJECT, { method: "REQUEST", path: METRICS_PATH, body: raw, ...(o.timestamp !== undefined ? { timestamp: o.timestamp } : {}), ...(o.nonce !== undefined ? { nonce: o.nonce } : {}) });
   if (o.projectId !== undefined) headers[HEADER_PROJECT] = o.projectId;
-  return new Request("https://app.example.com/api/usertrack/metrics", { method: o.method ?? "POST", headers: { "content-type": "application/json", ...headers }, body: o.method === "GET" ? undefined : raw });
+  return new Request("https://app.example.com/api/usertrack/metrics", { method: o.method ?? "POST", headers: { "content-type": "application/json", ...headers }, ...(o.method === "GET" ? {} : { body: raw }) });
 }
 
 export async function readSigned(res: Response, req: Request, secret = SECRET) {

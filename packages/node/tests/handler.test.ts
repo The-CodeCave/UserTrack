@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NonceCache } from "@usertrack/protocol";
+import { type Identities, NonceCache } from "@usertrack/protocol";
 import { createUserTrackHandler, toNodeHandler } from "../src/index.js";
 import { DAY, memorySource, NOW, PROJECT, readSigned, SECRET, signedRequest } from "./helpers.js";
 import { createServer } from "node:http";
@@ -13,7 +13,7 @@ describe("createUserTrackHandler", () => {
       source: "prisma",
       activation: memorySource([new Date(NOW - DAY / 2), new Date(NOW - 20 * DAY)]),
       conversion: { converted: memorySource([new Date(NOW - 2 * DAY)]), trial: memorySource([new Date(NOW - DAY), new Date(NOW - 40 * DAY)]), mode: "ever_paid" },
-      identities: async () => ({ signedUp: [{ id: "u1", at: new Date(NOW) }, { id: "bad@example.com" }, { id: 7 }], converted: [{ id: "u1" }] }),
+      identities: async () => ({ signedUp: [{ id: "u1", at: new Date(NOW) }, { id: "bad@example.com" }, { id: 7 }], converted: [{ id: "u1" }] }) as unknown as Promise<Identities>,
     });
     const req = await signedRequest({ days: 3 }, { timestamp: NOW });
     const res = await handler(req);
