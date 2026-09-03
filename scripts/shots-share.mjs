@@ -1,4 +1,4 @@
-// v0.7 QA: founder profile, Share Studio, Share Center, social settings, onboarding — desktop + mobile.
+// v0.8 QA: founder profile, Share Studio, Share Center, social settings, onboarding — desktop + mobile.
 // Usage: node scripts/shots-share.mjs [base=http://localhost:3010] [outDir=/tmp/ut-share-qa]
 import { chromium } from "playwright-core";
 import { execSync } from "node:child_process";
@@ -83,7 +83,7 @@ await page.click("text=Publish page");
 await page.waitForSelector("text=on the board", { timeout: 60000 });
 
 // Simulate a crossing so the Share Center has real events (runs the same hooks as the sync engine)
-const mySlug = execSync(`cd ${process.cwd()} && npx convex data saas --limit 20 2>/dev/null`, { encoding: "utf8" }).split("\n").map((l) => l.match(/"slug":\s*"([^"]+)"/)?.[1]).filter((s) => s && s.startsWith("share-saas-")).pop();
+const mySlug = execSync(`cd ${process.cwd()} && npx convex data saas --limit 20 2>/dev/null`, { encoding: "utf8" }).match(/share-saas-[a-z0-9]+/g)?.find((s) => s === slug);
 if (mySlug) {
   execSync(`cd ${process.cwd()} && npx convex run seed:simulateGrowth '{"slug":"${mySlug}","totalUsers":1234}'`, { stdio: "inherit" });
   execSync(`cd ${process.cwd()} && npx convex run seed:simulateGrowth '{"slug":"${mySlug}","totalUsers":12480}'`, { stdio: "inherit" });

@@ -47,6 +47,8 @@ export function ShareStudio({ target, open, onOpenChange }: { target: StudioTarg
   const canCopyImage = typeof window !== "undefined" && typeof ClipboardItem !== "undefined" && Boolean(navigator.clipboard?.write);
 
   const loaded = loadedFor === image;
+  // Milestone / spike / benchmark cards are statements, not series — no chart to toggle.
+  const hasChart = target.graph || !/^(milestone|spike|benchmark)/.test(target.kind);
   useEffect(() => { if (open) void track({ kind: target.kind, action: "generated" }).catch(() => {}); }, [open, target.kind, track]);
 
   const set = <K extends keyof CardConfig>(k: K, v: CardConfig[K]) => setCfg((c) => ({ ...c, [k]: v }));
@@ -145,7 +147,7 @@ export function ShareStudio({ target, open, onOpenChange }: { target: StudioTarg
 
             <Group label="Show">
               <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-                <Toggle label="Chart" checked={cfg.chart} onChange={(v) => set("chart", v)} />
+                {hasChart && <Toggle label="Chart" checked={cfg.chart} onChange={(v) => set("chart", v)} />}
                 <Toggle label="Logo" checked={cfg.logo} onChange={(v) => set("logo", v)} />
                 <Toggle label="Founder handle" checked={cfg.founder} onChange={(v) => set("founder", v)} />
                 <Toggle label={target.trust === "verified" ? "Verified by UserTrack" : "UserTrack line"} checked={cfg.verified} onChange={(v) => set("verified", v)} />

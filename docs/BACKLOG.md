@@ -245,40 +245,40 @@ Goal: generalize the v0.6 Better Auth integration into ONE provider kind `native
 - ☐ **59.6 Publish + deploy** (human) — publish `@usertrack/protocol` → `@usertrack/node` → `@usertrack/better-auth@0.2.0`; `npx convex deploy` → `migrations:nativeV1 --prod` → Railway; verify one real native integration. See `HUMAN_TODO.md`.
 ## v0.8 — "Founder identity & sharing"
 
-Goal: every meaningful growth event is one click from a designed, shareable asset; founders get a first-class public identity that aggregates their products. Tickets mirror the CodeCraft board (6 epics).
+Goal: every meaningful growth event is one click from a designed, shareable asset; founders get a first-class public identity that aggregates their products. Tickets mirror the CodeCraft board (6 epics, 66–71).
 
-### Epic 60 — Founder profiles (P0)
-- ☑ **60.1 Aggregates** — `convex/lib/founder.ts` (Σ users / new users, combined growth, weighted activation, published converted, best rank, trending count, biggest growth) + `public.profileByUsername` (public projects only, `profilePublic`). AC: unit tests incl. weighted vs mean, empty founder. Done.
-- ☑ **60.2 History** — `public.founderHistory` with per-project forward fill; `FounderGrowth` chart (Total / New / by project). AC: convex-test forward-fill case. Done.
-- ☑ **60.3 Page + OG** — header, links, X state, stats, chart, project grid, JSON-LD, metadata, `noindex` without products; OG = founder card. Done.
-- ☑ **60.4 Search** — founders with counts. Done.
+### Epic 66 — Founder profiles (P0)
+- ☑ **66.1 Aggregates** — `convex/lib/founder.ts` (Σ users / new users, combined growth, weighted activation, published converted, best rank, trending count, biggest growth) + `public.profileByUsername` (public projects only, `profilePublic`). AC: unit tests incl. weighted vs mean, empty founder. Done.
+- ☑ **66.2 History** — `public.founderHistory` with per-project forward fill; `FounderGrowth` chart (Total / New / by project). AC: convex-test forward-fill case. Done.
+- ☑ **66.3 Page + OG** — header, links, X state, stats, chart, project grid, JSON-LD, metadata, `noindex` without products; OG = founder card. Done.
+- ☑ **66.4 Search** — founders with counts. Done.
 
-### Epic 61 — X handle + social settings + onboarding (P0)
-- ☑ **61.1 `src/lib/social.ts`** — normalize / validate / display / intent / states, tests. Done.
-- ☑ **61.2 Schema** — `location`, `profilePublic`, `xUserId`, `xConnectedAt`, `socialPrefs`. Done.
-- ☑ **61.3 Forms** — onboarding (avatar + X optional, new copy), `/app/profile` (X, location), `/app/settings/social`, settings card, nav "Share". Done.
+### Epic 67 — X handle + social settings + onboarding (P0)
+- ☑ **67.1 `src/lib/social.ts`** — normalize / validate / display / intent / states, tests. Done.
+- ☑ **67.2 Schema** — `location`, `profilePublic`, `xUserId`, `xConnectedAt`, `socialPrefs`. Done.
+- ☑ **67.3 Forms** — onboarding (avatar + X optional, new copy), `/app/profile` (X, location), `/app/settings/social`, settings card, nav "Share". Done.
 
-### Epic 62 — Share Card Studio + renderer (P0)
-- ☑ **62.1 Config** — `src/lib/share-card.ts` (URL codec, defaults, title sanitizing, verification wording), tests. Done.
-- ☑ **62.2 Renderer** — presets (frame `Backdrop`), `OgRangeChart` with printed scale + dates, `renderShareCard` config-aware, `benchmark` kind, `renderFounderCard`; `/card` routes rate-limited. Done.
-- ☑ **62.3 Studio + entry points** — `ShareStudio`, `ShareButton`, MetricCard `action` slot, public SaaS page, dashboard, share page, founder page. Done.
-- ☑ **62.4 Analytics** — `share.track` → `shareStats`. Done.
+### Epic 68 — Share Card Studio + renderer (P0)
+- ☑ **68.1 Config** — `src/lib/share-card.ts` (URL codec, defaults, title sanitizing, verification wording), tests. Done.
+- ☑ **68.2 Renderer** — presets (frame `Backdrop`), `OgRangeChart` with printed scale + dates, `renderShareCard` config-aware, `benchmark` kind, `renderFounderCard`; `/card` routes rate-limited. Done.
+- ☑ **68.3 Studio + entry points** — `ShareStudio`, `ShareButton`, MetricCard `action` slot, public SaaS page, dashboard, share page, founder page. Done.
+- ☑ **68.4 Analytics** — `share.track` → `shareStats`. Done.
 
-### Epic 63 — Share engine + Share Center (P0)
-- ☑ **63.1 Rules** — `convex/lib/shareRules.ts` (categories, floors, score, benchmark key, `botWorthy`, `normalizePrefs`), tests. Done.
-- ☑ **63.2 Engine** — `shareEvents`, hooks in `addMilestones` and the spike path, daily `benchmarkSweep`, dismiss / restore / markShared, `readyCount`. Done.
-- ☑ **63.3 Center** — `/app/share` Ready / Shared / Dismissed, per-event Studio, Copy link, Post to X. Done.
-- ☑ **63.4 Emails** — Share Center line in user- and rank-milestone emails. Done.
+### Epic 69 — Share engine + Share Center (P0)
+- ☑ **69.1 Rules** — `convex/lib/shareRules.ts` (categories, floors, score, benchmark key, `botWorthy`, `normalizePrefs`), tests. Done.
+- ☑ **69.2 Engine** — `shareEvents`, hooks in `addMilestones` and the spike path, daily `benchmarkSweep`, dismiss / restore / markShared, `readyCount`. Done.
+- ☑ **69.3 Center** — `/app/share` Ready / Shared / Dismissed, per-event Studio, Copy link, Post to X. Done.
+- ☑ **69.4 Emails** — Share Center line in user- and rank-milestone emails. Done.
 
-### Epic 64 — X sharing, OAuth, auto-post, bot (P0/P1)
-- ☑ **64.1 Drafts** — `src/lib/x-drafts.ts`, tests (all kinds ≤ 280). Done.
-- ☑ **64.2 OAuth** — `oauthStates`, `/api/social/x/connect` + `/callback`, `social.beginOAuth / consumeState / completeOAuth / storeConnection / disconnect`. Done (flagged).
-- ☑ **64.3 Auto-post** — hourly `social.autoPost`, `deliverPost` with refresh, `socialPosts`, limits, errors surfaced. Done (flagged).
-- ☑ **64.4 Bot pathway** — OAuth 1.0a signing (documented vector test), env credentials, `botWorthy`, opt-outs, daily cap. Done (flagged).
-- ☑ **64.5 HUMAN_TODO** — X developer app + bot account. Done.
+### Epic 70 — X sharing, OAuth, auto-post, bot (P0/P1)
+- ☑ **70.1 Drafts** — `src/lib/x-drafts.ts`, tests (all kinds ≤ 280). Done.
+- ☑ **70.2 OAuth** — `oauthStates`, `/api/social/x/connect` + `/callback`, `social.beginOAuth / consumeState / completeOAuth / storeConnection / disconnect`. Done (flagged).
+- ☑ **70.3 Auto-post** — hourly `social.autoPost`, `deliverPost` with refresh, `socialPosts`, limits, errors surfaced. Done (flagged).
+- ☑ **70.4 Bot pathway** — OAuth 1.0a signing (documented vector test), env credentials, `botWorthy`, opt-outs, daily cap. Done (flagged).
+- ☑ **70.5 HUMAN_TODO** — X developer app + bot account. Done.
 
-### Epic 65 — Platform (P1)
-- ☑ **65.1 API** — `/users/{username}` aggregates, `/users/{username}/history`, OpenAPI, DTOs. Done.
-- ☑ **65.2 MCP** — 6 tools, `profile:write`, share workflow, tests (35). Done.
-- ☑ **65.3 Docs** — PROFILES, SHARING, SOCIAL, ARCHITECTURE, API, MCP, ASSUMPTIONS, ROADMAP, CHANGELOG, README, HUMAN_TODO. Done.
-- ☑ **65.4 QA + deploy** — lint / typecheck / tests / build, screenshots desktop + mobile, push main, Railway, production smoke. Done.
+### Epic 71 — Platform (P1)
+- ☑ **71.1 API** — `/users/{username}` aggregates, `/users/{username}/history`, OpenAPI, DTOs. Done.
+- ☑ **71.2 MCP** — 6 tools, `profile:write`, share workflow, tests (35). Done.
+- ☑ **71.3 Docs** — PROFILES, SHARING, SOCIAL, ARCHITECTURE, API, MCP, ASSUMPTIONS, ROADMAP, CHANGELOG, README, HUMAN_TODO. Done.
+- ☑ **71.4 QA + deploy** — lint / typecheck / tests / build, screenshots desktop + mobile, push main, Railway, production smoke. Done.
