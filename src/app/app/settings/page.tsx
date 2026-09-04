@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
@@ -12,6 +12,7 @@ import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { Button } from "@/components/ui/button";
 import { DataPrivacyPanel } from "@/components/app/settings/data-privacy";
+import { ConnectedAccountsPanel } from "@/components/app/settings/connected-accounts";
 import { track } from "@/lib/analytics";
 
 export default function SettingsPage() {
@@ -50,6 +51,7 @@ export default function SettingsPage() {
         </div>
         <Button variant="outline" onClick={async () => { track("sign_out"); await authClient.signOut(); router.push("/"); router.refresh(); }}>Sign out</Button>
       </Panel>
+      <Suspense><ConnectedAccountsPanel /></Suspense>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <Link href="/app/settings/notifications" className="group">
           <Panel className="flex h-full items-center gap-3 p-4 transition-colors group-hover:border-line-strong">

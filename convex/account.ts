@@ -163,6 +163,7 @@ async function removeUserRows(ctx: MutationCtx, userId: string, email: string, b
   let n = 0;
   for (const q of [
     ctx.db.query("emailPreferences").withIndex("by_userId", (q) => q.eq("userId", userId)),
+    ctx.db.query("profilePrefills").withIndex("by_userId", (q) => q.eq("userId", userId)),
     ctx.db.query("emailEvents").withIndex("by_user_time", (q) => q.eq("userId", userId)),
     ctx.db.query("emailRecipients").withIndex("by_email", (q) => q.eq("email", email)),
   ]) {

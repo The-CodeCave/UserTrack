@@ -107,6 +107,9 @@ export default defineSchema({
     .index("by_username", ["username"])
     .searchIndex("search_name", { searchField: "displayName" }),
 
+  // Handle / avatar imported from a GitHub or X sign-in before the founder profile exists; consumed by profiles.upsert.
+  profilePrefills: defineTable({ userId: v.string(), github: v.optional(v.string()), x: v.optional(v.string()), avatarUrl: v.optional(v.string()) }).index("by_userId", ["userId"]),
+
   saas: defineTable({
     ownerId: v.id("profiles"),
     name: v.string(),

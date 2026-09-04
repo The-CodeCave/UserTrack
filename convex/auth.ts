@@ -5,6 +5,7 @@ import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import authConfig from "./auth.config";
+import { enabledProviders, socialProviderConfig } from "./lib/authProviders";
 
 const siteUrl = process.env.SITE_URL!;
 const VERIFY_TTL_S = 24 * 60 * 60;
@@ -25,6 +26,12 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
           await ctx.scheduler.runAfter(10 * 60_000, internal.auth.welcomeFallback, { userId: user._id });
         }
         await ctx.scheduler.runAfter(PROFILE_REMINDER_DELAY_MS, internal.email.lifecycle.profileReminder, { userId: user._id });
+      },
+    },
+    account: {
+      // Sign-up or link with GitHub / X: import handle + avatar into the founder profile (empty fields only).
+      onCreate: async (ctx, account) => {
+        if (account.providerId === "github" || account.providerId === "twitter") await ctx.scheduler.runAfter(0, internal.authProfile.importProviderProfile, { userId: account.userId, providerId: account.providerId });
       },
     },
   },
@@ -62,14 +69,17 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
         else await dispatch(ctx, { userId: user.id, to: user.email, type: "verify-email", data: { name: user.name || "there", verifyUrl: url }, dedupeKey: `verify-email:${user.id}:${Date.now()}` });
       },
     },
-    socialProviders: {
-      google: {
-        clientId: process.env.GOOGLE_CLIENT_ID!,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      },
-    },
+    socialProviders: socialProviderConfig(process.env),
+    // All three providers hand us provider-verified emails; X may hand us none, so linking from Settings must not require a match.
+    account: { accountLinking: { enabled: true, trustedProviders: ["google", "github", "twitter"], allowDifferentEmails: true } },
     plugins: [convex({ authConfig })],
   });
+
+// Which social buttons the sign-in page and the Connected-accounts panel may offer on this deployment.
+export const providers = query({
+  args: {},
+  handler: async () => enabledProviders(process.env),
+});
 
 export const getCurrentUser = query({
   args: {},

@@ -10,6 +10,7 @@
 
 import type * as account from "../account.js";
 import type * as auth from "../auth.js";
+import type * as authProfile from "../authProfile.js";
 import type * as cohorts from "../cohorts.js";
 import type * as crons from "../crons.js";
 import type * as daily from "../daily.js";
@@ -43,6 +44,7 @@ import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
 import type * as leaderboard from "../leaderboard.js";
 import type * as lib_analytics from "../lib/analytics.js";
+import type * as lib_authProviders from "../lib/authProviders.js";
 import type * as lib_benchmarks from "../lib/benchmarks.js";
 import type * as lib_domain from "../lib/domain.js";
 import type * as lib_emailRules from "../lib/emailRules.js";
@@ -112,6 +114,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   account: typeof account;
   auth: typeof auth;
+  authProfile: typeof authProfile;
   cohorts: typeof cohorts;
   crons: typeof crons;
   daily: typeof daily;
@@ -145,6 +148,7 @@ declare const fullApi: ApiFromModules<{
   integrations: typeof integrations;
   leaderboard: typeof leaderboard;
   "lib/analytics": typeof lib_analytics;
+  "lib/authProviders": typeof lib_authProviders;
   "lib/benchmarks": typeof lib_benchmarks;
   "lib/domain": typeof lib_domain;
   "lib/emailRules": typeof lib_emailRules;

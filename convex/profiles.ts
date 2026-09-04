@@ -6,6 +6,7 @@ import { isValidXHandle, normalizeXHandle } from "../src/lib/social";
 import { setPreferences } from "./email/prefs";
 import { socialPrefs } from "./schema";
 import { requireVerifiedToPublish } from "./domain/projects";
+import { fillEmpty, prefillFor, takePrefill } from "./authProfile";
 
 export async function getProfileForUser(ctx: QueryCtx | MutationCtx) {
   const user = await authComponent.safeGetAuthUser(ctx);
@@ -29,7 +30,7 @@ export const me = query({
   handler: async (ctx) => {
     const { user, profile } = await getProfileForUser(ctx);
     if (!user) return null;
-    return { user: { id: user._id, email: user.email, name: user.name }, profile };
+    return { user: { id: user._id, email: user.email, name: user.name }, profile, prefill: profile ? null : await prefillFor(ctx, user._id) };
   },
 });
 
@@ -101,7 +102,8 @@ export const upsert = mutation({
       await ctx.db.patch(profile._id, data);
       return profile._id;
     }
-    return ctx.db.insert("profiles", { ...data, userId: user._id, onboardingCompleted: false });
+    const prefill = await takePrefill(ctx, user._id);
+    return ctx.db.insert("profiles", { ...data, ...fillEmpty(data, prefill), userId: user._id, onboardingCompleted: false });
   },
 });
 

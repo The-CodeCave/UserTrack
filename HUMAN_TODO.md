@@ -4,6 +4,8 @@ Everything the agent could not complete autonomously because it needs an externa
 
 Last updated: 2026-09-04 (v1.0 launch hardening: ANALYTICS-1 Rybbit dashboard task; v0.9: discovery v3, follow + watchlists, ranking / trending / benchmark history, benchmarks v2, public datasets + SEO pages, webhooks — see the v0.9 section; v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
 
+**v1.0 launch hardening (AUTH-1).** Two provider tasks, both under *GitHub sign-in + X sign-in callback (AUTH-1)* below: create a GitHub OAuth App (`GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` on Convex prod) and add the callback `https://usertrack.dev/api/auth/callback/twitter` + the "Request email from users" permission to the existing X app (no new variable). Until then the two buttons render disabled ("not enabled on this deployment"); Google and email keep working.
+
 **v1.0 launch hardening (ANALYTICS-1).** One dashboard task: configure the Rybbit site (settings toggles, 9 goals, 2 funnels) and create an API key — see *Rybbit — site settings, goals, funnels and API key* below. Optional env: `RYBBIT_API_KEY` on Railway, `RYBBIT_SITE_ID` (+ `RYBBIT_API_KEY`) on Convex prod for the two Convex-side events.
 
 **v1.0 launch hardening (LEGAL-2).** Nothing to create. Self-service deletion and export are live at `/app/settings#data-privacy` and need no new variable: the confirmation email goes through the existing `RESEND_API_KEY`, the X token revocation uses the existing `X_CLIENT_ID` / `X_CLIENT_SECRET` (skipped when absent), and the Better Auth rows are removed through the component adapter. One check after the prod deploy: delete a throwaway account in production and confirm in the Convex dashboard that `profiles` / `saas` no longer list it and the `betterAuth` component's `user` table has no row for that email.
@@ -271,6 +273,35 @@ Google Cloud Console → https://console.cloud.google.com
 
 **Where to put them**
 Convex dashboard → usertrack → Development *and* Production → Settings → Environment Variables
+
+**Status**
+* [ ] Pending
+
+---
+
+### GitHub sign-in + X sign-in callback (AUTH-1)
+
+**Why this is needed**
+"Continue with GitHub", "Continue with X" and Settings → Connected accounts are deployed and feature-flagged: a provider whose credentials are missing on the Convex deployment is rendered disabled. GitHub needs its own OAuth App. X reuses the app from *Create X Developer App* above (`X_CLIENT_ID` / `X_CLIENT_SECRET`) — it only needs one more callback URL and the email permission. A GitHub or X sign-up prefills the founder profile (handle + avatar, editable).
+
+**Where**
+GitHub → Settings → Developer settings → OAuth Apps → New OAuth App (https://github.com/settings/developers) · X Developer Portal → your app → User authentication settings
+
+**Steps**
+1. GitHub OAuth App: Application name `UserTrack`, Homepage URL `https://usertrack.dev`, Authorization callback URL `https://usertrack.dev/api/auth/callback/github`. A GitHub OAuth App accepts one callback URL, so while the domain is pending create a second app (`UserTrack (Railway)`) with `https://usertrack-production.up.railway.app/api/auth/callback/github`, and a third for local dev (`http://localhost:3000/api/auth/callback/github`) if you want it. Generate a client secret.
+2. Set the values on Convex (Better Auth runs inside Convex, not Railway):
+   ```bash
+   npx convex env set --prod GITHUB_CLIENT_ID     "Ov23lixxxxxxxxxxxxxx"
+   npx convex env set --prod GITHUB_CLIENT_SECRET "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   npx convex env set GITHUB_CLIENT_ID     "…"   # dev (the local-dev app)
+   npx convex env set GITHUB_CLIENT_SECRET "…"
+   ```
+   No redeploy needed — `auth.providers.github` flips to true and the button enables.
+3. X: in the existing app add a second **Callback URI** `https://usertrack.dev/api/auth/callback/twitter` (keep `/api/social/x/callback`), and under **App permissions** tick **Request email from users** (X requires the Terms and Privacy URLs for that: `https://usertrack.dev/terms`, `https://usertrack.dev/privacy`). Without the permission X never shares an email: a *sign-up* with X then fails with the message "X did not share an email address…", while *linking* X from Settings still works for users who signed up another way.
+4. Test: `/sign-in` → Continue with GitHub → `/app/onboarding` shows the GitHub handle and avatar prefilled · `/app/settings` → Connected accounts → Connect X → the row shows "Connected" · Disconnect is disabled while it is the only sign-in method.
+
+**Values**
+`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` (Convex dev + prod). X: no new variable.
 
 **Status**
 * [ ] Pending

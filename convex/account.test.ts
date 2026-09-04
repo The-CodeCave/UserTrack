@@ -57,6 +57,7 @@ async function seed() {
     await ctx.db.insert("follows", { followerId: bob, targetType: "saas", targetId: acme });
     const endpoint = await ctx.db.insert("webhookEndpoints", { profileId: ada, url: "https://hooks.example.com/x", events: ["milestone.reached"], secret: "whsec_ada_secret_value", secretPrefix: "whsec_ada", status: "active", consecutiveFailures: 0, createdAt: NOW, updatedAt: NOW });
     await ctx.db.insert("webhookDeliveries", { endpointId: endpoint, profileId: ada, saasId: acme, eventId: "evt_1", deliveryId: "dlv_1", type: "milestone.reached", payload: {}, attempt: 1, status: "success", createdAt: NOW });
+    await ctx.db.insert("profilePrefills", { userId: "u_ada", github: "ada" });
     const token = await ctx.db.insert("developerTokens", { profileId: ada, type: "mcp", name: "agent", prefix: "ut_mcp_a8f3", hash: "deadbeefhash", scopes: ["profile:read"], createdAt: NOW });
     await ctx.db.insert("apiUsage", { tokenId: token, day: "2026-09-04", category: "tool", count: 3, updatedAt: NOW });
     await ctx.db.insert("auditLogs", { profileId: ada, tokenId: token, action: "create_project", ok: true, at: NOW });
@@ -74,7 +75,7 @@ async function seed() {
   return { t, ...ids };
 }
 
-const USER_TABLES: TableNames[] = ["profiles", "saas", "integrations", "integrationEvents", "snapshots", "stageSnapshots", "identityLinks", "cohortMetrics", "dailyMetrics", "syncRuns", "milestones", "events", "shareEvents", "socialConnections", "socialPosts", "oauthStates", "embedSites", "follows", "fraudFlags", "rankHistory", "benchmarkHistory", "backfills", "webhookEndpoints", "webhookDeliveries", "digests", "developerTokens", "apiUsage", "auditLogs", "emailPreferences", "emailEvents", "emailRecipients", "monthlyReports"];
+const USER_TABLES: TableNames[] = ["profiles", "saas", "integrations", "integrationEvents", "snapshots", "stageSnapshots", "identityLinks", "cohortMetrics", "dailyMetrics", "syncRuns", "milestones", "events", "shareEvents", "socialConnections", "socialPosts", "oauthStates", "embedSites", "follows", "fraudFlags", "rankHistory", "benchmarkHistory", "backfills", "webhookEndpoints", "webhookDeliveries", "digests", "developerTokens", "apiUsage", "auditLogs", "emailPreferences", "emailEvents", "emailRecipients", "monthlyReports", "profilePrefills"];
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], now: NOW }); deletedAuth.length = 0; });
 afterEach(() => vi.useRealTimers());
@@ -107,7 +108,7 @@ describe("account deletion", () => {
     expect(snapshot.counts.follows).toBe(0);
     expect(snapshot.counts.emailPreferences).toBe(1);
     // rerank (scheduled by the purge) may create share events for Bob / demo, so shareEvents is covered by the regex above.
-    for (const table of ["socialConnections", "socialPosts", "oauthStates", "webhookEndpoints", "webhookDeliveries", "developerTokens", "apiUsage", "auditLogs", "digests", "monthlyReports", "emailEvents", "emailRecipients"]) expect(snapshot.counts[table], table).toBe(0);
+    for (const table of ["socialConnections", "socialPosts", "oauthStates", "webhookEndpoints", "webhookDeliveries", "developerTokens", "apiUsage", "auditLogs", "digests", "monthlyReports", "emailEvents", "emailRecipients", "profilePrefills"]) expect(snapshot.counts[table], table).toBe(0);
     // Demo data untouched, Bob's counters corrected (Ada followed him and Globex).
     expect(snapshot.demo?.isDemo).toBe(true);
     expect(snapshot.bob?.followerCount).toBe(0);
