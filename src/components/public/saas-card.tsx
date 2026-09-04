@@ -83,8 +83,24 @@ export function primaryMetric(s: SaasRow, board: BoardKind, w: Window) {
   }
 }
 
-export function LeaderboardRow({ s, position, board = "most-new", window = "30d" }: { s: SaasRow; position: number; board?: BoardKind; window?: Window }) {
+export function LeaderboardRow({ s, position, board = "most-new", window = "30d", dense = false }: { s: SaasRow; position: number; board?: BoardKind; window?: Window; dense?: boolean }) {
   const m = primaryMetric(s, board, window);
+  if (dense) {
+    return (
+      <Link href={`/s/${s.slug}`} className="group block">
+        <Panel className="grid grid-cols-[2rem_1fr_auto_auto] items-center gap-3 px-3 py-2 transition-colors group-hover:border-line-strong">
+          <div className={cn("font-mono text-sm", position <= 3 ? "text-pink" : "text-muted-foreground")}>{String(position).padStart(2, "0")}</div>
+          <div className="flex min-w-0 items-center gap-2">
+            <SaasLogo name={s.name} logoUrl={s.logoUrl} size={28} />
+            <span className="truncate font-medium">{s.name}</span>
+            <TrustBadge trust={s.trust} label={s.trustLabel} className="hidden shrink-0 sm:inline-flex" />
+          </div>
+          <span className="hidden font-mono text-[11px] text-muted-foreground sm:inline">{m.value}</span>
+          <MovementTag m={s.movement ?? null} />
+        </Panel>
+      </Link>
+    );
+  }
   return (
     <div className="relative">
       <Link href={`/s/${s.slug}`} className="group block">
