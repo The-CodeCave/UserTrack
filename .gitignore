@@ -43,3 +43,6 @@ next-env.d.ts
 
 # package builds
 packages/*/dist
+
+# codecraft loop notes
+.codecraft-loop-*.md

@@ -358,3 +358,8 @@ Goal: every meaningful growth event is one click from a designed, shareable asse
 - ☐ **Zero lint warnings** — 7 unused-import / unused-variable warnings in `convex/` (all pre-dating the v1.0 loop) and one `@next/next/no-location-assign-relative-destination` in `src/components/app/settings/data-privacy.tsx` (the hard navigation after account deletion is deliberate — a client push races the app shell's sign-in redirect). Worth a sweep, not worth a release.
 - ☐ **Move the two-phase accumulators to a scratch table** — `leaderboard.rerank`, `daily.benchmarks` and `daily.snapshotRankings` hold their projection in the action's memory, which is comfortable to roughly 50k projects (`daily.snapshotRankings` keeps whole rows and is the first to feel it).
 
+
+## v1.0.1 — Post-loop review fixes
+
+### Epic 96 — Review findings (P0)
+- ☑ **FIX-0** — branch setup: `.codecraft-loop-*.md` gitignored, `landing-v2` fast-forwarded into `main` (brand tokens, `public.landing`, list-first homepage). Baseline on the merged tree green with no fixes needed — lint 0 errors, typecheck, 636 tests / 82 files, build.
