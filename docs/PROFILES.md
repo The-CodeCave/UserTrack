@@ -58,6 +58,57 @@ The chart (`src/components/charts/founder-growth.tsx`) offers Total / New and a 
 
 Each card: logo, name, trust badge, description, category, leaderboard rank, trending rank, users, 30-day sparkline, 30-day new users + growth %. Clickable to `/s/<slug>`.
 
+## Product profile (PROFILE-1)
+
+**TL;DR** — `/app/saas/<id>#settings` lets a founder describe the product in detail: markets, tech stack, marketing channels, cofounders, company facts, product texts, anonymous mode, hide-from-Google and a logo upload. Everything is descriptive — **there are no revenue, MRR or profit fields, by design**. All fields are optional (`convex/schema.ts` → `saas`, no migration).
+
+| Field | Limit / values | Where it comes from |
+|---|---|---|
+| `name` / `description` | ≤100 / ≤500 chars (raised from 60 / 160) | form, MCP |
+| `markets[]` | 1–5 slugs from `MARKETS` (`src/lib/profile-options.ts`, aligned with `src/lib/categories.ts`) | chip multi-select |
+| `techStack[]` | ≤20 entries: curated slugs from `src/lib/tech-stack.ts` (190+ entries with simple-icons slugs, also matched by label — `"Next.js"` → `nextjs`) or free text (`normalizeStackEntry`: lowercase token, 2–30 chars, no icon) | searchable chip select |
+| `marketingChannels[]` | ≤15 slugs from `MARKETING_CHANNELS` | chip multi-select |
+| `cofounders[]` | ≤5 × `{ name? ≤60, x?, github? }`; X handle canonicalised like the profile handle (`@`, x.com URLs stripped), GitHub URL → login; invalid handles are rejected. The **owner's** X handle is not stored here — it comes from the profile | "+ Add cofounder" rows |
+| `country` | ISO 3166-1 alpha-2 from `src/lib/countries.ts` (flag derived from the code) | picker |
+| `funding` · `teamSize` | `bootstrapped \| vc` · `1 \| 2-5 \| 6-10 \| 11-50 \| 50+` | two-button toggle with Clear · select |
+| `foundedAt` | month precision (existing field) | month input |
+| `valueProposition` · `problemSolved` · `audience` · `pricingSummary` · `additionalInfo` | ≤300 · ≤300 · ≤200 · ≤300 (pricing *model* in words, never numbers) · ≤500 | Product details card |
+| `anonymous` | boolean | Additional settings |
+| `hideFromSearch` | boolean | Additional settings |
+| `logoStorageId` | Convex `_storage` id of an uploaded logo; `logoUrl` carries the served URL | Upload button |
+
+Validation lives in `convex/domain/projects.ts` (`normalizeProjectInput` → `normalizeProfile`): unknown market / channel slugs are dropped, lists deduped and capped, texts trimmed and sliced, country codes checked, cofounder handles normalised. The same path serves the dashboard mutation (`saas.update`), the MCP tool (`usertrack_update_project`) and the seed. Every limited field shows a live `n/max` counter in the form; the browser enforces `maxLength`, the server slices again.
+
+### Public page, boards and API
+
+`/s/<slug>` gains an **About** panel (value proposition, problem, audience, pricing model, more), a **Company & stack** panel (country flag, funding, team size, founded, "Built with" chips linking to `/stacks/<slug>`, markets, growth channels) and cofounders with X / GitHub links under "Built by". Stack icons come from `https://cdn.simpleicons.org/<icon>` rendered as a CSS mask in the current text colour (`src/components/public/stack-chip.tsx`); the CSP `img-src https:` already allows the host.
+
+- `/stacks/<slug>` — "SaaS built with Next.js": the board page filtered by a curated stack slug (in-memory filter like size / platform, no index), in the sitemap when at least one visible public product lists it. Free-text stack entries only work as `?stack=` on `/discover` and the boards (`public.board`, `public.boardMeta`, `public.discover` accept `stack`).
+- REST `SaaS object` (`docs/API.md`): `anonymous`, `cofounders[]`, `markets[]`, `techStack[]`, `marketingChannels[]`, `company { country, funding, teamSize }`, `about { valueProposition, problemSolved, audience, pricingSummary, additionalInfo }` (`src/lib/api/dto.ts`, OpenAPI `Saas` schema).
+- MCP `usertrack_update_project` accepts every field (`foundedAt` as `YYYY-MM`); `project_updated { fields }` is tracked from the form with the *names* of the changed fields.
+
+### Anonymous mode — what is hidden
+
+Enforced server-side in `convex/domain/visibility.ts` (`ANONYMOUS_HIDDEN`, `stripPrivate`, `publicLogo`) and `convex/public.ts` (`publicOwner`, `founderRows`), so every consumer — page, OG image, share cards, boards, feed, watchlists, frozen rankings, suggest, REST, MCP discovery — gets the same row.
+
+| Hidden | Stays |
+|---|---|
+| owner (`owner: null` → no "Built by" link, no JSON-LD author, no founder line on share cards) | `name`, `description`, `category`, `tags` |
+| `cofounders` | every metric, rank, trend, milestone, benchmark statement |
+| `logoUrl` (page, cards, OG, feed, watchlists, `rankingSnapshots` rows written while anonymous) | `techStack`, `markets`, `marketingChannels`, `country`, `funding`, `teamSize`, `foundedAt`, About texts |
+| `websiteUrl`, `appStoreUrl`, `playStoreUrl` (no outbound link, `SoftwareApplication.url` omitted) | boards, discovery, API listing, `anonymous: true` flag on the wire |
+| the product on the founder's `/u/<username>` page, aggregates and founder history | the owner's dashboard (unchanged) |
+
+The page shows an `anonymous` chip and an "An anonymous founder" card instead of the owner card. Anonymous mode does not hide the page itself — combine it with **Hide from Google** for that.
+
+### Hide from Google
+
+`hideFromSearch` adds `robots: noindex, follow` to `/s/<slug>` and `/s/<slug>/share/<kind>`, removes the product from `sitemap.xml` and from the `/stacks/*` sitemap counts. Boards, discovery, the founder page, the REST API and MCP still list it — the flag only speaks to search engines.
+
+### Logo upload
+
+`saas.generateLogoUploadUrl` (signed-in) → browser `POST`s the file to Convex storage → `saas.create` / `saas.update` receive `logoStorageId`, check the system row (≤1 MB, `image/png`, `image/jpeg`, `image/webp`; SVG is refused rather than sanitised) and store `logoUrl = ctx.storage.getUrl(id)`. A new upload deletes the previous file; pasting a URL or removing the logo deletes it too; project deletion (`removeProjectRows`) and account purge remove it. A refused upload cannot be deleted inside the failing mutation (the throw rolls the write back), so the form validates type + size before uploading. The form offers **Upload** / **Use URL** / **Remove** next to the current logo.
+
 ## Search
 
 `public.search` returns founders with `projectCount`, `totalUsers`, `newUsers30d` and the X handle; hidden profiles and the demo owner are excluded.

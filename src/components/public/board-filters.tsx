@@ -16,7 +16,7 @@ const SIZES = [
   { key: "100k+", label: "100K+" },
 ];
 
-export interface BoardState { board: string; window: "24h" | "7d" | "30d"; category?: string; size?: string; platform?: string; verified: boolean }
+export interface BoardState { board: string; window: "24h" | "7d" | "30d"; category?: string; size?: string; platform?: string; stack?: string; verified: boolean }
 
 // Only the leaderboard and category pages switch boards; every other base is a fixed board.
 const switchesBoard = (base: string) => base === "/leaderboard" || base.startsWith("/categories/");
@@ -29,6 +29,7 @@ export function boardHref(base: string, s: Partial<BoardState>, current: BoardSt
   if (next.category && !base.startsWith("/categories/")) p.set("category", next.category);
   if (next.size) p.set("size", next.size);
   if (next.platform && !base.endsWith("-mobile-apps")) p.set("platform", next.platform);
+  if (next.stack && !base.startsWith("/stacks/")) p.set("stack", next.stack);
   if (!next.verified) p.set("all", "1");
   const qs = p.toString();
   return qs ? `${base}?${qs}` : base;

@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getProfileForUser, requireProfile } from "./profiles";
 import { DAY } from "./lib/time";
 import { publicTrustLabel } from "./lib/trust";
+import { publicLogo } from "./domain/visibility";
 import { rankMovement } from "./lib/history";
 
 const targetType = v.union(v.literal("saas"), v.literal("profile"));
@@ -117,7 +118,7 @@ export async function watchedProjects(ctx: Ctx, profileId: Id<"profiles">) {
   return { founders, projects: [...projects.values()], directIds: direct };
 }
 
-const card = (s: Doc<"saas">) => ({ _id: s._id, slug: s.slug, name: s.name, logoUrl: s.logoUrl, category: s.category, totalUsers: s.totalUsers, trust: s.trust, trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore) });
+const card = (s: Doc<"saas">) => ({ _id: s._id, slug: s.slug, name: s.name, logoUrl: publicLogo(s), category: s.category, totalUsers: s.totalUsers, trust: s.trust, trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore) });
 
 export type WatchlistItemKind = "milestone" | "spike" | "activation_spike" | "launched" | "verified" | "rank_jump" | "traction" | "benchmark" | "rank_change" | "new_project";
 
@@ -146,7 +147,7 @@ export async function watchlistFeed(ctx: Ctx, profileId: Id<"profiles">, days = 
   const seen = new Set<string>();
   const feed = items.filter((i) => !seen.has(i.id) && seen.add(i.id)).sort((a, b) => b.at - a.at).slice(0, limit);
   const saas = projects
-    .map(({ saas: s, via }) => ({ _id: s._id, slug: s.slug, name: s.name, logoUrl: s.logoUrl, category: s.category, trust: s.trust, trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore), totalUsers: s.totalUsers, newUsers7d: s.newUsers7d, newUsers30d: s.newUsers30d, growth7dPct: s.growth7dPct ?? 0, growth30dPct: s.growth30dPct, rank: s.rank, rank7dAgo: s.rank7dAgo, rankMovement7d: rankMovement(s.rank7dAgo, s.rank), trendingRank: s.trendingRank, trendingMovement7d: rankMovement(s.trendingRank7dAgo, s.trendingRank), via, followed: directIds.has(s._id) }))
+    .map(({ saas: s, via }) => ({ _id: s._id, slug: s.slug, name: s.name, logoUrl: publicLogo(s), category: s.category, trust: s.trust, trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore), totalUsers: s.totalUsers, newUsers7d: s.newUsers7d, newUsers30d: s.newUsers30d, growth7dPct: s.growth7dPct ?? 0, growth30dPct: s.growth30dPct, rank: s.rank, rank7dAgo: s.rank7dAgo, rankMovement7d: rankMovement(s.rank7dAgo, s.rank), trendingRank: s.trendingRank, trendingMovement7d: rankMovement(s.trendingRank7dAgo, s.trendingRank), via, followed: directIds.has(s._id) }))
     .sort((a, b) => b.newUsers7d - a.newUsers7d);
   return { saas, founders: founders.map((p) => ({ _id: p._id, username: p.username, displayName: p.displayName, avatarUrl: p.avatarUrl, followerCount: p.followerCount ?? 0 })), feed };
 }

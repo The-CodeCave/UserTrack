@@ -91,7 +91,8 @@ Returned by `/saas/{slug}`, in each leaderboard row and in `/users/{username}.sa
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `slug`, `name`, `description`, `websiteUrl` | string | |
+| `slug`, `name`, `description` | string | `name` ≤100, `description` ≤500 |
+| `websiteUrl` | string? | absent in anonymous mode |
 | `logoUrl`, `category` | string? | `category` is a slug from `/categories` |
 | `tags` | string[] | |
 | `demo` | boolean | `true` for seeded showcase products |
@@ -110,7 +111,12 @@ Returned by `/saas/{slug}`, in each leaderboard row and in `/users/{username}.sa
 | `stores` | object? | `{ appStore?, googlePlay? }` store links for mobile / hybrid products |
 | `ranks` | object | `{ leaderboard?, previousLeaderboard?, leaderboard7dAgo?, leaderboardDelta7d?, trending?, previousTrending?, trending7dAgo?, trendingDelta7d?, bestTrending?, trendingScore7d? }` — `previous*` is the position at the previous rerank; `*7dAgo` / `*Delta7d` come from stored daily rank history (position 7 UTC days ago and the climb since, positive = up); `bestTrending` is the best 7-day trending position ever |
 | `followers` | number | |
-| `owner` | object? | `{ username, displayName }` |
+| `owner` | object? | `{ username, displayName }` — absent in anonymous mode |
+| `anonymous` | boolean | Anonymous mode: `owner`, `cofounders`, `logoUrl`, `websiteUrl` and `stores` are omitted; name and metrics stay |
+| `cofounders` | object[]? | `{ name?, x?, github? }` (≤5), never in anonymous mode |
+| `markets`, `techStack`, `marketingChannels` | string[]? | Curated slugs (`techStack` may also hold free-text entries); `/stacks/{slug}` lists products by stack |
+| `company` | object? | `{ country? (ISO 3166-1 alpha-2), funding? ("bootstrapped" \| "vc"), teamSize? ("1" \| "2-5" \| "6-10" \| "11-50" \| "50+") }` |
+| `about` | object? | `{ valueProposition?, problemSolved?, audience?, pricingSummary?, additionalInfo? }` — descriptive text only, never revenue |
 | `foundedAt` | string? | ISO date of the founding month entered by the founder (benchmark age cohorts use it) |
 | `timestamps` | object | `{ firstSnapshotAt?, lastSyncedAt? }` ISO strings |
 | `urls` | object | `{ page, badge }` |

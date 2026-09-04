@@ -6,12 +6,13 @@ import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { benchmarkHistoryFor, publicBenchmarkHighlight, type BenchmarkHighlight } from "./domain/benchmarks";
 import { seriesFor } from "./domain/metrics";
 import { FUNNEL_TIMEFRAMES, funnelFor, funnelHistoryFor, funnelOptionsFor } from "./domain/funnel";
-import { stripPrivate, visibilityOf } from "./domain/visibility";
+import { isAnonymous, publicLogo, stripPrivate, visibilityOf } from "./domain/visibility";
 import { publicTrustLabel } from "./lib/trust";
 import { explainTrending, trendingFactors } from "./lib/trending";
 import { trendingInputs } from "./leaderboard";
 import { providerLabel } from "./providers";
 import { CATEGORIES } from "../src/lib/categories";
+import { TECH_STACK } from "../src/lib/tech-stack";
 import { aggregateHistory, founderAggregates } from "./lib/founder";
 import { downsample, findGaps, rankMovement, resolutionFor, type HistoryPoint } from "./lib/history";
 
@@ -37,11 +38,20 @@ export function publicProfile(p: Doc<"profiles">) {
 export const isProfilePublic = (p: Doc<"profiles">) => p.profilePublic !== false && p.userId !== "demo";
 
 // Public-safe projection. Connection ≠ publication: every gated metric is removed unless its visibility key is on.
+// Anonymous mode additionally drops logo, website, store links and cofounders (domain/visibility.ts).
+export type PublicSaasRow = Omit<Doc<"saas">, "ownerId" | "websiteUrl" | "logoStorageId"> & { websiteUrl?: string };
 export function publicSaas(s: Doc<"saas">) {
   const vis = visibilityOf(s);
   const rest = stripPrivate({ ...s } as Partial<Doc<"saas">>, vis);
   delete rest.visibility;
-  return { ...(rest as Omit<Doc<"saas">, "ownerId">), trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore), followerCount: s.followerCount ?? 0, visibility: vis };
+  return { ...(rest as PublicSaasRow), trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore), followerCount: s.followerCount ?? 0, visibility: vis };
+}
+
+// The owner only travels with a public row when the founder did not choose anonymous mode.
+async function publicOwner(ctx: QueryCtx, s: Doc<"saas">) {
+  if (isAnonymous(s)) return null;
+  const owner = await ctx.db.get(s.ownerId);
+  return owner ? publicProfile(owner) : null;
 }
 
 async function sparkline(ctx: QueryCtx, saasId: Id<"saas">) {
@@ -53,14 +63,15 @@ async function sparkline(ctx: QueryCtx, saasId: Id<"saas">) {
 }
 
 async function withOwnerAndSpark(ctx: QueryCtx, s: Doc<"saas">) {
-  const owner = await ctx.db.get(s.ownerId);
-  return { ...publicSaas(s), owner: owner ? publicProfile(owner) : null, spark: await sparkline(ctx, s._id) };
+  return { ...publicSaas(s), owner: await publicOwner(ctx, s), spark: await sparkline(ctx, s._id) };
 }
 
-async function publicSet(ctx: QueryCtx, category?: string) {
-  return category
-    ? ctx.db.query("saas").withIndex("by_public_category", (q) => q.eq("isPublic", true).eq("category", category)).collect()
-    : ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).collect();
+// Stack is filtered in memory like size / platform: the public set is small and needs no index.
+async function publicSet(ctx: QueryCtx, category?: string, stack?: string) {
+  const rows = category
+    ? await ctx.db.query("saas").withIndex("by_public_category", (q) => q.eq("isPublic", true).eq("category", category)).collect()
+    : await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).collect();
+  return stack ? rows.filter((s) => s.techStack?.includes(stack)) : rows;
 }
 
 const isVerified = (s: Doc<"saas">) => s.trust === "verified" && s.trustState !== "review";
@@ -72,7 +83,7 @@ const isHiddenGem = (s: Doc<"saas">, now: number) =>
   s.firstSnapshotAt !== undefined && now - s.firstSnapshotAt >= HIDDEN_GEM_RULES.minHistoryDays * DAY && (s.trustScore ?? 0) >= HIDDEN_GEM_RULES.minTrustScore;
 
 
-export interface BoardFilters { board: Board; window: "24h" | "7d" | "30d"; verifiedOnly: boolean; category?: string; size?: string; platform?: string; limit: number }
+export interface BoardFilters { board: Board; window: "24h" | "7d" | "30d"; verifiedOnly: boolean; category?: string; size?: string; platform?: string; stack?: string; limit: number }
 
 // Sort + filter over the (small) public set. Ranks/trending are precomputed; everything else is a field sort.
 export function sortBoard(rows: Doc<"saas">[], f: BoardFilters) {
@@ -137,10 +148,10 @@ export function sortBoard(rows: Doc<"saas">[], f: BoardFilters) {
 }
 
 export const board = query({
-  args: { board: boardArg, window: v.optional(windowArg), verifiedOnly: v.optional(v.boolean()), category: v.optional(v.string()), size: v.optional(sizeArg), platform: v.optional(platformArg), limit: v.optional(v.number()) },
+  args: { board: boardArg, window: v.optional(windowArg), verifiedOnly: v.optional(v.boolean()), category: v.optional(v.string()), size: v.optional(sizeArg), platform: v.optional(platformArg), stack: v.optional(v.string()), limit: v.optional(v.number()) },
   handler: async (ctx, a) => {
-    const f: BoardFilters = { board: a.board, window: a.window ?? (a.board === "trending" ? "7d" : "30d"), verifiedOnly: a.verifiedOnly ?? true, category: a.category, size: a.size, platform: a.platform, limit: Math.min(a.limit ?? 50, 100) };
-    const rows = sortBoard(await publicSet(ctx, f.category), f);
+    const f: BoardFilters = { board: a.board, window: a.window ?? (a.board === "trending" ? "7d" : "30d"), verifiedOnly: a.verifiedOnly ?? true, category: a.category, size: a.size, platform: a.platform, stack: a.stack, limit: Math.min(a.limit ?? 50, 100) };
+    const rows = sortBoard(await publicSet(ctx, f.category, f.stack), f);
     return Promise.all(
       rows.map(async (s) => ({
         ...(await withOwnerAndSpark(ctx, s)),
@@ -153,9 +164,9 @@ export const board = query({
 
 // Last-updated stamp for public pages: the newest successful sync among the listed rows.
 export const boardMeta = query({
-  args: { category: v.optional(v.string()) },
-  handler: async (ctx, { category }) => {
-    const rows = (await publicSet(ctx, category)).filter(isVerified);
+  args: { category: v.optional(v.string()), stack: v.optional(v.string()) },
+  handler: async (ctx, { category, stack }) => {
+    const rows = (await publicSet(ctx, category, stack)).filter(isVerified);
     return { updatedAt: rows.reduce((a, s) => Math.max(a, s.lastSyncedAt ?? 0), 0) || null, count: rows.length };
   },
 });
@@ -185,12 +196,11 @@ export const saasBySlug = query({
   handler: async (ctx, { slug }) => {
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
     if (!s || !s.isPublic) return null;
-    const owner = await ctx.db.get(s.ownerId);
     const integrations = await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", s._id)).collect();
     const milestones = await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).order("desc").take(8);
     return {
       ...publicSaas(s),
-      owner: owner ? publicProfile(owner) : null,
+      owner: await publicOwner(ctx, s),
       source: integrations.find((i) => (i.role ?? "users") === "users")?.provider ?? null,
       sources: integrations.map((i) => ({ role: i.role ?? "users", provider: i.provider, label: providerLabel(i.provider, i.config) })),
       spark: await sparkline(ctx, s._id),
@@ -388,10 +398,10 @@ export const annotations = query({
   },
 });
 
-// Founder page: public projects only (private ones never leak, not even into the totals); aggregates in lib/founder.ts.
+// Founder page: public, non-anonymous projects only (private and anonymous ones never leak, not even into the totals).
 export async function founderRows(ctx: QueryCtx, p: Doc<"profiles">) {
   const all = await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", p._id)).collect();
-  return all.filter((s) => s.isPublic).sort((a, b) => b.newUsers30d - a.newUsers30d);
+  return all.filter((s) => s.isPublic && !isAnonymous(s)).sort((a, b) => b.newUsers30d - a.newUsers30d);
 }
 
 export const profileByUsername = query({
@@ -464,10 +474,10 @@ export const search = query({
 
 // Discovery sections from one read of the public set, optionally narrowed to a category. Empty sections are omitted client-side.
 export const discover = query({
-  args: { category: v.optional(v.string()) },
-  handler: async (ctx, { category }) => {
+  args: { category: v.optional(v.string()), stack: v.optional(v.string()) },
+  handler: async (ctx, { category, stack }) => {
     const now = Date.now();
-    const all = await publicSet(ctx, category);
+    const all = await publicSet(ctx, category, stack);
     const pick = (board: Board, window: "24h" | "7d" | "30d", extra?: Partial<BoardFilters>, n = 5) => sortBoard(all, { board, window, verifiedOnly: true, limit: n, category, ...extra });
     const verifiedRecently = all.filter((s) => isVerified(s) && !s.isDemo && s.verifiedAt !== undefined).sort((a, b) => b.verifiedAt! - a.verifiedAt!).slice(0, 5);
     const expand = (rows: Doc<"saas">[], w: "24h" | "7d" | "30d" = "7d") => Promise.all(rows.map(async (s) => ({ ...(await withOwnerAndSpark(ctx, s)), movement: trendingMovement(s, w) })));
@@ -509,7 +519,7 @@ export async function feedItems(ctx: QueryCtx, all: Doc<"saas">[], limit: number
   const take = Math.min(200, limit * 4);
   const milestones = await ctx.db.query("milestones").withIndex("by_time").order("desc").take(take);
   const events = await ctx.db.query("events").withIndex("by_time").order("desc").take(take);
-  const card = (s: Doc<"saas">) => ({ slug: s.slug, name: s.name, logoUrl: s.logoUrl, category: s.category, totalUsers: s.totalUsers, trust: s.trust, trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore) });
+  const card = (s: Doc<"saas">) => ({ slug: s.slug, name: s.name, logoUrl: publicLogo(s), category: s.category, totalUsers: s.totalUsers, trust: s.trust, trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore) });
   const items = [
     ...milestones.flatMap((m) => { const s = bySaas.get(m.saasId); return s ? [{ id: `milestone:${m.saasId}:${m.key}`, kind: "milestone" as FeedKind, subkind: m.kind, at: m.achievedAt, title: m.title, detail: m.copy, value: m.value, share: `share/milestone-${m._id}`, saas: card(s) }] : []; }),
     ...events.flatMap((e) => { const s = bySaas.get(e.saasId); return s && FEED_EVENT_KINDS.has(e.kind) ? [{ id: `${e.kind}:${e.saasId}:${e.day}`, kind: e.kind as FeedKind, subkind: e.kind, at: e.at, title: e.title, detail: e.detail, value: e.value, share: e.kind === "spike" ? `share/spike-${e._id}` : undefined, saas: card(s) }] : []; }),
@@ -559,7 +569,7 @@ export const suggest = query({
   handler: async (ctx, { q, exclude = [] }) => {
     const term = q.trim().toLowerCase();
     const rows = term.length < 1 ? sortBoard(await publicSet(ctx), { board: "most-new", window: "30d", verifiedOnly: false, limit: 8 }) : await ctx.db.query("saas").withSearchIndex("search_name", (s) => s.search("name", term).eq("isPublic", true)).take(8);
-    return rows.filter((s) => !exclude.includes(s.slug)).map((s) => ({ slug: s.slug, name: s.name, logoUrl: s.logoUrl, totalUsers: s.totalUsers }));
+    return rows.filter((s) => !exclude.includes(s.slug)).map((s) => ({ slug: s.slug, name: s.name, logoUrl: publicLogo(s), totalUsers: s.totalUsers }));
   },
 });
 
@@ -574,10 +584,12 @@ export const sitemap = query({
         if (p) owners.set(s.ownerId, p);
       }
     }
+    // hideFromSearch products stay on boards but never in the sitemap (their page is noindex).
     return {
-      saas: rows.map((s) => ({ slug: s.slug, updatedAt: s.lastSyncedAt ?? s._creationTime })),
+      saas: rows.filter((s) => !s.hideFromSearch).map((s) => ({ slug: s.slug, updatedAt: s.lastSyncedAt ?? s._creationTime })),
       profiles: [...owners.values()].filter(isProfilePublic).map((p) => ({ username: p.username, updatedAt: p._creationTime })),
       categories: CATEGORIES.map((c) => c.slug).filter((c) => rows.some((s) => s.category === c)),
+      stacks: TECH_STACK.map((t) => t.slug).filter((t) => rows.some((s) => !s.hideFromSearch && s.techStack?.includes(t))),
       rankings: (await ctx.db.query("rankingSnapshots").withIndex("by_period").order("desc").take(500)).map((r) => ({ period: r.period, board: r.board, category: r.category ?? null, computedAt: r.computedAt })),
     };
   },

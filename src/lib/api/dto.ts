@@ -7,7 +7,8 @@ export interface SaasRow {
   slug: string;
   name: string;
   description: string;
-  websiteUrl: string;
+  // Absent in anonymous mode (server-side stripping in convex/domain/visibility.ts).
+  websiteUrl?: string;
   logoUrl?: string;
   category?: string;
   tags: string[];
@@ -58,6 +59,19 @@ export interface SaasRow {
   foundedAt?: number;
   followerCount?: number;
   owner?: { username: string; displayName: string } | null;
+  markets?: string[];
+  techStack?: string[];
+  marketingChannels?: string[];
+  cofounders?: { name?: string; x?: string; github?: string }[];
+  country?: string;
+  funding?: "bootstrapped" | "vc";
+  teamSize?: "1" | "2-5" | "6-10" | "11-50" | "50+";
+  valueProposition?: string;
+  problemSolved?: string;
+  audience?: string;
+  pricingSummary?: string;
+  additionalInfo?: string;
+  anonymous?: boolean;
   firstSnapshotAt?: number;
   lastSyncedAt?: number;
 }
@@ -96,6 +110,14 @@ export function saasDto(r: SaasRow) {
     ranks: { leaderboard: r.rank, previousLeaderboard: r.prevRank, leaderboard7dAgo: r.rank7dAgo, leaderboardDelta7d: r.rankDelta7d, trending: r.trendingRank, previousTrending: r.prevTrendingRank, trending7dAgo: r.trendingRank7dAgo, trendingDelta7d: r.trendingRankDelta7d, bestTrending: r.bestTrendingRank, trendingScore7d: r.trendingScore7d },
     followers: r.followerCount ?? 0,
     owner: r.owner ? { username: r.owner.username, displayName: r.owner.displayName } : undefined,
+    // Anonymous mode: owner, cofounders, logo, website and store links are already absent from the row.
+    anonymous: r.anonymous === true,
+    cofounders: r.cofounders?.map((c) => ({ name: c.name, x: c.x, github: c.github })),
+    markets: r.markets,
+    techStack: r.techStack,
+    marketingChannels: r.marketingChannels,
+    company: r.country || r.funding || r.teamSize ? { country: r.country, funding: r.funding, teamSize: r.teamSize } : undefined,
+    about: r.valueProposition || r.problemSolved || r.audience || r.pricingSummary || r.additionalInfo ? { valueProposition: r.valueProposition, problemSolved: r.problemSolved, audience: r.audience, pricingSummary: r.pricingSummary, additionalInfo: r.additionalInfo } : undefined,
     foundedAt: iso(r.foundedAt),
     timestamps: { firstSnapshotAt: iso(r.firstSnapshotAt), lastSyncedAt: iso(r.lastSyncedAt) },
     urls: { page: `${SITE_URL}/s/${r.slug}`, badge: `${SITE_URL}/api/badge/${r.slug}.svg` },

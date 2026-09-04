@@ -8,6 +8,7 @@ import { BoardFilters, type BoardState } from "@/components/public/board-filters
 import { BOARD_KEYS, BOARD_META, defaultWindow } from "@/lib/boards";
 import { Button } from "@/components/ui/button";
 import { CATEGORIES, categoryLabel } from "@/lib/categories";
+import { normalizeStackEntry } from "@/lib/tech-stack";
 import { formatCompact, timeAgo } from "@/lib/format";
 import { SITE_URL, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
@@ -26,7 +27,8 @@ export function parseBoard(sp: SP, defaults: Partial<BoardState> & { board: stri
   const cat = defaults.category ?? one("category");
   const size = one("size");
   const platform = defaults.platform ?? one("platform");
-  return { board, window, category: cat && CATEGORIES.some((c) => c.slug === cat) ? cat : undefined, size: size && SIZES.has(size) ? size : undefined, platform: platform && PLATFORMS.has(platform) ? platform : undefined, verified: one("all") !== "1" };
+  const stack = defaults.stack ?? one("stack");
+  return { board, window, category: cat && CATEGORIES.some((c) => c.slug === cat) ? cat : undefined, size: size && SIZES.has(size) ? size : undefined, platform: platform && PLATFORMS.has(platform) ? platform : undefined, stack: stack ? normalizeStackEntry(stack) : undefined, verified: one("all") !== "1" };
 }
 
 export async function BoardPage({
@@ -36,9 +38,9 @@ export async function BoardPage({
   methodology?: { title: string; body: React.ReactNode };
 }) {
   const [rows, stats, meta] = await Promise.all([
-    fetchQuery(api.public.board, { board: state.board as BoardKind, window: state.window, verifiedOnly: state.verified, category: state.category, size: state.size as never, platform: state.platform as never, limit: 100 }),
+    fetchQuery(api.public.board, { board: state.board as BoardKind, window: state.window, verifiedOnly: state.verified, category: state.category, size: state.size as never, platform: state.platform as never, stack: state.stack, limit: 100 }),
     fetchQuery(api.public.stats, {}),
-    fetchQuery(api.public.boardMeta, { category: state.category }),
+    fetchQuery(api.public.boardMeta, { category: state.category, stack: state.stack }),
   ]);
   const board = BOARD_META[state.board];
   const jsonLd = {

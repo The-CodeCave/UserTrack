@@ -9,25 +9,30 @@ import { SearchBox } from "@/components/public/search-box";
 import { MiniSaasCard, type SaasRow } from "@/components/public/saas-card";
 import { DiscoveryFeed } from "@/components/public/discovery-feed";
 import { CATEGORIES, categoryLabel } from "@/lib/categories";
+import { StackChip } from "@/components/public/stack-chip";
+import { normalizeStackEntry, techLabel } from "@/lib/tech-stack";
 import { formatCompact, formatDelta, formatPct, timeAgo } from "@/lib/format";
 import { SITE_URL, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
-type Search = Promise<{ category?: string | string[] }>;
+type Search = Promise<{ category?: string | string[]; stack?: string | string[] }>;
 
-async function categoryOf(searchParams: Search) {
+// `?category=` narrows to a category, `?stack=` to products built with one technology (canonical page: /stacks/<slug>).
+async function filtersOf(searchParams: Search) {
   const sp = await searchParams;
-  const c = Array.isArray(sp.category) ? sp.category[0] : sp.category;
-  return c && CATEGORIES.some((x) => x.slug === c) ? c : undefined;
+  const one = (v?: string | string[]) => (Array.isArray(v) ? v[0] : v);
+  const c = one(sp.category);
+  const st = one(sp.stack);
+  return { category: c && CATEGORIES.some((x) => x.slug === c) ? c : undefined, stack: st ? normalizeStackEntry(st) : undefined };
 }
 
 export async function generateMetadata({ searchParams }: { searchParams: Search }): Promise<Metadata> {
-  const category = await categoryOf(searchParams);
-  const what = CATEGORIES.find((c) => c.slug === category)?.seo;
+  const { category, stack } = await filtersOf(searchParams);
+  const what = stack ? `SaaS built with ${techLabel(stack)}` : CATEGORIES.find((c) => c.slug === category)?.seo;
   const title = what ? `Discover ${what}` : "Discover SaaS";
   const description = `Search and discover ${what ?? "SaaS products"} by growth: trending now, fastest growing today, this week and this month, new and rising, hidden gems, biggest movers${what ? "" : ", mobile apps, developer tools and AI"}.`;
-  const url = `${SITE_URL}/discover${category ? `?category=${category}` : ""}`;
+  const url = stack ? `${SITE_URL}/stacks/${stack}` : `${SITE_URL}/discover${category ? `?category=${category}` : ""}`;
   return { title, description, alternates: { canonical: url }, openGraph: { title, description, url } };
 }
 
@@ -35,8 +40,8 @@ const growth24h = (s: SaasRow) => (s.totalUsers - s.newUsers24h > 0 ? (s.newUser
 const chip = "inline-flex shrink-0 items-center gap-1.5 border px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider transition-colors";
 
 export default async function DiscoverPage({ searchParams }: { searchParams: Search }) {
-  const category = await categoryOf(searchParams);
-  const d = await fetchQuery(api.public.discover, { category });
+  const { category, stack } = await filtersOf(searchParams);
+  const d = await fetchQuery(api.public.discover, { category, stack });
   const g = d.hiddenGemRules;
   const n = d.newRisingRules;
   const q = category ? `?category=${category}` : "";
@@ -69,8 +74,9 @@ export default async function DiscoverPage({ searchParams }: { searchParams: Sea
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:py-12">
       {jsonLd && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />}
-      <SectionLabel>Discover{category ? ` · ${categoryLabel(category)}` : ""}</SectionLabel>
-      <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">{category ? `${categoryLabel(category)} SaaS that is actually growing` : "Find SaaS that is actually growing"}</h1>
+      <SectionLabel>Discover{category ? ` · ${categoryLabel(category)}` : ""}{stack ? ` · ${techLabel(stack)}` : ""}</SectionLabel>
+      <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">{stack ? `SaaS built with ${techLabel(stack)} that is actually growing` : category ? `${categoryLabel(category)} SaaS that is actually growing` : "Find SaaS that is actually growing"}</h1>
+      {stack && <div className="mt-3 flex flex-wrap items-center gap-2"><StackChip slug={stack} /><Link href="/discover" className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">Clear</Link></div>}
       <p className="mt-2 max-w-xl text-sm text-muted-foreground">Search by product, founder, category or tag. Everything below is computed from verified snapshots — no editorial picks.</p>
       <div className="mt-6"><SearchBox /></div>
 

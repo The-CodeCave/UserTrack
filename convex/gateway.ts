@@ -37,7 +37,7 @@ import { CARD_RANGES, CARD_STYLES, cardQuery, type CardConfig } from "../src/lib
 import { shareStatus } from "./schema";
 import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, STAGE_ORDER, funnelFor, funnelHistoryFor, funnelSources } from "./domain/funnel";
 import { cohortView } from "./cohorts";
-import { projectType as projectTypeArg } from "./schema";
+import { cofounder, funding, projectType as projectTypeArg, teamSize } from "./schema";
 import { MIN_SAMPLE } from "./lib/benchmarks";
 import { benchmarkCards, benchmarkHistoryFor, isBenchmarkEligible } from "./domain/benchmarks";
 import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
@@ -221,6 +221,21 @@ export const updateProjectTool = mutation({
     logoUrl: v.optional(v.string()),
     newSlug: v.optional(v.string()),
     isPublic: v.optional(v.boolean()),
+    foundedAt: v.optional(v.number()),
+    markets: v.optional(v.array(v.string())),
+    techStack: v.optional(v.array(v.string())),
+    marketingChannels: v.optional(v.array(v.string())),
+    cofounders: v.optional(v.array(cofounder)),
+    country: v.optional(v.string()),
+    funding: v.optional(funding),
+    teamSize: v.optional(teamSize),
+    valueProposition: v.optional(v.string()),
+    problemSolved: v.optional(v.string()),
+    audience: v.optional(v.string()),
+    pricingSummary: v.optional(v.string()),
+    additionalInfo: v.optional(v.string()),
+    anonymous: v.optional(v.boolean()),
+    hideFromSearch: v.optional(v.boolean()),
   },
   handler: async (ctx, { auth, projectId, slug, newSlug, ...patch }) =>
     run(async () => {

@@ -26,6 +26,9 @@ export const providerKind = v.union(
 export const integrationRole = v.union(v.literal("users"), v.literal("activation"), v.literal("traffic"), v.literal("revenue"), v.literal("conversion"));
 export const lifecycleStage = v.union(v.literal("reached"), v.literal("signed_up"), v.literal("activated"), v.literal("trial"), v.literal("converted"));
 export const projectType = v.union(v.literal("web"), v.literal("mobile"), v.literal("hybrid"));
+export const funding = v.union(v.literal("bootstrapped"), v.literal("vc"));
+export const teamSize = v.union(v.literal("1"), v.literal("2-5"), v.literal("6-10"), v.literal("11-50"), v.literal("50+"));
+export const cofounder = v.object({ name: v.optional(v.string()), x: v.optional(v.string()), github: v.optional(v.string()) });
 export const conversionMode = v.union(v.literal("active_paid"), v.literal("ever_paid"), v.literal("first_payment"));
 export const identityQuality = v.union(v.literal("aggregate_only"), v.literal("partially_mapped"), v.literal("cohort_verified"));
 // Per-metric public visibility. Connection ≠ publication: missing = defaults in domain/visibility.ts.
@@ -190,6 +193,25 @@ export default defineSchema({
     playStoreUrl: v.optional(v.string()),
     authMethods: v.optional(v.array(v.string())),
     visibility: v.optional(visibility),
+    // Product profile (descriptive only — never revenue): curated slugs from src/lib/{profile-options,tech-stack,countries}.ts.
+    markets: v.optional(v.array(v.string())),
+    techStack: v.optional(v.array(v.string())),
+    marketingChannels: v.optional(v.array(v.string())),
+    cofounders: v.optional(v.array(cofounder)),
+    country: v.optional(v.string()),
+    funding: v.optional(funding),
+    teamSize: v.optional(teamSize),
+    valueProposition: v.optional(v.string()),
+    problemSolved: v.optional(v.string()),
+    audience: v.optional(v.string()),
+    pricingSummary: v.optional(v.string()),
+    additionalInfo: v.optional(v.string()),
+    // Anonymous mode hides founder identity, cofounders, logo, website and store links on every public surface (docs/PROFILES.md).
+    anonymous: v.optional(v.boolean()),
+    // noindex on the public page + share pages and no sitemap entry; boards and the API still list the product.
+    hideFromSearch: v.optional(v.boolean()),
+    // Uploaded logo (Convex file storage); logoUrl carries the served URL.
+    logoStorageId: v.optional(v.id("_storage")),
     // Trending
     trendingScore24h: v.optional(v.number()),
     trendingScore7d: v.optional(v.number()),

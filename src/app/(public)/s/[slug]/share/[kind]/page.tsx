@@ -22,7 +22,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const c = shareCopy(d.s, d.kind, d.m);
   const title = `${d.s.name} · ${c.value}`;
   const description = `${c.sub} · ${verificationLine(d.s.trust)}.`;
-  return { title, description, alternates: { canonical: shareUrl(slug, kind) }, openGraph: { title, description, url: shareUrl(slug, kind), type: "article" }, twitter: { card: "summary_large_image", title, description } };
+  return { title, description, alternates: { canonical: shareUrl(slug, kind) }, openGraph: { title, description, url: shareUrl(slug, kind), type: "article" }, twitter: { card: "summary_large_image", title, description }, robots: d.s.hideFromSearch ? { index: false, follow: true } : undefined };
 }
 
 export default async function SharePage({ params }: { params: Promise<{ slug: string; kind: string }> }) {

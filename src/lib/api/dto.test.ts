@@ -30,7 +30,7 @@ describe("saasDto", () => {
     const wire = JSON.parse(JSON.stringify(saasDto(junk)));
     const keys = keysDeep(wire);
     for (const k of FORBIDDEN) expect(keys.has(k), k).toBe(false);
-    expect(Object.keys(wire).sort()).toEqual(["category", "demo", "description", "followers", "metrics", "name", "owner", "ranks", "slug", "tags", "timestamps", "trust", "urls", "websiteUrl"]);
+    expect(Object.keys(wire).sort()).toEqual(["anonymous", "category", "demo", "description", "followers", "metrics", "name", "owner", "ranks", "slug", "tags", "timestamps", "trust", "urls", "websiteUrl"]);
     expect(JSON.stringify(wire)).not.toContain("whsec_");
     expect(wire.owner).toEqual({ username: "jane", displayName: "Jane" });
     expect(JSON.stringify(wire)).not.toContain("sk_live_secret");
@@ -180,5 +180,28 @@ describe("funnelDto / feedItemDto / compareDto", () => {
     expect(d.products[1].series.map((p) => p.index)).toEqual([undefined, undefined, undefined]);
     expect(d.urls.page).toMatch(/\/compare\?s=acme,beta&days=all$/);
     expect(compareDto([{ ...base, series }], 30)).toMatchObject({ days: 30, urls: { page: expect.stringMatching(/&days=30$/) } });
+  });
+});
+
+describe("saasDto — product profile", () => {
+  it("groups the descriptive profile and never carries revenue", () => {
+    const d = saasDto({ ...base, markets: ["ai"], techStack: ["nextjs", "convex"], marketingChannels: ["seo"], cofounders: [{ name: "Ada", x: "ada", github: "ada" }], country: "DE", funding: "bootstrapped", teamSize: "2-5", valueProposition: "v", pricingSummary: "Free tier + per seat" });
+    expect(d.anonymous).toBe(false);
+    expect(d.company).toEqual({ country: "DE", funding: "bootstrapped", teamSize: "2-5" });
+    expect(d.about).toEqual({ valueProposition: "v", problemSolved: undefined, audience: undefined, pricingSummary: "Free tier + per seat", additionalInfo: undefined });
+    expect(d.cofounders).toEqual([{ name: "Ada", x: "ada", github: "ada" }]);
+    expect(d.techStack).toEqual(["nextjs", "convex"]);
+    expect(JSON.stringify(d)).not.toMatch(/mrr|revenue|profit/i);
+    expect(saasDto(base).company).toBeUndefined();
+    expect(saasDto(base).about).toBeUndefined();
+  });
+  it("anonymous rows have no owner, website or cofounders on the wire", () => {
+    const d = JSON.parse(JSON.stringify(saasDto({ ...base, anonymous: true, websiteUrl: undefined, owner: null, cofounders: undefined })));
+    expect(d.anonymous).toBe(true);
+    expect(d.owner).toBeUndefined();
+    expect(d.websiteUrl).toBeUndefined();
+    expect(d.cofounders).toBeUndefined();
+    expect(d.name).toBe("Acme");
+    expect(d.metrics.totalUsers).toBe(12481);
   });
 });

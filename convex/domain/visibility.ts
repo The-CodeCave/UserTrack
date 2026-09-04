@@ -56,11 +56,18 @@ const GATED: Record<Exclude<VisibilityKey, "totalUsers" | "growth" | "benchmarks
   traffic: ["visitors30d", "sessions30d", "visitorsPrev30d"],
 };
 // Never public regardless of settings.
-const ALWAYS_PRIVATE: (keyof Doc<"saas">)[] = ["ownerId", "mrr", "currency", "showRevenue"];
+const ALWAYS_PRIVATE: (keyof Doc<"saas">)[] = ["ownerId", "mrr", "currency", "showRevenue", "logoStorageId"];
+// Anonymous mode: everything that identifies the founder or the company leaves the row; the owner is nulled by the caller.
+export const ANONYMOUS_HIDDEN: (keyof Doc<"saas">)[] = ["logoUrl", "websiteUrl", "appStoreUrl", "playStoreUrl", "cofounders"];
+
+export const isAnonymous = (s: Pick<Doc<"saas">, "anonymous">) => s.anonymous === true;
+// Logo for compact cards built outside publicSaas (feed, watchlists, frozen rankings).
+export const publicLogo = (s: Pick<Doc<"saas">, "anonymous" | "logoUrl">) => (isAnonymous(s) ? undefined : s.logoUrl);
 
 export function stripPrivate<T extends Partial<Doc<"saas">>>(s: T, vis: Visibility): T {
   const out = { ...s };
   for (const k of ALWAYS_PRIVATE) delete out[k];
+  if (isAnonymous(out)) for (const k of ANONYMOUS_HIDDEN) delete out[k];
   for (const key of Object.keys(GATED) as (keyof typeof GATED)[]) {
     if (vis[key]) continue;
     for (const f of GATED[key]) delete out[f];

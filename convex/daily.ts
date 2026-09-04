@@ -8,7 +8,7 @@ import { rankable } from "./leaderboard";
 import { addMilestones } from "./trust";
 import { DAY, dayKey, weekKey } from "./lib/time";
 import { addOnceEvent, addEvent } from "./domain/events";
-import { visibilityOf } from "./domain/visibility";
+import { publicLogo, visibilityOf } from "./domain/visibility";
 import { sortBoard, type Board } from "./public";
 import { CATEGORIES } from "../src/lib/categories";
 
@@ -134,7 +134,7 @@ export const snapshotRankings = internalMutation({
         if (existing && !force) continue;
         const doc = {
           period, board, category, sampleSize: rows.length, computedAt: now,
-          rows: rows.map((s, i) => ({ slug: s.slug, name: s.name, logoUrl: s.logoUrl, category: s.category, rank: i + 1, value: snapshotValue(s, board), totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, growth30dPct: s.growth30dPct, trust: s.trust })),
+          rows: rows.map((s, i) => ({ slug: s.slug, name: s.name, logoUrl: publicLogo(s), category: s.category, rank: i + 1, value: snapshotValue(s, board), totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, growth30dPct: s.growth30dPct, trust: s.trust })),
         };
         if (existing) await ctx.db.patch(existing._id, doc);
         else await ctx.db.insert("rankingSnapshots", doc);

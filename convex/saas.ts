@@ -13,7 +13,10 @@ import { CATEGORIES } from "../src/lib/categories";
 import { publicTrustLabel } from "./lib/trust";
 import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, funnelFor, funnelHistoryFor } from "./domain/funnel";
 import { VISIBILITY_KEYS, visibilityOf } from "./domain/visibility";
-import { projectType, visibility } from "./schema";
+import { cofounder, funding, projectType, teamSize, visibility } from "./schema";
+
+const LOGO_MAX_BYTES = 1_048_576;
+const LOGO_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 export async function requireOwnedSaas(ctx: QueryCtx | MutationCtx, id: Id<"saas">) {
   const { user, profile } = await requireProfile(ctx);
@@ -43,21 +46,65 @@ const editable = {
   playStoreUrl: v.optional(v.string()),
   authMethods: v.optional(v.array(v.string())),
   foundedAt: v.optional(v.number()),
+  markets: v.optional(v.array(v.string())),
+  techStack: v.optional(v.array(v.string())),
+  marketingChannels: v.optional(v.array(v.string())),
+  cofounders: v.optional(v.array(cofounder)),
+  country: v.optional(v.string()),
+  funding: v.optional(funding),
+  teamSize: v.optional(teamSize),
+  valueProposition: v.optional(v.string()),
+  problemSolved: v.optional(v.string()),
+  audience: v.optional(v.string()),
+  pricingSummary: v.optional(v.string()),
+  additionalInfo: v.optional(v.string()),
+  anonymous: v.optional(v.boolean()),
+  hideFromSearch: v.optional(v.boolean()),
+  // Uploaded logo (generateLogoUploadUrl); wins over logoUrl when set.
+  logoStorageId: v.optional(v.id("_storage")),
 };
+
+// Short-lived URL for a direct browser → Convex storage POST (docs/PROFILES.md → Logo upload).
+export const generateLogoUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireProfile(ctx);
+    return ctx.storage.generateUploadUrl();
+  },
+});
+
+// Validates the uploaded file (≤ 1 MB, png / jpeg / webp — SVG is refused) and turns it into a served logoUrl.
+// A refused upload cannot be deleted here (the throw rolls the mutation back); the client validates first, so orphans are rare.
+async function uploadedLogo(ctx: MutationCtx, storageId: Id<"_storage">, previous?: Id<"_storage">) {
+  const meta = await ctx.db.system.get(storageId);
+  if (!meta) throw new Error("Upload not found");
+  if (meta.size > LOGO_MAX_BYTES || !LOGO_TYPES.has(meta.contentType ?? "")) throw new Error("Logo must be a PNG, JPG or WebP file up to 1 MB");
+  const logoUrl = await ctx.storage.getUrl(storageId);
+  if (!logoUrl) throw new Error("Upload not found");
+  if (previous && previous !== storageId) await ctx.storage.delete(previous);
+  return { logoUrl, logoStorageId: storageId };
+}
 
 export const create = mutation({
   args: editable,
-  handler: async (ctx, args) => {
+  handler: async (ctx, { logoStorageId, ...args }) => {
     const { profile } = await requireProfile(ctx);
-    return createProject(ctx, profile._id, args);
+    const logo = logoStorageId ? await uploadedLogo(ctx, logoStorageId) : null;
+    const id = await createProject(ctx, profile._id, { ...args, logoUrl: logo?.logoUrl ?? args.logoUrl });
+    if (logo) await ctx.db.patch(id, { logoStorageId: logo.logoStorageId });
+    return id;
   },
 });
 
 export const update = mutation({
   args: { id: v.id("saas"), ...editable, slug: v.optional(v.string()) },
-  handler: async (ctx, { id, slug, ...args }) => {
+  handler: async (ctx, { id, slug, logoStorageId, ...args }) => {
     const { saas } = await requireOwnedSaas(ctx, id);
-    await updateProject(ctx, saas, { ...args, slug });
+    const logo = logoStorageId ? await uploadedLogo(ctx, logoStorageId, saas.logoStorageId) : null;
+    await updateProject(ctx, saas, { ...args, logoUrl: logo?.logoUrl ?? args.logoUrl, slug });
+    // A pasted URL (or a cleared logo) replaces the uploaded file, which is dropped from storage.
+    if (logo) await ctx.db.patch(id, { logoStorageId: logo.logoStorageId });
+    else if (saas.logoStorageId && args.logoUrl !== saas.logoUrl) { await ctx.storage.delete(saas.logoStorageId); await ctx.db.patch(id, { logoStorageId: undefined }); }
   },
 });
 

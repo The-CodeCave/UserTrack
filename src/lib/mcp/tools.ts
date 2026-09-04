@@ -9,6 +9,7 @@ import { CARD_RANGES, CARD_STYLES } from "@/lib/share-card";
 import type { Id } from "@convex/_generated/dataModel";
 import { WEBHOOK_EVENTS } from "@convex/lib/webhooks";
 import { DATASET_WINDOWS } from "@/lib/api/datasets";
+import { MARKETS, MARKETING_CHANNELS } from "@/lib/profile-options";
 
 type Auth = { hash: string; gateway?: string };
 const ROLES = ["users", "activation", "traffic", "conversion"] as const;
@@ -77,9 +78,9 @@ export const TOOLS: Tool[] = [
     scope: "projects:write",
     readOnly: false,
     input: {
-      name: z.string().min(2).max(60).describe("Product name"),
+      name: z.string().min(2).max(100).describe("Product name"),
       websiteUrl: z.string().describe("Product website, e.g. https://acme.com — used for duplicate detection and verification"),
-      description: z.string().max(160).optional().describe("One-line description shown on the public page"),
+      description: z.string().max(500).optional().describe("Short description shown on the public page"),
       category: z.string().optional().describe("Category slug (see usertrack_get_supported_integrations → categories are not needed; any invalid value is rejected)"),
       tags: z.array(z.string()).max(5).optional(),
       logoUrl: z.string().optional(),
@@ -90,21 +91,36 @@ export const TOOLS: Tool[] = [
   tool({
     name: "usertrack_update_project",
     title: "Update project",
-    description: "Safe metadata changes: name, description, website, category, tags, logo, slug, and publishing (isPublic). Never deletes.",
+    description: "Safe metadata changes: name, description, website, category, tags, logo, slug, publishing (isPublic) and the product profile (markets, tech stack, marketing channels, cofounders, country, funding, team size, founded month, value proposition, problem, audience, pricing model, anonymous mode, hide from search engines). Descriptive only — there are no revenue fields. Never deletes.",
     scope: "projects:write",
     readOnly: false,
     input: {
       ...ref,
-      name: z.string().min(2).max(60).optional(),
-      description: z.string().max(160).optional(),
+      name: z.string().min(2).max(100).optional(),
+      description: z.string().max(500).optional(),
       websiteUrl: z.string().optional(),
       category: z.string().optional(),
       tags: z.array(z.string()).max(5).optional(),
       logoUrl: z.string().optional(),
       newSlug: z.string().optional().describe("Change the public slug (/s/<slug>)"),
       isPublic: z.boolean().optional().describe("true publishes the growth page and makes it eligible for leaderboards"),
+      foundedAt: z.string().regex(/^\d{4}-\d{2}$/).optional().describe("Founding month YYYY-MM (benchmark age cohorts use it)"),
+      markets: z.array(z.string()).max(5).optional().describe(`Up to 5 of: ${MARKETS.map((m) => m.slug).join(", ")}`),
+      techStack: z.array(z.string()).max(20).optional().describe("Up to 20 slugs from the curated catalog (react, nextjs, postgresql, stripe, vercel, …); unknown entries are kept as free text without an icon"),
+      marketingChannels: z.array(z.string()).max(15).optional().describe(`Up to 15 of: ${MARKETING_CHANNELS.map((c) => c.slug).join(", ")}`),
+      cofounders: z.array(z.object({ name: z.string().max(60).optional(), x: z.string().optional(), github: z.string().optional() })).max(5).optional().describe("The owner's own X handle comes from the profile"),
+      country: z.string().length(2).optional().describe("ISO 3166-1 alpha-2, e.g. DE"),
+      funding: z.enum(["bootstrapped", "vc"]).optional(),
+      teamSize: z.enum(["1", "2-5", "6-10", "11-50", "50+"]).optional(),
+      valueProposition: z.string().max(300).optional(),
+      problemSolved: z.string().max(300).optional(),
+      audience: z.string().max(200).optional(),
+      pricingSummary: z.string().max(300).optional().describe("Pricing model in words (free tier, per seat, …) — never revenue numbers"),
+      additionalInfo: z.string().max(500).optional(),
+      anonymous: z.boolean().optional().describe("Hide founder identity, cofounders, logo, website and store links on every public surface"),
+      hideFromSearch: z.boolean().optional().describe("noindex the public page and drop it from the sitemap; boards and the API still list it"),
     },
-    run: (auth, a) => fetchMutation(api.gateway.updateProjectTool, { auth, ...a }),
+    run: (auth, { foundedAt, ...a }) => fetchMutation(api.gateway.updateProjectTool, { auth, ...a, foundedAt: foundedAt ? Date.UTC(Number(foundedAt.slice(0, 4)), Number(foundedAt.slice(5, 7)) - 1, 1) : undefined }),
   }),
   tool({
     name: "usertrack_get_supported_integrations",

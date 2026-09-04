@@ -4,6 +4,10 @@ import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { slugify, RESERVED } from "../../src/lib/slug";
 import { CATEGORY_SLUGS } from "../../src/lib/categories";
+import { CHANNEL_SLUGS, MARKET_SLUGS, PROFILE_LIMITS, type Funding, type TeamSize } from "../../src/lib/profile-options";
+import { TECH_STACK, TECH_STACK_BY_SLUG, TECH_STACK_MAX, normalizeStackEntry } from "../../src/lib/tech-stack";
+import { COUNTRY_CODES } from "../../src/lib/countries";
+import { isValidXHandle, normalizeXHandle } from "../../src/lib/social";
 import { normalizeDomain } from "../lib/domain";
 import { publicTrustLabel } from "../lib/trust";
 import { scheduleMissingSourceReminder } from "../email/lifecycle";
@@ -36,6 +40,74 @@ export interface ProjectInput {
   authMethods?: string[];
   // Optional founding month (ms since epoch); benchmark age cohorts use it instead of the tracking age.
   foundedAt?: number;
+  // Product profile (src/lib/profile-options.ts, tech-stack.ts, countries.ts). Descriptive only — never revenue.
+  markets?: string[];
+  techStack?: string[];
+  marketingChannels?: string[];
+  cofounders?: Cofounder[];
+  country?: string;
+  funding?: Funding;
+  teamSize?: TeamSize;
+  valueProposition?: string;
+  problemSolved?: string;
+  audience?: string;
+  pricingSummary?: string;
+  additionalInfo?: string;
+  anonymous?: boolean;
+  hideFromSearch?: boolean;
+}
+
+export interface Cofounder { name?: string; x?: string; github?: string }
+
+const PROFILE_KEYS = ["markets", "techStack", "marketingChannels", "cofounders", "country", "funding", "teamSize", "valueProposition", "problemSolved", "audience", "pricingSummary", "additionalInfo", "anonymous", "hideFromSearch"] as const;
+
+const text = (v: string | undefined, max: number) => v?.trim().slice(0, max) || undefined;
+// Curated multi-select: unknown slugs are dropped, duplicates collapse, the list is capped.
+const curated = (list: string[] | undefined, allowed: Set<string>, max: number) => { if (!list) return undefined; const out = [...new Set(list.map((x) => x.trim().toLowerCase()).filter((x) => allowed.has(x)))].slice(0, max); return out.length ? out : undefined; };
+const GITHUB_RE = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
+
+export function normalizeCofounders(list: Cofounder[] | undefined) {
+  if (!list) return undefined;
+  const out: Cofounder[] = [];
+  for (const c of list) {
+    const name = text(c.name, PROFILE_LIMITS.cofounderName);
+    const x = normalizeXHandle(c.x) || undefined;
+    if (x && !isValidXHandle(x)) throw new DomainError("bad_request", `Cofounder X handle "${x}" is invalid`);
+    const github = c.github?.trim().replace(/^https?:\/\/(www\.)?github\.com\//i, "").replace(/^@/, "").replace(/\/.*$/, "") || undefined;
+    if (github && !GITHUB_RE.test(github)) throw new DomainError("bad_request", `Cofounder GitHub handle "${github}" is invalid`);
+    if (name || x || github) out.push({ name, x, github });
+  }
+  return out.length ? out.slice(0, PROFILE_LIMITS.cofounders) : undefined;
+}
+
+// Tech stack: curated slugs (or their labels, e.g. "Next.js") pass through, anything else becomes a free-text entry (lowercase token, no icon).
+const TECH_BY_LABEL = new Map(TECH_STACK.map((t) => [t.label.toLowerCase(), t.slug]));
+export function normalizeTechStack(list: string[] | undefined) {
+  if (!list) return undefined;
+  const one = (raw: string) => { const k = raw.trim().toLowerCase(); return TECH_STACK_BY_SLUG.has(k) ? k : TECH_BY_LABEL.get(k) ?? normalizeStackEntry(raw); };
+  const out = [...new Set(list.map(one).filter((x): x is string => Boolean(x)))].slice(0, TECH_STACK_MAX);
+  return out.length ? out : undefined;
+}
+
+function normalizeProfile(args: ProjectInput) {
+  const country = args.country?.trim().toUpperCase() || undefined;
+  if (country && !COUNTRY_CODES.has(country)) throw new DomainError("bad_request", `Unknown country "${country}"`);
+  return {
+    markets: curated(args.markets, MARKET_SLUGS, PROFILE_LIMITS.markets),
+    techStack: normalizeTechStack(args.techStack),
+    marketingChannels: curated(args.marketingChannels, CHANNEL_SLUGS, PROFILE_LIMITS.marketingChannels),
+    cofounders: normalizeCofounders(args.cofounders),
+    country,
+    funding: args.funding,
+    teamSize: args.teamSize,
+    valueProposition: text(args.valueProposition, PROFILE_LIMITS.valueProposition),
+    problemSolved: text(args.problemSolved, PROFILE_LIMITS.problemSolved),
+    audience: text(args.audience, PROFILE_LIMITS.audience),
+    pricingSummary: text(args.pricingSummary, PROFILE_LIMITS.pricingSummary),
+    additionalInfo: text(args.additionalInfo, PROFILE_LIMITS.additionalInfo),
+    anonymous: args.anonymous || undefined,
+    hideFromSearch: args.hideFromSearch || undefined,
+  };
 }
 
 const storeUrl = (v: string | undefined, host: RegExp, what: string) => {
@@ -48,13 +120,14 @@ const storeUrl = (v: string | undefined, host: RegExp, what: string) => {
 export function normalizeProjectInput(args: ProjectInput) {
   const name = args.name.trim();
   if (name.length < 2) throw new DomainError("bad_request", "Name is too short");
+  if (name.length > PROFILE_LIMITS.name) throw new DomainError("bad_request", `Name must be at most ${PROFILE_LIMITS.name} characters`);
   const rawUrl = args.websiteUrl.trim();
   const websiteUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
   if (!normalizeDomain(websiteUrl)) throw new DomainError("bad_request", "Website must be a valid URL (https://example.com)");
   if (args.category && !CATEGORY_SLUGS.has(args.category)) throw new DomainError("bad_request", `Unknown category "${args.category}"`);
   return {
     name,
-    description: args.description.trim().slice(0, 160),
+    description: args.description.trim().slice(0, PROFILE_LIMITS.description),
     websiteUrl,
     logoUrl: args.logoUrl?.trim() || undefined,
     category: args.category || undefined,
@@ -64,6 +137,7 @@ export function normalizeProjectInput(args: ProjectInput) {
     playStoreUrl: storeUrl(args.playStoreUrl, /play\.google\.com/i, "Google Play URL"),
     authMethods: args.authMethods ? [...new Set(args.authMethods.map((m) => m.trim().toLowerCase()).filter((m) => (AUTH_METHODS as readonly string[]).includes(m)))] : undefined,
     foundedAt: foundedAtOf(args.foundedAt),
+    ...normalizeProfile(args),
   };
 }
 
@@ -138,6 +212,7 @@ export async function updateProject(ctx: MutationCtx, saas: Doc<"saas">, patch: 
     playStoreUrl: patch.playStoreUrl !== undefined ? patch.playStoreUrl : saas.playStoreUrl,
     authMethods: patch.authMethods ?? saas.authMethods,
     foundedAt: patch.foundedAt !== undefined ? (patch.foundedAt || undefined) : saas.foundedAt,
+    ...Object.fromEntries(PROFILE_KEYS.map((k) => [k, patch[k] !== undefined ? patch[k] : saas[k]])),
   });
   const next: Partial<Doc<"saas">> = merged;
   if (patch.slug && slugify(patch.slug) !== saas.slug) next.slug = await uniqueSlug(ctx, patch.slug, saas._id);
@@ -188,6 +263,8 @@ export function projectSummary(s: Doc<"saas">) {
     appStoreUrl: s.appStoreUrl,
     playStoreUrl: s.playStoreUrl,
     authMethods: s.authMethods,
+    foundedAt: s.foundedAt ? new Date(s.foundedAt).toISOString() : undefined,
+    ...Object.fromEntries(PROFILE_KEYS.map((k) => [k, s[k]])),
     isPublic: s.isPublic,
     verification: { level: s.trust, label: publicTrustLabel(s.trust, s.trustState, s.trustScore), score: s.trustScore },
     metrics: {
@@ -229,6 +306,8 @@ export async function drain(ctx: MutationCtx, budget: number, q: Drainable) {
 // below the budget nothing is left and the caller may delete the `saas` row itself.
 export async function removeProjectRows(ctx: MutationCtx, id: Id<"saas">, budget: number) {
   let n = 0;
+  const saas = await ctx.db.get(id);
+  if (saas?.logoStorageId) { await ctx.storage.delete(saas.logoStorageId); await ctx.db.patch(id, { logoStorageId: undefined }); }
   for (const i of await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", id)).collect()) {
     n += await drain(ctx, budget - n, ctx.db.query("integrationEvents").withIndex("by_integration_time", (q) => q.eq("integrationId", i._id)));
     if (n >= budget) return n;

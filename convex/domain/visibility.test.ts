@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_VISIBILITY, stripPrivate, visibilityOf } from "./visibility";
+import { DEFAULT_VISIBILITY, publicLogo, stripPrivate, visibilityOf } from "./visibility";
 
 const doc = { convertedUsers: 447, trialUsers: 80, signupToConvertedPct: 6.8, trialToConvertedPct: 42.3, activatedUsers: 3601, activationRatePct: 54.7, visitors30d: 81240, mrr: 1234, currency: "USD", ownerId: "p1", totalUsers: 6581 } as never;
 
@@ -35,5 +35,22 @@ describe("visibility", () => {
     expect(all.convertedUsers).toBe(447);
     expect(all.trialToConvertedPct).toBe(42.3);
     expect(all.mrr).toBeUndefined();
+  });
+});
+
+describe("anonymous mode", () => {
+  const row = { ...(doc as object), anonymous: true, logoUrl: "https://acme.io/logo.png", websiteUrl: "https://acme.io", appStoreUrl: "https://apps.apple.com/x", playStoreUrl: "https://play.google.com/x", cofounders: [{ name: "Ada" }], name: "Acme", logoStorageId: "st1", techStack: ["nextjs"] };
+  it("hides identity, logo, website, stores and cofounders but keeps name, metrics and the stack", () => {
+    const out = stripPrivate(row as never, visibilityOf({})) as Record<string, unknown>;
+    for (const k of ["logoUrl", "websiteUrl", "appStoreUrl", "playStoreUrl", "cofounders", "ownerId", "logoStorageId"]) expect(out[k], k).toBeUndefined();
+    expect(out).toMatchObject({ name: "Acme", totalUsers: 6581, anonymous: true, techStack: ["nextjs"] });
+    expect(publicLogo(row as never)).toBeUndefined();
+    expect(publicLogo({ anonymous: false, logoUrl: "x" })).toBe("x");
+  });
+  it("keeps the links when not anonymous", () => {
+    const out = stripPrivate({ ...row, anonymous: undefined } as never, visibilityOf({})) as Record<string, unknown>;
+    expect(out.websiteUrl).toBe("https://acme.io");
+    expect(out.cofounders).toEqual([{ name: "Ada" }]);
+    expect(out.logoStorageId).toBeUndefined();
   });
 });

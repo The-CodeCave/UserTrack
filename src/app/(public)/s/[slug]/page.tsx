@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchQuery } from "convex/nextjs";
-import { ExternalLink, Flame, Zap, Repeat, Globe, Target, ImageIcon, Award, Apple, Play } from "lucide-react";
+import { ExternalLink, Flame, Zap, Repeat, Globe, Target, ImageIcon, Award, Apple, Play, EyeOff } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { normalizeRole } from "@convex/providers/types";
 import { SectionLabel } from "@/components/blueprint/section-label";
@@ -25,6 +25,11 @@ import { TrendingExplain } from "@/components/public/trending-explain";
 import { formatCompact, formatDelta, formatPct, formatRate, timeAgo } from "@/lib/format";
 import { providerLabel, ROLE_META } from "@/lib/providers-ui";
 import { categoryLabel } from "@/lib/categories";
+import { StackChip } from "@/components/public/stack-chip";
+import { countryFlag, countryName } from "@/lib/countries";
+import { channelLabel, fundingLabel, marketLabel, teamSizeLabel } from "@/lib/profile-options";
+import { xProfileUrl } from "@/lib/social";
+import { GitHubIcon } from "@/components/auth/provider-icons";
 import { saasUrl, shareUrl } from "@/lib/site";
 import { availableShareKinds } from "@/lib/share";
 import { cn } from "@/lib/utils";
@@ -37,7 +42,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   if (!s) return { title: "Not found" };
   const title = `${s.name} — ${formatCompact(s.totalUsers)} users`;
   const description = `${s.description} · +${formatCompact(s.newUsers30d)} new users in 30 days${s.rank ? ` · #${s.rank} on UserTrack` : ""}${s.trendingRank ? ` · #${s.trendingRank} trending` : ""}.`;
-  return { title, description, alternates: { canonical: saasUrl(slug) }, openGraph: { title, description, url: saasUrl(slug) }, twitter: { title, description } };
+  // hideFromSearch: the page stays reachable and linkable, search engines are asked not to index it.
+  return { title, description, alternates: { canonical: saasUrl(slug) }, openGraph: { title, description, url: saasUrl(slug) }, twitter: { title, description }, robots: s.hideFromSearch ? { index: false, follow: true } : undefined };
 }
 
 export default async function SaasPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -57,12 +63,20 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
   // Conversion fields only exist on the public object when the founder published them (visibility gating happens server-side).
   const hasConversion = s.signupToConvertedPct !== undefined || s.convertedUsers !== undefined;
   const userWord = mobile ? "registered users" : "users";
+  const about = [["What it does", s.valueProposition], ["Problem solved", s.problemSolved], ["Who it's for", s.audience], ["Pricing model", s.pricingSummary], ["More", s.additionalInfo]].filter((r): r is [string, string] => Boolean(r[1]));
+  const facts = [
+    s.country ? `${countryFlag(s.country)} ${countryName(s.country) ?? s.country}` : null,
+    fundingLabel(s.funding),
+    s.teamSize ? `Team of ${teamSizeLabel(s.teamSize)}` : null,
+    s.foundedAt ? `Founded ${new Date(s.foundedAt).toLocaleDateString("en", { month: "short", year: "numeric", timeZone: "UTC" })}` : null,
+  ].filter((f): f is string => Boolean(f));
+  const hasCompany = facts.length > 0 || Boolean(s.markets?.length) || Boolean(s.marketingChannels?.length) || Boolean(s.techStack?.length);
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     name: s.name,
     description: s.description,
-    url: s.websiteUrl,
+    ...(s.websiteUrl ? { url: s.websiteUrl } : {}),
     applicationCategory: categoryLabel(s.category),
     ...(s.logoUrl ? { image: s.logoUrl } : {}),
     ...(s.owner ? { author: { "@type": "Person", name: s.owner.displayName, url: `${url.replace(/\/s\/.*$/, "")}/u/${s.owner.username}` } } : {}),
@@ -89,7 +103,8 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
             </div>
             <p className="mt-2 max-w-xl text-muted-foreground">{s.description}</p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-              <a href={s.websiteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-foreground">{new URL(s.websiteUrl).hostname} <ExternalLink className="size-3" /></a>
+              {s.websiteUrl && <a href={s.websiteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-foreground">{new URL(s.websiteUrl).hostname} <ExternalLink className="size-3" /></a>}
+              {s.anonymous && <span className="inline-flex items-center gap-1" title="The founder chose anonymous mode: identity, logo and links are hidden."><EyeOff className="size-3" /> anonymous</span>}
               {s.category && <Link href={`/categories/${s.category}`} className="hover:text-foreground">{categoryLabel(s.category)}</Link>}
               {s.tags.map((t) => <span key={t}>#{t}</span>)}
             </div>
@@ -106,6 +121,20 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
           <ShareButtons url={url} text={`${s.name} just hit ${formatCompact(s.totalUsers)} ${userWord} — growth tracked on UserTrack`} />
         </div>
       </div>
+
+      {about.length > 0 && (
+        <section className="mt-8">
+          <SectionLabel>About</SectionLabel>
+          <Panel className="mt-3 grid gap-4 p-4 sm:grid-cols-2 sm:p-5">
+            {about.map(([label, text]) => (
+              <div key={label} className={cn("min-w-0", label === "More" && "sm:col-span-2")}>
+                <div className="text-label">{label}</div>
+                <p className="mt-1 whitespace-pre-line text-sm leading-relaxed">{text}</p>
+              </div>
+            ))}
+          </Panel>
+        </section>
+      )}
 
       <section className="mt-8">
         <SectionLabel>Growth</SectionLabel>
@@ -233,7 +262,50 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
         </section>
       )}
 
+      {hasCompany && (
+        <section className="mt-8">
+          <SectionLabel>Company &amp; stack</SectionLabel>
+          <Panel className="mt-3 space-y-4 p-4 sm:p-5">
+            {facts.length > 0 && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                {facts.map((f) => <span key={f}>{f}</span>)}
+              </div>
+            )}
+            {Boolean(s.techStack?.length) && (
+              <div>
+                <div className="text-label">Built with</div>
+                <div className="mt-2 flex flex-wrap gap-1.5">{s.techStack!.map((t) => <StackChip key={t} slug={t} />)}</div>
+              </div>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {Boolean(s.markets?.length) && (
+                <div>
+                  <div className="text-label">Markets</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">{s.markets!.map((m) => <span key={m} className="border border-line px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{marketLabel(m)}</span>)}</div>
+                </div>
+              )}
+              {Boolean(s.marketingChannels?.length) && (
+                <div>
+                  <div className="text-label">Growth channels</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">{s.marketingChannels!.map((c) => <span key={c} className="border border-line px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{channelLabel(c)}</span>)}</div>
+                </div>
+              )}
+            </div>
+          </Panel>
+        </section>
+      )}
+
       <div className="mt-8 grid gap-3 md:grid-cols-2">
+        {s.anonymous && (
+          <Panel className="flex h-full items-center gap-4 p-4">
+            <div className="grid size-12 shrink-0 place-items-center border border-line bg-background text-muted-foreground"><EyeOff className="size-5" /></div>
+            <div className="min-w-0">
+              <div className="text-label">Built by</div>
+              <div className="font-medium">An anonymous founder</div>
+              <div className="font-mono text-[11px] text-muted-foreground">Identity, cofounders, logo and links are hidden on request. The numbers are real.</div>
+            </div>
+          </Panel>
+        )}
         {s.owner && (
           <Link href={`/u/${s.owner.username}`} className="group block min-w-0">
             <Panel className="flex h-full items-center gap-4 p-4 transition-colors group-hover:border-line-strong">
@@ -245,6 +317,17 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
                 <div className="text-label">Built by</div>
                 <div className="truncate font-medium">{s.owner.displayName}</div>
                 <div className="truncate font-mono text-[11px] text-muted-foreground">@{s.owner.username}{s.owner.bio ? ` · ${s.owner.bio}` : ""}</div>
+                {Boolean(s.cofounders?.length) && (
+                  <ul className="mt-2 space-y-0.5 border-t border-line pt-2 font-mono text-[11px] text-muted-foreground">
+                    {s.cofounders!.map((c, i) => (
+                      <li key={i} className="flex flex-wrap items-center gap-x-2">
+                        <span className="text-foreground/80">{c.name ?? c.x ?? c.github}</span>
+                        {c.x && <a href={xProfileUrl(c.x)} target="_blank" rel="noreferrer" className="hover:text-foreground">@{c.x}</a>}
+                        {c.github && <a href={`https://github.com/${c.github}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 hover:text-foreground"><GitHubIcon className="size-3" />{c.github}</a>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </Panel>
           </Link>
