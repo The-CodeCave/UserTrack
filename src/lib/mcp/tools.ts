@@ -123,6 +123,20 @@ export const TOOLS: Tool[] = [
     run: (auth, { foundedAt, ...a }) => fetchMutation(api.gateway.updateProjectTool, { auth, ...a, foundedAt: foundedAt ? Date.UTC(Number(foundedAt.slice(0, 4)), Number(foundedAt.slice(5, 7)) - 1, 1) : undefined }),
   }),
   tool({
+    name: "usertrack_import_from_trustmrr",
+    title: "Import from TrustMRR",
+    description: "Prefill a product profile from its TrustMRR startup page: name, description, website, logo, category, markets, tech stack, marketing channels, cofounders, country, funding, team size, founded month, value proposition, problem, audience, pricing model. Revenue, MRR, prices and growth figures are never read or returned. Without a project ref it only returns { prefill, unmapped, source }; with projectId/slug and apply: true it fills the project's empty fields (overwrite: true replaces them) through the same update path as usertrack_update_project and links the TrustMRR slug. Uses the deployment's operator key — `not_configured` when none is set; 5 imports per founder per 10 minutes.",
+    scope: "projects:write",
+    readOnly: false,
+    input: {
+      ...ref,
+      urlOrSlug: z.string().min(1).describe("https://trustmrr.com/startup/<slug> or the bare slug"),
+      apply: z.boolean().optional().describe("Apply the prefill to the referenced project (default: preview only)"),
+      overwrite: z.boolean().optional().describe("With apply: replace fields that already have a value (default: fill empty fields only)"),
+    },
+    run: (auth, a) => fetchAction(api.gateway.importFromTrustmrr, { auth, ...a }),
+  }),
+  tool({
     name: "usertrack_get_supported_integrations",
     title: "Supported integrations",
     description: "Catalog of supported data sources (native SDK for Better Auth / Prisma / Drizzle / Convex / Auth.js / custom apps, Supabase, Clerk, Firebase, Auth0, PostgreSQL read-only, PostHog, Plausible, GA4, Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee, JSON endpoint, manual) with roles (users | activation | traffic | conversion), trust level, required credentials and what is read. Pass what you detected to get a lifecycle recommendation.",

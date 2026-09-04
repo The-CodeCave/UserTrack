@@ -40,6 +40,8 @@ import { cohortView } from "./cohorts";
 import { cofounder, funding, projectType as projectTypeArg, teamSize } from "./schema";
 import { MIN_SAMPLE } from "./lib/benchmarks";
 import { benchmarkCards, benchmarkHistoryFor, isBenchmarkEligible } from "./domain/benchmarks";
+import { TrustmrrError, prefillPatch, type TrustmrrImport } from "./lib/trustmrr";
+import { importForProfile } from "./trustmrr";
 import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { explainTrending, trendingFactors } from "./lib/trending";
 import { trendingInputs } from "./leaderboard";
@@ -52,7 +54,7 @@ const refArg = { projectId: v.optional(v.string()), slug: v.optional(v.string())
 const rangeArg = v.union(...RANGES.map((r) => v.literal(r)));
 const timeframeArg = v.union(...TIMEFRAMES.map((t) => v.literal(t)));
 
-export type GatewayErrorCode = "unauthorized" | "revoked" | "expired" | "forbidden" | "rate_limited" | "not_found" | "bad_request" | "conflict";
+export type GatewayErrorCode = "unauthorized" | "revoked" | "expired" | "forbidden" | "rate_limited" | "not_found" | "bad_request" | "conflict" | "not_configured" | "upstream";
 const fail = (code: GatewayErrorCode, message: string, extra: Record<string, unknown> = {}): never => {
   throw new ConvexError({ code, message, ...extra });
 };
@@ -207,6 +209,55 @@ export const createProjectTool = mutation({
       const saas = (await ctx.db.get(id))!;
       return { created: true, message: `Created ${saas.name} (${saas.slug}). Next: connect a data source.`, project: await fullProject(ctx, saas, profile.username), recommendation: recommendIntegrations({ detectedProviders: detectedStack }), warnings: input.description ? [] : ["No description was provided; add one with usertrack_update_project so the public page reads well."] };
     }),
+});
+
+// ---- Import from TrustMRR (IMPORT-1) -------------------------------------------------------------------------------
+
+export const projectForImport = internalQuery({
+  args: { auth: authArg, ...refArg },
+  handler: async (ctx, { auth, projectId, slug }) =>
+    run(async () => {
+      const { token, profile } = await authenticate(ctx, auth, "mcp", "projects:write");
+      const saas = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
+      return { tokenId: token._id, profileId: profile._id, saasId: saas?._id ?? null };
+    }),
+});
+
+// Same domain update path as usertrack_update_project; fills the empty fields (or everything with overwrite) and links the slug.
+export const applyTrustmrrPrefill = internalMutation({
+  args: { tokenId: v.id("developerTokens"), profileId: v.id("profiles"), saasId: v.id("saas"), prefill: v.any(), trustmrrSlug: v.string(), overwrite: v.boolean() },
+  handler: async (ctx, { tokenId, profileId, saasId, prefill, trustmrrSlug, overwrite }) =>
+    run(async () => {
+      const saas = await ctx.db.get(saasId);
+      if (!saas || saas.ownerId !== profileId) return fail("not_found", "Project not found");
+      const patch = { ...prefillPatch(saas, prefill as TrustmrrImport["prefill"], overwrite), trustmrrSlug };
+      const next = await updateProject(ctx, saas, patch);
+      const applied = Object.keys(patch);
+      await audit(ctx, { profileId, tokenId, action: "import_from_trustmrr", saasId, ok: true, detail: applied.join(",") });
+      return { applied, project: projectSummary(next as Doc<"saas">) };
+    }),
+});
+
+type ImportTarget = { tokenId: Id<"developerTokens">; profileId: Id<"profiles">; saasId: Id<"saas"> | null };
+type ImportApplied = { applied: string[]; project: ReturnType<typeof projectSummary> } | null;
+
+export const importFromTrustmrr = action({
+  args: { auth: authArg, ...refArg, urlOrSlug: v.string(), apply: v.optional(v.boolean()), overwrite: v.optional(v.boolean()) },
+  handler: async (ctx, { auth, projectId, slug, urlOrSlug, apply, overwrite }): Promise<TrustmrrImport & { applied: ImportApplied }> => {
+    const target: ImportTarget = await ctx.runQuery(internal.gateway.projectForImport, { auth, projectId, slug });
+    if (apply && !target.saasId) fail("bad_request", "Pass projectId or slug to apply the prefill");
+    let result: TrustmrrImport;
+    try {
+      result = await importForProfile(ctx, target.profileId, urlOrSlug);
+    } catch (e) {
+      if (e instanceof TrustmrrError) return fail(e.code, e.message, e.retryAfterSec ? { retryAfterSec: e.retryAfterSec } : {});
+      throw e;
+    }
+    const applied: ImportApplied = apply && target.saasId
+      ? await ctx.runMutation(internal.gateway.applyTrustmrrPrefill, { tokenId: target.tokenId, profileId: target.profileId, saasId: target.saasId, prefill: result.prefill, trustmrrSlug: result.source.slug, overwrite: overwrite ?? false })
+      : null;
+    return { ...result, applied };
+  },
 });
 
 export const updateProjectTool = mutation({

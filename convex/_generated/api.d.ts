@@ -66,6 +66,7 @@ import type * as lib_time from "../lib/time.js";
 import type * as lib_tokens from "../lib/tokens.js";
 import type * as lib_trending from "../lib/trending.js";
 import type * as lib_trust from "../lib/trust.js";
+import type * as lib_trustmrr from "../lib/trustmrr.js";
 import type * as lib_webhooks from "../lib/webhooks.js";
 import type * as lib_xApi from "../lib/xApi.js";
 import type * as migrations from "../migrations.js";
@@ -103,6 +104,7 @@ import type * as social from "../social.js";
 import type * as sync from "../sync.js";
 import type * as tokens from "../tokens.js";
 import type * as trust from "../trust.js";
+import type * as trustmrr from "../trustmrr.js";
 import type * as webhooks from "../webhooks.js";
 
 import type {
@@ -170,6 +172,7 @@ declare const fullApi: ApiFromModules<{
   "lib/tokens": typeof lib_tokens;
   "lib/trending": typeof lib_trending;
   "lib/trust": typeof lib_trust;
+  "lib/trustmrr": typeof lib_trustmrr;
   "lib/webhooks": typeof lib_webhooks;
   "lib/xApi": typeof lib_xApi;
   migrations: typeof migrations;
@@ -207,6 +210,7 @@ declare const fullApi: ApiFromModules<{
   sync: typeof sync;
   tokens: typeof tokens;
   trust: typeof trust;
+  trustmrr: typeof trustmrr;
   webhooks: typeof webhooks;
 }>;
 

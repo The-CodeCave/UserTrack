@@ -11,6 +11,7 @@ const EXPECTED = [
   "usertrack_get_project",
   "usertrack_create_project",
   "usertrack_update_project",
+  "usertrack_import_from_trustmrr",
   "usertrack_get_supported_integrations",
   "usertrack_get_integration_setup",
   "usertrack_configure_integration",
@@ -60,10 +61,10 @@ const EXPECTED = [
 ];
 
 describe("MCP tool set", () => {
-  it("exposes exactly the 51 expected tools with unique names", () => {
+  it("exposes exactly the 52 expected tools with unique names", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toEqual(EXPECTED);
-    expect(new Set(names).size).toBe(51);
+    expect(new Set(names).size).toBe(52);
   });
 
   it("gives every tool a title, description and a known scope", () => {
@@ -81,7 +82,8 @@ describe("MCP tool set", () => {
       if (t.readOnly) expect(t.scope, t.name).toMatch(/:read$/);
       else expect(t.scope, t.name).toMatch(/:write$/);
     }
-    expect(TOOLS.filter((t) => !t.readOnly).map((t) => t.name)).toEqual(["usertrack_create_project", "usertrack_update_project", "usertrack_configure_integration", "usertrack_verify_integration", "usertrack_sync_project", "usertrack_create_integration", "usertrack_update_profile", "usertrack_create_share_card", "usertrack_follow_project", "usertrack_unfollow_project", "usertrack_follow_founder", "usertrack_unfollow_founder", "usertrack_create_webhook", "usertrack_update_webhook", "usertrack_test_webhook"]);
+    expect(TOOLS.filter((t) => !t.readOnly).map((t) => t.name)).toEqual(["usertrack_create_project", "usertrack_update_project",
+  "usertrack_import_from_trustmrr", "usertrack_configure_integration", "usertrack_verify_integration", "usertrack_sync_project", "usertrack_create_integration", "usertrack_update_profile", "usertrack_create_share_card", "usertrack_follow_project", "usertrack_unfollow_project", "usertrack_follow_founder", "usertrack_unfollow_founder", "usertrack_create_webhook", "usertrack_update_webhook", "usertrack_test_webhook"]);
   });
 
   it("describes the setup workflow in order", () => {

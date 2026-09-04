@@ -25,8 +25,12 @@ import { TECH_STACK, TECH_STACK_MAX, normalizeStackEntry } from "@/lib/tech-stac
 import { xHandleError } from "@/lib/social";
 import { cn } from "@/lib/utils";
 import type { PlatformValue } from "./platform-picker";
+import { TrustmrrImport, type ImportResult, type PrefillKey } from "./trustmrr-import";
 
 type Cofounder = { name: string; x: string; github: string };
+// Uncontrolled inputs; their current values are captured before a TrustMRR prefill remounts the form with new defaults.
+const TEXT_KEYS = ["name", "description", "websiteUrl", "category", "tags", "foundedAt", "valueProposition", "problemSolved", "audience", "pricingSummary", "additionalInfo", "slug", "appStoreUrl", "playStoreUrl"] as const;
+const TEXT_PREFILL_KEYS = ["name", "description", "websiteUrl", "category", "foundedAt", "valueProposition", "problemSolved", "audience", "pricingSummary", "additionalInfo"] as const satisfies readonly PrefillKey[];
 const LOGO_MAX = 1_048_576;
 const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
@@ -60,6 +64,57 @@ export function SaasForm({
   const [logoMode, setLogoMode] = useState<"upload" | "url">(initial?.logoUrl && !initial.logoStorageId ? "url" : "upload");
   const [uploading, setUploading] = useState(false);
   const file = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [defaults, setDefaults] = useState<Record<string, string | undefined>>(() => ({
+    name: initial?.name, description: initial?.description, websiteUrl: initial?.websiteUrl, category: initial?.category ?? "", tags: initial?.tags.join(", "),
+    foundedAt: initial?.foundedAt ? monthValue(initial.foundedAt) : undefined, valueProposition: initial?.valueProposition, problemSolved: initial?.problemSolved,
+    audience: initial?.audience, pricingSummary: initial?.pricingSummary, additionalInfo: initial?.additionalInfo, slug: initial?.slug, appStoreUrl: initial?.appStoreUrl, playStoreUrl: initial?.playStoreUrl,
+  }));
+  const [formKey, setFormKey] = useState(0);
+  const [highlight, setHighlight] = useState<Set<string>>(new Set());
+  const [trustmrrSlug, setTrustmrrSlug] = useState(initial?.trustmrrSlug ?? "");
+  const hl = (k: string) => (highlight.has(k) ? "ring-2 ring-pink/60" : "");
+
+  const currentText = () => { const fd = formRef.current ? new FormData(formRef.current) : null; return (k: string) => String(fd?.get(k) ?? "").trim(); };
+  function filledKeys() {
+    const cur = currentText();
+    const set = new Set<PrefillKey>();
+    for (const k of TEXT_PREFILL_KEYS) if (cur(k)) set.add(k);
+    if (markets.length) set.add("markets");
+    if (stack.length) set.add("techStack");
+    if (channels.length) set.add("marketingChannels");
+    if (cofounders.some((c) => c.name || c.x || c.github)) set.add("cofounders");
+    if (country) set.add("country");
+    if (funding) set.add("funding");
+    if (teamSize) set.add("teamSize");
+    if (logo.url || logo.storageId) set.add("logoUrl");
+    if (mobile || !(initial && !platform)) set.add("projectType");
+    return set;
+  }
+  // Fills empty fields (all of them with overwrite), highlights what changed, links the slug; nothing is saved until submit.
+  function applyPrefill({ prefill, source }: ImportResult, overwrite: boolean) {
+    const cur = currentText();
+    const next: Record<string, string | undefined> = { ...defaults };
+    for (const k of TEXT_KEYS) next[k] = cur(k);
+    const filled = filledKeys();
+    const hit = new Set<string>();
+    const take = (k: PrefillKey) => { const ok = prefill[k] !== undefined && (overwrite || !filled.has(k)); if (ok) hit.add(k); return ok; };
+    for (const k of TEXT_PREFILL_KEYS) if (take(k)) next[k] = k === "foundedAt" ? monthValue(prefill.foundedAt!) : String(prefill[k]);
+    if (take("markets")) setMarkets(prefill.markets!);
+    if (take("techStack")) setStack(prefill.techStack!);
+    if (take("marketingChannels")) setChannels(prefill.marketingChannels!);
+    if (take("cofounders")) setCofounders(prefill.cofounders!.map((c) => ({ name: c.name ?? "", x: c.x ?? "", github: "" })));
+    if (take("country")) setCountry(prefill.country!);
+    if (take("funding")) setFunding(prefill.funding!);
+    if (take("teamSize")) setTeamSize(prefill.teamSize!);
+    if (take("logoUrl")) { setLogo({ url: prefill.logoUrl }); setLogoMode("url"); }
+    if (take("projectType")) setMobile(true);
+    setTrustmrrSlug(source.slug);
+    setDefaults(next);
+    setHighlight(hit);
+    setFormKey((k) => k + 1);
+    toast.success(hit.size ? `${hit.size} field${hit.size === 1 ? "" : "s"} filled from TrustMRR — review and save` : "Nothing to fill: every field already has a value");
+  }
 
   async function onFile(f: File | undefined) {
     if (!f) return;
@@ -99,6 +154,7 @@ export function SaasForm({
       country: country || undefined, funding: funding || undefined, teamSize: teamSize || undefined,
       valueProposition: opt("valueProposition"), problemSolved: opt("problemSolved"), audience: opt("audience"), pricingSummary: opt("pricingSummary"), additionalInfo: opt("additionalInfo"),
       anonymous, hideFromSearch,
+      trustmrrSlug: trustmrrSlug || (initial?.trustmrrSlug ? "" : undefined),
       ...type,
     };
     setSaving(true);
@@ -120,12 +176,12 @@ export function SaasForm({
   const logoSrc = logo.preview ?? logo.url;
 
   return (
-    <form onSubmit={onSubmit} className="space-y-8">
+    <form ref={formRef} key={formKey} onSubmit={onSubmit} className="space-y-8">
       <section className="space-y-4">
-        <SectionLabel>Product</SectionLabel>
+        <TrustmrrImport label={<SectionLabel>Product</SectionLabel>} filled={filledKeys} onApply={applyPrefill} linkedSlug={trustmrrSlug || undefined} onUnlink={() => setTrustmrrSlug("")} />
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
           <div className="flex shrink-0 items-center gap-3 sm:flex-col sm:items-start">
-            <SaasLogo name={initial?.name ?? "?"} logoUrl={logoSrc} size={72} />
+            <div className={hl("logoUrl")}><SaasLogo name={initial?.name ?? "?"} logoUrl={logoSrc} size={72} /></div>
             <div className="flex flex-wrap gap-1.5">
               <input ref={file} type="file" accept={LOGO_TYPES.join(",")} className="hidden" onChange={(e) => onFile(e.target.files?.[0])} data-testid="logo-file" />
               <Button type="button" size="sm" variant={logoMode === "upload" ? "default" : "outline"} disabled={uploading} onClick={() => { setLogoMode("upload"); file.current?.click(); }}>{uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />} Upload</Button>
@@ -136,28 +192,28 @@ export function SaasForm({
           </div>
           <div className="min-w-0 flex-1 space-y-4">
             {logoMode === "url" && <Field label="Logo URL" name="logoUrl" value={logo.url ?? ""} onChange={(e) => setLogo({ url: e.target.value })} placeholder="https://acme.com/logo.png" type="url" />}
-            <Limited label="Product name" name="name" max={PROFILE_LIMITS.name} defaultValue={initial?.name} placeholder="Acme Analytics" required minLength={2} />
-            <Limited label="Description" name="description" max={PROFILE_LIMITS.description} defaultValue={initial?.description} placeholder="Product analytics for indie SaaS." required textarea rows={3} />
+            <Limited label="Product name" name="name" max={PROFILE_LIMITS.name} defaultValue={defaults.name} placeholder="Acme Analytics" required minLength={2} className={hl("name")} />
+            <Limited label="Description" name="description" max={PROFILE_LIMITS.description} defaultValue={defaults.description} placeholder="Product analytics for indie SaaS." required textarea rows={3} className={hl("description")} />
           </div>
         </div>
-        <Field label="Website URL" name="websiteUrl" defaultValue={initial?.websiteUrl} placeholder="https://acme.com" type="url" required />
+        <Field label="Website URL" name="websiteUrl" defaultValue={defaults.websiteUrl} placeholder="https://acme.com" type="url" required className={hl("websiteUrl")} />
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="category" className="text-label">Category</Label>
-            <select id="category" name="category" defaultValue={initial?.category ?? ""} required className="h-11 w-full border border-input bg-background px-3 text-sm">
+            <select id="category" name="category" defaultValue={defaults.category} required className={cn("h-11 w-full border border-input bg-background px-3 text-sm", hl("category"))}>
               <option value="" disabled>Pick a category</option>
               {CATEGORIES.map((c) => <option key={c.slug} value={c.slug}>{c.label}</option>)}
             </select>
           </div>
-          <Field label="Tags (comma separated)" name="tags" defaultValue={initial?.tags.join(", ")} placeholder="analytics, devtools" />
+          <Field label="Tags (comma separated)" name="tags" defaultValue={defaults.tags} placeholder="analytics, devtools" />
         </div>
         {initial && !platform && (
           <div className="space-y-3">
-            <Toggle label="My product is a mobile app" hint="Adds App Store / Google Play links and lists it on the mobile boards." checked={mobile} onChange={setMobile} />
+            <Toggle label="My product is a mobile app" hint="Adds App Store / Google Play links and lists it on the mobile boards." checked={mobile} onChange={setMobile} className={hl("projectType")} />
             {mobile && (
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="App Store URL" name="appStoreUrl" defaultValue={initial.appStoreUrl} placeholder="https://apps.apple.com/…" type="url" />
-                <Field label="Google Play URL" name="playStoreUrl" defaultValue={initial.playStoreUrl} placeholder="https://play.google.com/store/apps/…" type="url" />
+                <Field label="App Store URL" name="appStoreUrl" defaultValue={defaults.appStoreUrl} placeholder="https://apps.apple.com/…" type="url" />
+                <Field label="Google Play URL" name="playStoreUrl" defaultValue={defaults.playStoreUrl} placeholder="https://play.google.com/store/apps/…" type="url" />
               </div>
             )}
           </div>
@@ -165,12 +221,12 @@ export function SaasForm({
       </section>
 
       <section className="space-y-6">
-        <ChipSelect label="Markets" hint="Which spaces your product plays in." options={MARKETS} value={markets} onChange={setMarkets} max={PROFILE_LIMITS.markets} />
-        <ChipSelect label="Tech stack" hint="Searchable. Anything not in the list is stored as plain text." options={TECH_STACK} value={stack} onChange={setStack} max={TECH_STACK_MAX} searchable icon={(slug) => <StackIcon slug={slug} />} onCustom={normalizeStackEntry} />
-        <ChipSelect label="Marketing channels" hint="Where your users come from." options={MARKETING_CHANNELS} value={channels} onChange={setChannels} max={PROFILE_LIMITS.marketingChannels} />
+        <div className={cn(hl("markets"), "ring-offset-4 ring-offset-background")}><ChipSelect label="Markets" hint="Which spaces your product plays in." options={MARKETS} value={markets} onChange={setMarkets} max={PROFILE_LIMITS.markets} /></div>
+        <div className={cn(hl("techStack"), "ring-offset-4 ring-offset-background")}><ChipSelect label="Tech stack" hint="Searchable. Anything not in the list is stored as plain text." options={TECH_STACK} value={stack} onChange={setStack} max={TECH_STACK_MAX} searchable icon={(slug) => <StackIcon slug={slug} />} onCustom={normalizeStackEntry} /></div>
+        <div className={cn(hl("marketingChannels"), "ring-offset-4 ring-offset-background")}><ChipSelect label="Marketing channels" hint="Where your users come from." options={MARKETING_CHANNELS} value={channels} onChange={setChannels} max={PROFILE_LIMITS.marketingChannels} /></div>
       </section>
 
-      <section className="space-y-3">
+      <section className={cn("space-y-3", hl("cofounders"), "ring-offset-4 ring-offset-background")}>
         <SectionLabel>Founders</SectionLabel>
         <div className="flex flex-wrap items-center justify-between gap-2 border border-line bg-background px-3 py-2 text-sm">
           <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">Founder&apos;s X handle</span>
@@ -195,7 +251,7 @@ export function SaasForm({
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="country" className="text-label">Country</Label>
-            <select id="country" value={country} onChange={(e) => setCountry(e.target.value)} className="h-11 w-full border border-input bg-background px-3 text-sm">
+            <select id="country" value={country} onChange={(e) => setCountry(e.target.value)} className={cn("h-11 w-full border border-input bg-background px-3 text-sm", hl("country"))}>
               <option value="">Not specified</option>
               {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{countryFlag(c.code)} {c.name}</option>)}
             </select>
@@ -203,7 +259,7 @@ export function SaasForm({
           <div className="space-y-1.5">
             <Label className="text-label">Funding</Label>
             <div className="flex h-11 items-center gap-2">
-              <div className="flex border border-line" role="group" aria-label="Funding">
+              <div className={cn("flex border border-line", hl("funding"))} role="group" aria-label="Funding">
                 {FUNDING.map((f) => (
                   <button key={f.key} type="button" aria-pressed={funding === f.key} onClick={() => setFunding(f.key)} className={cn("px-3 py-2 font-mono text-[11px] uppercase tracking-wider", funding === f.key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>{f.label}</button>
                 ))}
@@ -213,14 +269,14 @@ export function SaasForm({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="teamSize" className="text-label">Team size</Label>
-            <select id="teamSize" value={teamSize} onChange={(e) => setTeamSize(e.target.value as TeamSize | "")} className="h-11 w-full border border-input bg-background px-3 text-sm">
+            <select id="teamSize" value={teamSize} onChange={(e) => setTeamSize(e.target.value as TeamSize | "")} className={cn("h-11 w-full border border-input bg-background px-3 text-sm", hl("teamSize"))}>
               <option value="">Not specified</option>
               {TEAM_SIZES.map((t) => <option key={t} value={t}>{t} {t === "1" ? "person" : "people"}</option>)}
             </select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="foundedAt" className="text-label">Founded</Label>
-            <Input id="foundedAt" name="foundedAt" type="month" min="1990-01" max={MAX_MONTH} defaultValue={initial?.foundedAt ? monthValue(initial.foundedAt) : undefined} className="h-11 bg-background font-mono" />
+            <Input id="foundedAt" name="foundedAt" type="month" min="1990-01" max={MAX_MONTH} defaultValue={defaults.foundedAt} className={cn("h-11 bg-background font-mono", hl("foundedAt"))} />
             <p className="font-mono text-[11px] text-muted-foreground">Optional. Used for benchmark age cohorts (otherwise we compare by tracking age).</p>
           </div>
         </div>
@@ -228,16 +284,16 @@ export function SaasForm({
 
       <Panel className="space-y-4 p-4 sm:p-5">
         <SectionLabel>Product details</SectionLabel>
-        <Limited label="Value proposition" name="valueProposition" max={PROFILE_LIMITS.valueProposition} defaultValue={initial?.valueProposition} placeholder="What does it do, in one breath?" textarea rows={2} />
-        <Limited label="Problem solved" name="problemSolved" max={PROFILE_LIMITS.problemSolved} defaultValue={initial?.problemSolved} placeholder="What was painful before?" textarea rows={2} />
-        <Limited label="Audience" name="audience" max={PROFILE_LIMITS.audience} defaultValue={initial?.audience} placeholder="Who is it for?" textarea rows={2} />
-        <Limited label="Pricing model" name="pricingSummary" max={PROFILE_LIMITS.pricingSummary} defaultValue={initial?.pricingSummary} placeholder="Free tier, per-seat plans, lifetime deal… (describe the model, never revenue numbers)" textarea rows={2} />
-        <Limited label="Additional info" name="additionalInfo" max={PROFILE_LIMITS.additionalInfo} defaultValue={initial?.additionalInfo} placeholder="Anything else worth knowing." textarea rows={3} />
+        <Limited label="Value proposition" name="valueProposition" max={PROFILE_LIMITS.valueProposition} defaultValue={defaults.valueProposition} placeholder="What does it do, in one breath?" textarea rows={2} className={hl("valueProposition")} />
+        <Limited label="Problem solved" name="problemSolved" max={PROFILE_LIMITS.problemSolved} defaultValue={defaults.problemSolved} placeholder="What was painful before?" textarea rows={2} className={hl("problemSolved")} />
+        <Limited label="Audience" name="audience" max={PROFILE_LIMITS.audience} defaultValue={defaults.audience} placeholder="Who is it for?" textarea rows={2} className={hl("audience")} />
+        <Limited label="Pricing model" name="pricingSummary" max={PROFILE_LIMITS.pricingSummary} defaultValue={defaults.pricingSummary} placeholder="Free tier, per-seat plans, lifetime deal… (describe the model, never revenue numbers)" textarea rows={2} className={hl("pricingSummary")} />
+        <Limited label="Additional info" name="additionalInfo" max={PROFILE_LIMITS.additionalInfo} defaultValue={defaults.additionalInfo} placeholder="Anything else worth knowing." textarea rows={3} className={hl("additionalInfo")} />
       </Panel>
 
       <section className="space-y-4">
         <SectionLabel>Additional settings</SectionLabel>
-        {initial && <Field label="Slug" name="slug" defaultValue={initial.slug} placeholder="acme" className="font-mono" />}
+        {initial && <Field label="Slug" name="slug" defaultValue={defaults.slug} placeholder="acme" className="font-mono" />}
         <Toggle label="Anonymous mode" hint="Hides your identity, cofounders, logo, website and store links on the public page, cards and the API. Name and metrics stay." checked={anonymous} onChange={setAnonymous} testId="anonymous" />
         <Toggle label="Hide from Google" hint="Adds noindex to the public page and its share pages and removes it from the sitemap. Boards and the API still list it." checked={hideFromSearch} onChange={setHideFromSearch} testId="hide-from-search" />
       </section>
@@ -265,23 +321,23 @@ function Field({ label, name, className, ...props }: { label: string; name: stri
 }
 
 // Text field with a live "n/max" counter; the browser enforces maxLength, the server slices again.
-function Limited({ label, name, max, textarea, defaultValue, ...props }: { label: string; name: string; max: number; textarea?: boolean; defaultValue?: string } & Omit<React.ComponentProps<"textarea"> & React.ComponentProps<"input">, "defaultValue">) {
+function Limited({ label, name, max, textarea, defaultValue, className, ...props }: { label: string; name: string; max: number; textarea?: boolean; defaultValue?: string } & Omit<React.ComponentProps<"textarea"> & React.ComponentProps<"input">, "defaultValue">) {
   const [n, setN] = useState((defaultValue ?? "").length);
-  const shared = { id: name, name, defaultValue, maxLength: max, onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setN(e.target.value.length), className: "bg-background" };
+  const shared = { id: name, name, defaultValue, maxLength: max, onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setN(e.target.value.length), className: cn("bg-background", className) };
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-2">
         <Label htmlFor={name} className="text-label">{label}</Label>
         <span className={cn("font-mono text-[11px] tabular-nums", n >= max ? "text-pink" : "text-muted-foreground")}>{n}/{max}</span>
       </div>
-      {textarea ? <Textarea {...shared} {...(props as React.ComponentProps<"textarea">)} /> : <Input {...shared} {...(props as React.ComponentProps<"input">)} className="h-11 bg-background" />}
+      {textarea ? <Textarea {...shared} {...(props as React.ComponentProps<"textarea">)} /> : <Input {...shared} {...(props as React.ComponentProps<"input">)} className={cn("h-11 bg-background", className)} />}
     </div>
   );
 }
 
-function Toggle({ label, hint, checked, onChange, testId }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void; testId?: string }) {
+function Toggle({ label, hint, checked, onChange, testId, className }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void; testId?: string; className?: string }) {
   return (
-    <label className="flex items-start justify-between gap-4 border border-line bg-background p-3">
+    <label className={cn("flex items-start justify-between gap-4 border border-line bg-background p-3", className)}>
       <span className="min-w-0">
         <span className="block text-sm font-medium">{label}</span>
         {hint && <span className="mt-0.5 block text-xs text-muted-foreground">{hint}</span>}

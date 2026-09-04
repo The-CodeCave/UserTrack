@@ -60,6 +60,7 @@ const editable = {
   additionalInfo: v.optional(v.string()),
   anonymous: v.optional(v.boolean()),
   hideFromSearch: v.optional(v.boolean()),
+  trustmrrSlug: v.optional(v.string()),
   // Uploaded logo (generateLogoUploadUrl); wins over logoUrl when set.
   logoStorageId: v.optional(v.id("_storage")),
 };

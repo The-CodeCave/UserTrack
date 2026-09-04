@@ -198,7 +198,7 @@ describe("/mcp route", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     const body = await res.json();
-    expect((Array.isArray(body) ? body[0] : body).result.tools).toHaveLength(51);
+    expect((Array.isArray(body) ? body[0] : body).result.tools).toHaveLength(52);
   });
 
   it("answers GET without SSE accept with a JSON discovery document", async () => {
@@ -209,7 +209,7 @@ describe("/mcp route", () => {
     expect(body.transport).toBe("streamable-http");
     expect(body.endpoint).toMatch(/\/mcp$/);
     expect(body.auth.tokenPrefix).toBe("ut_mcp_");
-    expect(body.tools).toHaveLength(51);
+    expect(body.tools).toHaveLength(52);
     expect(body.tools[0]).toMatchObject({ name: "usertrack_get_account", scope: "profile:read", readOnly: true });
     expect(body.setupWorkflow[0]).toBe("usertrack_get_account");
   });

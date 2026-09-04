@@ -109,6 +109,18 @@ The page shows an `anonymous` chip and an "An anonymous founder" card instead of
 
 `saas.generateLogoUploadUrl` (signed-in) → browser `POST`s the file to Convex storage → `saas.create` / `saas.update` receive `logoStorageId`, check the system row (≤1 MB, `image/png`, `image/jpeg`, `image/webp`; SVG is refused rather than sanitised) and store `logoUrl = ctx.storage.getUrl(id)`. A new upload deletes the previous file; pasting a URL or removing the logo deletes it too; project deletion (`removeProjectRows`) and account purge remove it. A refused upload cannot be deleted inside the failing mutation (the throw rolls the write back), so the form validates type + size before uploading. The form offers **Upload** / **Use URL** / **Remove** next to the current logo.
 
+### Import from TrustMRR (IMPORT-1)
+
+**TL;DR** — a founder pastes `trustmrr.com/startup/<slug>` (or the slug) on the new / edit project form, sees a diff-style preview and applies it; empty fields are filled, nothing is overwritten unless "Overwrite existing values" is ticked, nothing is saved until the form is submitted. Revenue is never read.
+
+- **Key** — one operator key `TRUSTMRR_API_KEY` on the Convex deployment (`HUMAN_TODO.md`). Unset → button disabled ("Not configured"), MCP `not_configured`. `fixture` serves the documented example offline (dev only).
+- **Parsing** — `parseTrustmrrRef` accepts full URLs (`/startup/` or `/startups/`, `www`, trailing slash, query) or `^[a-z0-9-]{1,80}$`.
+- **Mapping** (`convex/lib/trustmrr.ts`, fixtures + tests next to it) — `name`, `description`, `website` → `websiteUrl`, `icon` → `logoUrl` (https only), `category` → our `category` and `markets` (aliases such as `design-tools → design`, `games → gaming`), `techStack[].slug` → curated tech slugs (label / slug / alias / `…js` match, unknown dropped and reported), `marketingChannels[].slug` → channel slugs (aliases, category fallback for `paid` / `community` / `partnerships` / `outbound`), `cofounders[] {xHandle, xName}` → `{ name, x }`, `country` (ISO-2), `startupInsights.fundingStatus` → `bootstrapped | vc`, `teamSize` buckets (`11-25 | 26-50 → 11-50`, `51+ → 50+`), `foundedDate` → month, `valueProposition`, `problemSolved`, `pricingModel` → `pricingSummary`, `targetPersona` (or B2B / B2C) → `audience`, `mobile-apps` / RevenueCat / Superwall → `projectType: mobile`. Everything money- or traction-related is ignored by construction.
+- **Limits** — 5 imports per founder per 10 minutes and 10 per minute for the operator key (SEC-2 limiter); TrustMRR's 429 → "TrustMRR rate limit, try again in a minute"; 10 s timeout.
+- **Stored** — only `saas.trustmrrSlug` (validated, cleared with "Unlink"); it renders a `nofollow` "Also on TrustMRR" link on `/s/[slug]` and is hidden in anonymous mode. Not part of the REST DTO.
+- **MCP** — `usertrack_import_from_trustmrr { urlOrSlug, projectId? | slug?, apply?, overwrite? }` (docs/MCP.md).
+- **Analytics** — `trustmrr_import_started` / `_succeeded {unmappedCount}` / `_failed {reason}`.
+
 ## Search
 
 `public.search` returns founders with `projectCount`, `totalUsers`, `newUsers30d` and the X handle; hidden profiles and the demo owner are excluded.

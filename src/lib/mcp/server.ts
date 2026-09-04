@@ -23,6 +23,7 @@ function errorResult(f: GatewayFailure) {
     : f.code === "forbidden" ? `Ask the founder for a token with the ${f.requiredScope} scope (UserTrack → Developer → MCP tokens).`
     : f.code === "revoked" || f.code === "expired" || f.code === "unauthorized" ? "Ask the founder to create a new MCP token at /app/developer and update the MCP configuration."
     : f.code === "not_found" ? "Call usertrack_get_projects to see the projects this token can access."
+    : f.code === "not_configured" ? "This deployment has no operator key for the integration; ask the operator (HUMAN_TODO.md) — do not retry."
     : undefined;
   return textResult({ error: { ...f, hint } }, true);
 }

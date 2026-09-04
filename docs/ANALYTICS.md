@@ -50,10 +50,10 @@ All props are primitives. Never emails, handles, URLs of third parties or secret
 | `sign_out` | — | App shell + settings sign-out |
 | `onboarding_step` | `step, platform?` | Every `setStep` in `/app/onboarding` (`Profile … Publish`, `done`) |
 | `onboarding_completed` | — | Publish step + AI flow completion |
-| `project_created` | `source: form \| mcp \| trustmrr` | `SaasForm` (`form`); `mcp` / `trustmrr` reserved |
+| `project_created` | `source: form \| mcp \| trustmrr` | `SaasForm` (`form`); `mcp` / `trustmrr` reserved (an import prefills the form, the save is still `form`) |
 | `project_updated` | `fields` (comma-joined names) | `SaasForm` edit |
 | `project_published` / `project_unpublished` | — | Publish switch, onboarding publish |
-| `trustmrr_import_started/succeeded/failed` | — | Reserved for the TrustMRR import ticket |
+| `trustmrr_import_started` / `_succeeded {unmappedCount}` / `_failed {reason}` | — / count of source values that matched nothing / error code (`not_configured`, `bad_request`, `not_found`, `rate_limited`, `upstream`) | `TrustmrrImport` on the new / edit project forms (IMPORT-1) |
 | `integration_connect_opened` | `provider, role` | Provider tile picked in `ConnectSource` |
 | `integration_test` | `provider, ok` | “Test connection” |
 | `integration_connected` | `provider, role, verification` | Successful connect (`verified \| conditional \| self-reported`) |

@@ -13,6 +13,9 @@ export const RATE_LIMITS = {
   card: { kind: "token bucket", rate: 40, period: MINUTE },
   nativeEvents: { kind: "token bucket", rate: 600, period: MINUTE },
   xCallback: { kind: "fixed window", rate: 10, period: 10 * MINUTE },
+  // TrustMRR import: per founder, plus the shared budget of the single operator key (10 req/min on standard keys).
+  trustmrrImport: { kind: "fixed window", rate: 5, period: 10 * MINUTE },
+  trustmrrGlobal: { kind: "fixed window", rate: 10, period: MINUTE },
 } as const satisfies Record<string, RateLimitConfig>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

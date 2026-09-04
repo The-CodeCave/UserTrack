@@ -2,7 +2,9 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and deployed.
 
-Last updated: 2026-09-04 (v1.0 launch hardening: PROFILE-1 no action, ANALYTICS-1 Rybbit dashboard task; v0.9: discovery v3, follow + watchlists, ranking / trending / benchmark history, benchmarks v2, public datasets + SEO pages, webhooks — see the v0.9 section; v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
+Last updated: 2026-09-04 (v1.0 launch hardening: IMPORT-1 TrustMRR operator key task, PROFILE-1 no action, ANALYTICS-1 Rybbit dashboard task; v0.9: discovery v3, follow + watchlists, ranking / trending / benchmark history, benchmarks v2, public datasets + SEO pages, webhooks — see the v0.9 section; v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
+
+**v1.0 launch hardening (IMPORT-1).** One task, **required for the feature**: create a TrustMRR API key and set `TRUSTMRR_API_KEY` on Convex prod (and dev), then run one real import and paste the observed JSON into `convex/lib/trustmrr.fixtures.ts` — see *TrustMRR operator API key (IMPORT-1)* below. Until then the "Import from TrustMRR" button shows "Not configured" and the MCP tool answers `not_configured`; nothing else breaks.
 
 **v1.0 launch hardening (PROFILE-1).** Nothing to create. The product profile fields are optional schema additions (no migration), the logo upload uses the built-in Convex file storage of the existing deployment (no bucket, no variable) and stack icons load from `https://cdn.simpleicons.org` (public CDN, no account). One optional check after the prod deploy: open `/stacks/nextjs` and one product's `/s/<slug>` and confirm the icons render; if the CDN is ever blocked, the chips degrade to text.
 
@@ -275,6 +277,37 @@ Google Cloud Console → https://console.cloud.google.com
 
 **Where to put them**
 Convex dashboard → usertrack → Development *and* Production → Settings → Environment Variables
+
+**Status**
+* [ ] Pending
+
+---
+
+### TrustMRR operator API key (IMPORT-1)
+
+**Why this is needed**
+"Import from TrustMRR" (new / edit project forms, MCP `usertrack_import_from_trustmrr`) reads a startup's public profile through the TrustMRR API with **one operator key** — founders never enter a key. Without `TRUSTMRR_API_KEY` the button is disabled ("Not configured") and the MCP tool returns `not_configured`. Creating a key requires accepting TrustMRR's API Acceptable Use Policy (prefilling a founder's own profile is normal use; bulk republication is not — the import stores nothing on its own and only the founder's Apply / save writes the profile).
+
+**Where**
+https://trustmrr.com/dashboard-dev (TrustMRR account → developer dashboard → create API key; keys start with `tmrr_` and are shown once)
+
+**Steps**
+1. Create the key (standard tier = 10 requests / minute, which matches the built-in `trustmrrGlobal` limit).
+2. Set it on Convex (the fetch runs in a Convex action, not on Railway):
+   ```bash
+   npx convex env set --prod TRUSTMRR_API_KEY "tmrr_xxxxxxxxxxxxxxxxxxxxxxxx"
+   npx convex env set        TRUSTMRR_API_KEY "tmrr_xxxxxxxxxxxxxxxxxxxxxxxx"   # dev — replaces the placeholder value `fixture`
+   ```
+   No redeploy needed — `trustmrr.status` flips to `configured: true` and the button enables.
+3. Confirm the response shape once: sign in, open any project → Settings · Details → Import from TrustMRR → `https://trustmrr.com/startup/shipfast` → the preview should list name, description, website, logo, category, markets, tech stack, channels, cofounders, country, funding, team size, founded, value proposition, problem, audience, pricing model. Then fetch the raw JSON and paste it over `DOCS_SHAPE` in `convex/lib/trustmrr.fixtures.ts` (keep the revenue keys — the test proves they are ignored):
+   ```bash
+   curl -s https://trustmrr.com/api/v1/startups/shipfast -H "Authorization: Bearer tmrr_…" | jq .
+   pnpm test convex/lib/trustmrr.test.ts
+   ```
+   If a test fails, the live shape differs from the docs — adjust the expectations, not the mapper's tolerance (docs/ASSUMPTIONS.md A173).
+
+**Values**
+`TRUSTMRR_API_KEY` (Convex dev + prod). Never commit it; never put it in Railway.
 
 **Status**
 * [ ] Pending

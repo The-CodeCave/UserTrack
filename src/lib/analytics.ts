@@ -34,8 +34,8 @@ export type Events = {
   project_published: undefined;
   project_unpublished: undefined;
   trustmrr_import_started: undefined;
-  trustmrr_import_succeeded: undefined;
-  trustmrr_import_failed: undefined;
+  trustmrr_import_succeeded: { unmappedCount: number };
+  trustmrr_import_failed: { reason: string };
   integration_connect_opened: { provider: string; role: string };
   integration_test: { provider: string; ok: boolean };
   integration_connected: { provider: string; role: string; verification: string };

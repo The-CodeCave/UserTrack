@@ -104,6 +104,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
             <p className="mt-2 max-w-xl text-muted-foreground">{s.description}</p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
               {s.websiteUrl && <a href={s.websiteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-foreground">{new URL(s.websiteUrl).hostname} <ExternalLink className="size-3" /></a>}
+              {s.trustmrrSlug && <a href={`https://trustmrr.com/startup/${s.trustmrrSlug}`} target="_blank" rel="noreferrer nofollow" className="inline-flex items-center gap-1 hover:text-foreground">Also on TrustMRR <ExternalLink className="size-3" /></a>}
               {s.anonymous && <span className="inline-flex items-center gap-1" title="The founder chose anonymous mode: identity, logo and links are hidden."><EyeOff className="size-3" /> anonymous</span>}
               {s.category && <Link href={`/categories/${s.category}`} className="hover:text-foreground">{categoryLabel(s.category)}</Link>}
               {s.tags.map((t) => <span key={t}>#{t}</span>)}

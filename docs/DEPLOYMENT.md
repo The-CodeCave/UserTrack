@@ -26,6 +26,7 @@ Convex actions ──► Resend API (mail.usertrack.dev) · Resend webhooks ─�
 | | `SITE_URL` | same as `NEXT_PUBLIC_SITE_URL` (Better Auth `baseURL` + trusted origin, digest links) |
 | | `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` | Google OAuth client; redirect URI `<SITE_URL>/api/auth/callback/google` (see `HUMAN_TODO.md`) |
 | | `GITHUB_CLIENT_ID` · `GITHUB_CLIENT_SECRET` | GitHub OAuth App; callback `<SITE_URL>/api/auth/callback/github` (see `HUMAN_TODO.md`). Missing → "Continue with GitHub" disabled |
+| | `TRUSTMRR_API_KEY` | operator key from https://trustmrr.com/dashboard-dev (`tmrr_…`) for "Import from TrustMRR" (forms + MCP). Missing → button "Not configured", MCP `not_configured`. Dev only: `fixture` serves the built-in example offline (see `HUMAN_TODO.md`) |
 | | `X_CLIENT_ID` · `X_CLIENT_SECRET` | also "Continue with X" (Better Auth provider `twitter`, callback `<SITE_URL>/api/auth/callback/twitter` on the same X app as Connect X). Missing → button disabled |
 | | `RESEND_API_KEY` | **Required**: email+password accounts must verify their address before they can sign in, and the verification mail goes through Resend. Without it every email is logged as `failed: email not configured` and password sign-ups are locked out (see `HUMAN_TODO.md`) |
 | | `EMAIL_FROM` · `EMAIL_REPLY_TO` | set: `UserTrack <noreply@mail.usertrack.dev>` · `hello@usertrack.dev` |

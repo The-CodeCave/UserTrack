@@ -58,7 +58,7 @@ const GATED: Record<Exclude<VisibilityKey, "totalUsers" | "growth" | "benchmarks
 // Never public regardless of settings.
 const ALWAYS_PRIVATE: (keyof Doc<"saas">)[] = ["ownerId", "mrr", "currency", "showRevenue", "logoStorageId"];
 // Anonymous mode: everything that identifies the founder or the company leaves the row; the owner is nulled by the caller.
-export const ANONYMOUS_HIDDEN: (keyof Doc<"saas">)[] = ["logoUrl", "websiteUrl", "appStoreUrl", "playStoreUrl", "cofounders"];
+export const ANONYMOUS_HIDDEN: (keyof Doc<"saas">)[] = ["logoUrl", "websiteUrl", "appStoreUrl", "playStoreUrl", "cofounders", "trustmrrSlug"];
 
 export const isAnonymous = (s: Pick<Doc<"saas">, "anonymous">) => s.anonymous === true;
 // Logo for compact cards built outside publicSaas (feed, watchlists, frozen rankings).

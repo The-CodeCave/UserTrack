@@ -210,6 +210,8 @@ export default defineSchema({
     anonymous: v.optional(v.boolean()),
     // noindex on the public page + share pages and no sitemap entry; boards and the API still list the product.
     hideFromSearch: v.optional(v.boolean()),
+    // Slug of the same product on trustmrr.com (set by "Import from TrustMRR"); shown as a link, hidden in anonymous mode.
+    trustmrrSlug: v.optional(v.string()),
     // Uploaded logo (Convex file storage); logoUrl carries the served URL.
     logoStorageId: v.optional(v.id("_storage")),
     // Trending

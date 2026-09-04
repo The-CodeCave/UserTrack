@@ -9,6 +9,7 @@ import { TECH_STACK, TECH_STACK_BY_SLUG, TECH_STACK_MAX, normalizeStackEntry } f
 import { COUNTRY_CODES } from "../../src/lib/countries";
 import { isValidXHandle, normalizeXHandle } from "../../src/lib/social";
 import { normalizeDomain } from "../lib/domain";
+import { SLUG_RE as TRUSTMRR_SLUG_RE } from "../lib/trustmrr";
 import { publicTrustLabel } from "../lib/trust";
 import { scheduleMissingSourceReminder } from "../email/lifecycle";
 import { markLaunched } from "./events";
@@ -55,6 +56,8 @@ export interface ProjectInput {
   additionalInfo?: string;
   anonymous?: boolean;
   hideFromSearch?: boolean;
+  // Same product on trustmrr.com (IMPORT-1); empty string clears it.
+  trustmrrSlug?: string;
 }
 
 export interface Cofounder { name?: string; x?: string; github?: string }
@@ -137,8 +140,15 @@ export function normalizeProjectInput(args: ProjectInput) {
     playStoreUrl: storeUrl(args.playStoreUrl, /play\.google\.com/i, "Google Play URL"),
     authMethods: args.authMethods ? [...new Set(args.authMethods.map((m) => m.trim().toLowerCase()).filter((m) => (AUTH_METHODS as readonly string[]).includes(m)))] : undefined,
     foundedAt: foundedAtOf(args.foundedAt),
+    trustmrrSlug: trustmrrSlugOf(args.trustmrrSlug),
     ...normalizeProfile(args),
   };
+}
+
+function trustmrrSlugOf(v: string | undefined) {
+  const slug = v?.trim().toLowerCase() || undefined;
+  if (slug && !TRUSTMRR_SLUG_RE.test(slug)) throw new DomainError("bad_request", "TrustMRR slug must be lowercase letters, digits and dashes");
+  return slug;
 }
 
 // Month precision, between 1990 and now; anything else is dropped rather than stored as a bogus age.
@@ -212,6 +222,7 @@ export async function updateProject(ctx: MutationCtx, saas: Doc<"saas">, patch: 
     playStoreUrl: patch.playStoreUrl !== undefined ? patch.playStoreUrl : saas.playStoreUrl,
     authMethods: patch.authMethods ?? saas.authMethods,
     foundedAt: patch.foundedAt !== undefined ? (patch.foundedAt || undefined) : saas.foundedAt,
+    trustmrrSlug: patch.trustmrrSlug !== undefined ? patch.trustmrrSlug : saas.trustmrrSlug,
     ...Object.fromEntries(PROFILE_KEYS.map((k) => [k, patch[k] !== undefined ? patch[k] : saas[k]])),
   });
   const next: Partial<Doc<"saas">> = merged;

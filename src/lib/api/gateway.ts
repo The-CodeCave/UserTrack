@@ -5,10 +5,10 @@ import { fetchMutation } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
 import { looksLikeSecret, tokenTypeOf, type TokenType } from "@convex/lib/tokens";
 
-export type GatewayCode = "unauthorized" | "revoked" | "expired" | "forbidden" | "rate_limited" | "not_found" | "bad_request" | "conflict";
+export type GatewayCode = "unauthorized" | "revoked" | "expired" | "forbidden" | "rate_limited" | "not_found" | "bad_request" | "conflict" | "not_configured" | "upstream";
 export interface GatewayFailure { code: GatewayCode; message: string; retryAfterSec?: number; requiredScope?: string; limit?: number; resetAt?: number }
 
-export const STATUS: Record<GatewayCode, number> = { unauthorized: 401, revoked: 401, expired: 401, forbidden: 403, rate_limited: 429, not_found: 404, bad_request: 400, conflict: 409 };
+export const STATUS: Record<GatewayCode, number> = { unauthorized: 401, revoked: 401, expired: 401, forbidden: 403, rate_limited: 429, not_found: 404, bad_request: 400, conflict: 409, not_configured: 501, upstream: 502 };
 
 export const hashSecret = (secret: string) => createHash("sha256").update(secret, "utf8").digest("hex");
 
