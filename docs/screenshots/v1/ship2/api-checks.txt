@@ -1,0 +1,182 @@
+SHIP-2 API / header checks — 2026-09-04T12:30:20Z — base http://localhost:3100 (pnpm build && PORT=3100 pnpm start)
+
+==================================================================
+1. GET /leaderboard — Cache-Control + security headers (OPS-2 / SEC-1)
+==================================================================
+HTTP/1.1 200 OK
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://rybbit.internal.thecodecave.de; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://rybbit.internal.thecodecave.de https://*.ingest.de.sentry.io; frame-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'
+X-Frame-Options: DENY
+Cache-Control: public, s-maxage=300, stale-while-revalidate=1800
+Vary: rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch, Accept-Encoding
+Link: </_next/static/media/797e433ab948586e-s.p.0r6juujl39pe6.woff2>; rel=preload; as="font"; crossorigin=""; type="font/woff2", </_next/static/media/caa3a2e1cccd8315-s.p.0wgildi0cnwt9.woff2>; rel=preload; as="font"; crossorigin=""; type="font/woff2", </_next/static/chunks/233p45nuh4m5b.css>; rel=preload; as="style", </_next/static/chunks/22or9cuix374e.css>; rel=preload; as="style"
+X-Powered-By: Next.js
+Content-Type: text/html; charset=utf-8
+Date: Fri, 04 Sep 2026 12:30:20 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+
+==================================================================
+2. Embeddable routes stay frameable (FIX-4 / src/lib/security-headers.test.ts)
+==================================================================
+--- /api/badge/demo-northwind.svg ---
+HTTP/1.1 200 OK
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://rybbit.internal.thecodecave.de; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://rybbit.internal.thecodecave.de https://*.ingest.de.sentry.io; frame-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors *
+cache-control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400
+content-type: image/svg+xml; charset=utf-8
+  x-frame-options present: 0
+--- /embed/demo-northwind ---
+HTTP/1.1 200 OK
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://rybbit.internal.thecodecave.de; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://rybbit.internal.thecodecave.de https://*.ingest.de.sentry.io; frame-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors *
+cache-control: no-store
+content-type: text/html; charset=utf-8
+  x-frame-options present: 0
+--- /api/embed/demo-northwind ---
+HTTP/1.1 200 OK
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://rybbit.internal.thecodecave.de; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://rybbit.internal.thecodecave.de https://*.ingest.de.sentry.io; frame-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors *
+cache-control: public, max-age=60, s-maxage=60, stale-while-revalidate=300
+content-type: application/json
+  x-frame-options present: 0
+--- /widget.js ---
+HTTP/1.1 200 OK
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://rybbit.internal.thecodecave.de; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://rybbit.internal.thecodecave.de https://*.ingest.de.sentry.io; frame-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors *
+Cache-Control: public, max-age=3600, stale-while-revalidate=86400
+Content-Type: application/javascript; charset=UTF-8
+  x-frame-options present: 0
+
+==================================================================
+3. Non-embeddable routes are NOT frameable
+==================================================================
+--- / ---
+HTTP/1.1 200 OK
+X-Frame-Options: DENY
+frame-ancestors 'none'
+--- /leaderboard ---
+HTTP/1.1 200 OK
+X-Frame-Options: DENY
+frame-ancestors 'none'
+--- /s/demo-northwind ---
+HTTP/1.1 200 OK
+X-Frame-Options: DENY
+frame-ancestors 'none'
+--- /app/settings ---
+HTTP/1.1 307 Temporary Redirect
+X-Frame-Options: DENY
+frame-ancestors 'none'
+
+==================================================================
+4. GET /api/health (Railway health check — no Convex read)
+==================================================================
+HTTP/1.1 200 OK
+cache-control: no-store
+content-type: application/json
+{"ok":true,"version":"dev","uptime":27}
+
+==================================================================
+5. GET /api/health?deep=1 (convex probe + jobs incl. running/stale)
+==================================================================
+HTTP/1.1 200 OK
+cache-control: no-store
+{
+    "ok": true,
+    "version": "dev",
+    "uptime": 28,
+    "convex": "ok",
+    "jobs": [
+        {
+            "errors": 0,
+            "finishedAt": 1788524437421,
+            "items": 41,
+            "job": "rerank leaderboard",
+            "running": false,
+            "stale": false,
+            "startedAt": 1788524437019
+        },
+        {
+            "errors": 0,
+            "finishedAt": 1788513810404,
+            "items": 27,
+            "job": "sync all integrations",
+            "running": false,
+            "stale": false,
+            "startedAt": 1788513810311
+        },
+        {
+            "errors": 0,
+            "finishedAt": 1788512950746,
+            "items": 0,
+            "job": "retention sweep",
+            "running": false,
+            "stale": false,
+            "startedAt": 1788512944444
+        }
+    ]
+}
+
+==================================================================
+6. 25x POST /api/auth/sign-in/email — durable Better Auth limit (FIX-4)
+   rule: /sign-in/* = 20 per 10 min, bucket key <ip>|<path>
+==================================================================
+ 1 -> 403
+ 2 -> 403
+ 3 -> 403
+ 4 -> 403
+ 5 -> 403
+ 6 -> 403
+ 7 -> 403
+ 8 -> 403
+ 9 -> 403
+10 -> 403
+11 -> 403
+12 -> 403
+13 -> 403
+14 -> 403
+15 -> 403
+16 -> 403
+17 -> 403
+18 -> 403
+19 -> 403
+20 -> 403
+21 -> 429  {"message":"Too many requests. Please try again later."}
+22 -> 429  {"message":"Too many requests. Please try again later."}
+23 -> 429  {"message":"Too many requests. Please try again later."}
+24 -> 429  {"message":"Too many requests. Please try again later."}
+25 -> 429  {"message":"Too many requests. Please try again later."}
+
+--- response headers of the 26th (limited) request ---
+HTTP/1.1 429 Too Many Requests
+content-type: text/plain;charset=UTF-8
+x-retry-after: 589
+
+RESULT: requests 1-20 reached Better Auth (403 = bad credentials), 21+ answered 429 by the
+durable Convex-backed limiter (authRateLimits, FIX-4). The bucket survives a Next.js restart.
+
+==================================================================
+7. End-to-end smoke (node scripts/smoke.mjs http://localhost:3100)
+==================================================================
+sign-up → verify (component adapter) → onboarding (profile, project, platform, stack,
+manual source, skip activation + conversion, publish) → public page → dashboard →
+manage → signed-out redirect.
+
+  SMOKE OK smoke-mtmy90ry@example.com http://localhost:3100/s/smoke-saas-mtmy90ry
+
+Note: FIX-4 limits /sign-up/* to 10 per hour and /sign-in/* to 20 per 10 min per IP, so
+repeated smoke / screenshot runs inside one window are themselves rate limited — which is
+the intended behaviour. `scripts/shots-ship2.mjs` takes ACCOUNT=<email> to reuse an
+already-onboarded account instead of signing up again.
+
+==================================================================
+8. Build / test chain on this tree (from clean)
+==================================================================
+rm -rf .next && pnpm install --frozen-lockfile
+pnpm lint              0 errors, 8 warnings (all pre-existing, docs/BACKLOG.md)
+pnpm typecheck         clean
+pnpm test              84 files, 666 tests passed
+pnpm packages:build    protocol · node · better-auth
+pnpm packages:typecheck clean
+pnpm packages:test     61 tests (9 protocol · 22 node · 30 better-auth)
+pnpm build             ok

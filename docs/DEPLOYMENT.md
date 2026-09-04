@@ -1,6 +1,8 @@
 # Deployment
 
-Two deployables: the **Next.js app on Railway** and the **Convex backend** (functions, DB, crons, auth component).
+Two deployables for the product: the **Next.js app on Railway** and the **Convex backend** (functions, DB, crons, auth
+component). A third, fully independent deployable — the **interim waitlist** (`apps/waitlist/`) — holds `usertrack.dev`
+until launch: its own Convex project and its own Railway service, never built or deployed by the commands below.
 
 ## Topology
 ```
@@ -15,6 +17,11 @@ Railway health check ──► GET /api/health (no Convex read) · /api/health?d
 Next.js (server · edge · browser) ──► Sentry EU (https://*.ingest.de.sentry.io), only when a DSN is set
   · 1st 05:00 UTC monthly report (delivered 09:00 local) · per-user/per-SaaS scheduled reminders (24h)
 Convex actions ──► Resend API (mail.usertrack.dev) · Resend webhooks ──► Convex HTTP /webhooks/resend
+
+Interim phase, separate stack (apps/waitlist/ — own pnpm workspace, own lockfile, own node_modules):
+Browser ──► Railway `usertrack-waitlist` (Vite/React static, `serve -s dist`) ──► Convex `glad-lynx-143` (waitlist table only)
+       └─ same Rybbit site as the main app, so `waitlist_join` and the launched funnel share one dashboard
+DNS: usertrack.dev ─(phase A)─► usertrack-waitlist  ──switch at launch──►  usertrack   (HUMAN_TODO.md → step 12)
 ```
 
 ## Environments
@@ -54,6 +61,17 @@ railway up --service usertrack --ci                       # then the app
 `railway.toml` pins the builder (Railpack), `pnpm build` / `pnpm start`, and a health check on `/api/health` (OPS-3: static, no Convex read — a Convex outage must not restart a healthy app). Since OPS-2 the public pages are prerendered, so `pnpm build` reads Convex: `NEXT_PUBLIC_CONVEX_URL` must point at a reachable deployment during the build (`pnpm railway:build` does this by construction).
 
 Convex is deployed from a logged-in machine (`npx convex login`). CI can instead set `CONVEX_DEPLOY_KEY` and run `pnpm railway:build` (`convex deploy --cmd 'pnpm build'`).
+
+## The interim waitlist (`apps/waitlist/`)
+Deployed and rolled back on its own, from its own directory — nothing here touches the main app:
+```bash
+cd apps/waitlist && pnpm install          # own lockfile; `packages: []` in its pnpm-workspace.yaml stops the root workspace
+npx convex deploy --yes                   # Convex project `usertrack-waitlist` (prod glad-lynx-143), not the product deployment
+railway up --service usertrack-waitlist --ci
+```
+The repo root ignores it by construction: `tsconfig.json` and `eslint.config.mjs` exclude `apps`, `vitest.config.ts` only
+collects `src/**` + `convex/**`, and `.github/workflows/ci.yml` has `paths-ignore: ["apps/**", …]`. Retiring it after launch
+is a DNS change (step 12 phase B) plus deleting the Railway service; keep the Convex project until the signups are exported.
 
 ## First-time setup (already done for this project)
 ```bash

@@ -9,6 +9,7 @@ const eslintConfig = defineConfig([
   globalIgnores([
     "convex/_generated/**",
     "packages/**",
+    "apps/**",
     // Default ignores of eslint-config-next:
     ".next/**",
     "out/**",

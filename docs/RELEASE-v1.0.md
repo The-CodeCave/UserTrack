@@ -1,4 +1,4 @@
-# Release v1.0 — launch hardening
+# Release v1.0 — launch hardening (+ v1.0.1 review fixes)
 
 **TL;DR** — v1.0 adds no new product surface. It makes the v0.9 product safe to put in front of strangers:
 the gateway fails closed, every public entry point is rate limited, every founder-supplied host is checked for SSRF,
@@ -12,6 +12,70 @@ Verified on the release commit: `pnpm lint` (0 errors, 8 warnings), `pnpm typech
 `pnpm packages:build`, `pnpm packages:test` **61 tests** (9 protocol · 22 node · 30 better-auth), `pnpm build`,
 `node scripts/smoke.mjs`, `node scripts/cache-check.mjs` (16/16 routes), `node scripts/shots-ship1.mjs`
 (screenshots in `docs/screenshots/v1/ship/`).
+
+---
+
+## v1.0.1 review fixes
+
+**TL;DR** — v1.0.1 adds no product surface either. It closes every finding of the post-v1.0 code review: the rate limits
+key on the *right* IP behind Cloudflare, no cron can start twice, the rerank no longer depends on an action's clock, the
+homepage read is bounded again, `/api/auth/*` has a limit that survives a redeploy, analytics stays out of dev and preview
+builds, and `/api/health` tells the truth about which side is down. Two tables are added (`rankScratch`, `authRateLimits`);
+nothing is removed or renamed, so the v1.0 rollback story below is unchanged.
+
+Verified on the release commit, from clean (`rm -rf .next && pnpm install --frozen-lockfile`): `pnpm lint`
+(**0 errors, 8 warnings**), `pnpm typecheck`, `pnpm test` **666 tests / 84 files**, `pnpm packages:build`,
+`pnpm packages:typecheck`, `pnpm packages:test` **61 tests** (9 protocol · 22 node · 30 better-auth), `pnpm build`,
+`node scripts/smoke.mjs`, `node scripts/shots-ship2.mjs` — screenshots in `docs/screenshots/v1/ship2/`, the header /
+health / rate-limit transcript in `docs/screenshots/v1/ship2/api-checks.txt`.
+
+| Ticket | Change |
+|---|---|
+| **FIX-0** | Branch setup: `landing-v2` fast-forwarded into `main` (pink scale + `trust` / `positive` / `negative` / `new` semantic tokens, `public.landing`, list-first homepage with New & hot + Top 100), `.codecraft-loop-*.md` gitignored. Baseline green with no fixes needed. |
+| **FIX-1** | (a) **Trusted client IP** — `clientIp()` reads `cf-connecting-ip` → `true-client-ip` → the last `x-forwarded-for` hop, but the first two only when **`UT_TRUST_CF_HEADERS=1`** (new env, default off). Without it a proxied `usertrack.dev` collapses every visitor into one rate-limit bucket; with it set while the origin is still directly reachable, both headers are forgeable. (b) **MCP profile publish gate** — `updateProfileTool` calls `requireVerifiedToPublish` before flipping `profilePublic: true`, as `profiles.upsert` already did. (c) **Analytics only in production** — `resolveSiteId()` implies the production Rybbit site id only for `NODE_ENV=production` **and** a `NEXT_PUBLIC_SITE_URL` starting `https://usertrack.dev`; an explicit **`NEXT_PUBLIC_RYBBIT_SITE_ID`** always wins (empty = kill switch), so `pnpm dev`, CI and preview services no longer write into the production site. (d) **Health-check accuracy** — `?deep=1` runs the `public.stats` and `jobs.health` probes separately, so `convex` reflects Convex alone and a missing gateway secret reports `jobs: "unavailable: …"` instead of a false `down`. (e) **`jobRuns.finishedAt`** — patched only when the run is really done; an explicit `undefined` deletes the field in Convex, which silently un-finished an already-closed run. |
+| **FIX-2** | **Running lock on `jobRuns`.** `startRun` is now an *acquire*: it returns `null` while the previous chain of that job is still open, so a cron firing while its predecessor is still paging does nothing at all — no second run, no second digest, no duplicate emails. A run held past its per-job `LOCK_TTL_MS` is closed as `abandoned (lock expired)` and a fresh one starts. Applied to every paged driver. |
+| **FIX-3** | **Scheduler-chained rerank + bounded homepage.** `leaderboard.rerank` went from one `internalAction` looping `runQuery` / `runMutation` — killable mid-ranking by the action time limit — to a three-phase scheduler chain of mutations over the new `rankScratch` table: byte-identical ranking, same `runId` lock, same `pages` / `items` accounting, stale scratch rows swept before the next run. `public.landing` reads a bounded slice instead of walking the table. |
+| **FIX-4** | **Durable Better Auth rate limit.** `/api/auth/*` is served by Better Auth inside a Convex isolate, so its default in-memory limiter counted per isolate — a limit in name only. `rateLimit.customStorage.consume` is now one Convex mutation over the new `authRateLimits` table (check and increment in one transaction): `/sign-in/*` 20 per 10 min, `/sign-up/*` 10 per hour, verification / password-reset mail 5 per 10 min, everything else 100/min. The bucket key is `<ip>` + `<path>`, where the IP is the FIX-1-trusted one stamped as `x-ut-client-ip` by the Next.js `/api/auth/[...all]` proxy. Plus: a regression test that evaluates the real `next.config.ts` `headers()` entries with Next's own matcher (embeddable routes keep `frame-ancestors *` and no `X-Frame-Options`), IPv6 normalisation in the SSRF guard, auth on `trustmrr.status`, and the board-ISR note (A225). |
+| **SHIP-2** | Consolidation: `apps/waitlist/` merged into `main` as a separate deployable (root `tsconfig.json` / `eslint.config.mjs` now exclude `apps`, matching how `packages` is already handled — without it the root type-check and lint fail on the waitlist's own toolchain), full clean re-verification, and these release notes. |
+
+### New environment variables
+
+| Var | Where | Value |
+|---|---|---|
+| `UT_TRUST_CF_HEADERS` | Railway service `usertrack` | `1` **only once the Cloudflare record is proxied** (orange cloud). Then `cf-connecting-ip` / `true-client-ip` key the rate limits instead of Cloudflare's own address; unset or `0` = ignored. Setting it while the Railway origin is still reachable directly lets a caller choose their own bucket. |
+| `NEXT_PUBLIC_RYBBIT_SITE_ID` | Railway service `usertrack` (build **and** runtime) | `753f44fa9c50`. Since FIX-1 the id is only *implied* for a production build of `https://usertrack.dev`; set it explicitly so analytics never depends on that inference. Empty string disables the tracker and every server-side event. |
+
+Exact commands for both: `HUMAN_TODO.md` steps 6 and 12; reference table in `docs/DEPLOYMENT.md`.
+
+### Deploy delta vs. v1.0
+
+Same order — **Convex first, then Railway** — with two new tables and one new step:
+
+```bash
+npx convex deploy --yes                        # + rankScratch (FIX-3) and authRateLimits (FIX-4)
+npx convex run --prod leaderboard:rerank '{}'  # NEW — run it right here, see below
+railway up --service usertrack --ci
+```
+
+**Why the rerank cannot wait for the cron.** The board indexes sort on materialized fields and `saas.growth24hPct` is only
+ever written by a rerank, so every product listed before v1.0 has no key on `by_public_growth24h` and sorts last —
+`/fastest-growing-saas?window=24h` stays short until the first rerank. The cron (`20 */4 * * *`) fixes it within four hours
+anyway; running it by hand makes the first public hour correct. It returns immediately because it starts a scheduler chain:
+watch `jobRuns` for `job = "rerank leaderboard"` with a `finishedAt` and `errors: 0`, and confirm `rankScratch` is empty
+afterwards.
+
+### Residual risks after v1.0.1
+
+These fixes were correctness bugs, not the accepted trade-offs, so nothing in the v1.0 list is closed by them; the FIX-4
+row was rewritten to describe what is left rather than the whole gap. In short:
+
+1. **Provider credentials are plaintext at rest** (`integrations.config`, A120) — nothing returns them; envelope encryption is backlog.
+2. **DoH TOCTOU** on webhook and provider fetches (A111) — hosts are re-resolved and private ranges refused immediately before each request, but `fetch` resolves again itself.
+3. **The first-line rate limiter is in-memory, per instance** — exact at one Railway replica; before scaling out, move the burst check to `rateLimits.check` (the Convex path already exists).
+4. **TrustMRR's response shape is unverified** (A173) — the mapper is written against the published example; a different real shape lands fields in `unmapped[]`, never in the wrong field and never a revenue field.
+5. **Better Auth's durable limit can still be side-stepped** by calling `<deployment>.convex.site/api/auth/*` directly and forging `x-ut-client-ip` (A223) — the same shape as the directly reachable Railway origin (A212); closing it needs a shared secret between the proxy and the Convex auth routes.
+
+Full wording and mitigations: *Residual risks* at the bottom of this document.
 
 ---
 
@@ -50,13 +114,16 @@ npx convex env list --prod            # UT_GATEWAY_SECRET and RESEND_API_KEY mus
 # 2. backend first: schema (new tables + indexes), functions, crons, rate-limiter component
 npx convex deploy --yes
 
-# 3. the one migration that may still be pending from v0.7 (idempotent, paged)
+# 3. materialize the board sort keys (v1.0.1 / FIX-3 — do this in the same session as step 2)
+npx convex run --prod leaderboard:rerank '{}'
+
+# 4. the one migration that may still be pending from v0.7 (idempotent, paged)
 npx convex run --prod migrations:nativeV1
 
-# 4. then the app
+# 5. then the app
 railway up --service usertrack --ci
 
-# 5. post-deploy checks
+# 6. post-deploy checks
 curl -s https://usertrack.dev/api/health
 curl -s "https://usertrack.dev/api/health?deep=1"      # "convex":"ok" + a jobs array
 curl -sI https://usertrack.dev/leaderboard             # HSTS, CSP, X-Frame-Options, Cache-Control: public, s-maxage=300
@@ -92,14 +159,18 @@ directory counters read zero; the first `retention sweep` row appears with the n
    `/leaderboard`** if you roll back past OPS-3.
 5. `UT_GATEWAY_SECRET` must keep matching on both sides through any rollback; the fail-closed check exists in both versions.
 
-## The `waitlist` branch
+## The interim waitlist (`apps/waitlist/`)
 
-Branch `waitlist` (worktree `../UserTrack-waitlist`) holds an interim standalone waitlist app under `apps/waitlist/`,
-deployed separately as the Railway service `usertrack-waitlist-production.up.railway.app`. **It is not part of this release
-and must not be merged into `main`** — it exists so `usertrack.dev` can collect signups while the main app is still
-pre-launch. The domain plan is in `HUMAN_TODO.md` → *Launch checklist*: point `usertrack.dev` at the waitlist service during
-the interim phase, then switch the DNS record to the main app. The waitlist's own `waitlist_join` analytics goal is listed
-with the other Rybbit goals so both phases are measured in the same site.
+Merged into `main` in SHIP-2 (`apps/waitlist/`, previously the `waitlist` branch). It is a **separate deployable that this
+release does not build or deploy**: its own `pnpm-workspace.yaml` (`packages: []`), lockfile, `node_modules`, Convex project
+(`usertrack-waitlist`, prod `glad-lynx-143`) and Railway service (`usertrack-waitlist`). The repo root excludes `apps` from
+`tsconfig.json`, `eslint.config.mjs` and `vitest.config.ts`, and CI has `paths-ignore: ["apps/**", …]`, so `pnpm build` /
+`pnpm test` at the root neither see it nor break on it.
+
+It exists so `usertrack.dev` can collect signups while the main app is pre-launch. The domain plan is `HUMAN_TODO.md` →
+step 12: point `usertrack.dev` at the waitlist service during the interim phase, then switch the record to the main app at
+launch. Both phases share one Rybbit site, so the waitlist's `waitlist_join` goal and the launched funnel are measured
+together. Deploy / retire commands: `docs/DEPLOYMENT.md` → *The interim waitlist*.
 
 ## Residual risks
 

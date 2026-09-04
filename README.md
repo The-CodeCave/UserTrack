@@ -92,7 +92,7 @@ Try the API and MCP locally: `curl localhost:3000/api/v1/leaderboard`, `curl loc
 | Command | Purpose |
 |---|---|
 | `pnpm dev` / `pnpm build` / `pnpm start` | Next.js |
-| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (635 tests in 82 files: data retention (per-table cutoffs, webhook deliveries that can still be retried, snapshot thinning to one row per UTC day), Sentry scrubbing (bodies, cookies, auth headers, token parameters) + CSP, `/api/health` (shallow, deep, timeout), public caching policy + bounded board reads (every board × window × filter compared against the in-memory sort, materialized directory counters, sitemap cap), paged background jobs (rerank / benchmarks / daily sweep / trust / share sweep / sync fan-out over 250 projects, page budgets, failure isolation), X follower counts (OAuth read, paged daily refresh, cooldown, anonymous stripping), product profile validation + anonymous stripping + logo upload, legal constants + redirects, GDPR deletion + export, social provider config + profile prefill, metrics, funnel, trending, trust, milestones, benchmarks + cohorts, history downsampling, webhook policy / signing, SSRF policy (URL / IP / DoH / Postgres host guard), datasets / CSV, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, embed widgets, share, rate limit + client IP trust, email rules, templates, tokens, webhook signatures, MCP tools, OpenAPI, gateway secret, safe redirects, and `convex-test` function tests for durable rate limits / discovery / rank history / follows / webhooks / dedupe / preferences / lifecycle / milestones / reports / gateway / embed sites / publish gate / product profile) |
+| `pnpm lint` · `pnpm typecheck` · `pnpm test` | ESLint · `next typegen && tsc` · Vitest (666 tests in 84 files: data retention (per-table cutoffs, webhook deliveries that can still be retried, snapshot thinning to one row per UTC day), Sentry scrubbing (bodies, cookies, auth headers, token parameters) + CSP, `/api/health` (shallow, deep, timeout), public caching policy + bounded board reads (every board × window × filter compared against the in-memory sort, materialized directory counters, sitemap cap), paged background jobs (rerank / benchmarks / daily sweep / trust / share sweep / sync fan-out over 250 projects, page budgets, failure isolation), X follower counts (OAuth read, paged daily refresh, cooldown, anonymous stripping), product profile validation + anonymous stripping + logo upload, legal constants + redirects, GDPR deletion + export, social provider config + profile prefill, metrics, funnel, trending, trust, milestones, benchmarks + cohorts, history downsampling, webhook policy / signing, SSRF policy (URL / IP / DoH / Postgres host guard), datasets / CSV, providers incl. Postgres SQL builders / error mapping, Clerk backoff, Firebase scan, integration setup, API DTOs, badge, embed widgets, share, rate limit + client IP trust, email rules, templates, tokens, webhook signatures, MCP tools, OpenAPI, gateway secret, safe redirects, and `convex-test` function tests for durable rate limits / discovery / rank history / follows / webhooks / dedupe / preferences / lifecycle / milestones / reports / gateway / embed sites / publish gate / product profile) |
 | `node scripts/email-preview.mjs` | Render every email template with sample data to `/tmp/ut-emails/*.html` |
 | `node scripts/shots-ops3.mjs [base]` | OPS-3 QA: degraded public pages + the error boundary against a build with an unreachable `NEXT_PUBLIC_CONVEX_URL` |
 | `pnpm packages:build` · `pnpm packages:test` · `pnpm packages:typecheck` | Build / test / typecheck every workspace package (`@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth`; 61 tests) |
@@ -176,9 +176,21 @@ src/lib/mcp/           server, tools (52) + setup workflow, config snippets + ag
 src/lib/               format, categories, providers-ui (setup instructions), share copy + kinds, badge SVG (+ chart widget), embed snippets + widget HTML, og renderers
 docs/                  ARCHITECTURE · API · MCP · PROVIDERS · FUNNEL · IDENTITY · METRICS · TRENDING · BENCHMARKS · DISCOVERY · FOLLOWS · HISTORY · DATASETS · WEBHOOKS ·
                        PROFILES · SHARING · SOCIAL · ANALYTICS · BACKLOG · ASSUMPTIONS · DEPLOYMENT · ROADMAP · CHANGELOG · CODECRAFT · RELEASE-v1.0
-docs/screenshots/v1/   one folder per v1.0 ticket plus `ship/` — the launch pass at 375 / 768 / 1440
+docs/screenshots/v1/   one folder per v1.0 ticket plus `ship/` (v1.0 launch pass) and `ship2/` (v1.0.1 review-fix pass) at 375 / 768 / 1440
+apps/waitlist/         the interim standalone waitlist landing — its own pnpm workspace, Convex project and Railway service
 HUMAN_TODO.md          the only things left that need a human
 ```
+
+### `apps/waitlist` — the interim landing
+`apps/waitlist/` is a small Vite + React + Convex page that collects waitlist signups on `usertrack.dev` while the main app
+is still pre-launch. It is **fully standalone**: its own `pnpm-workspace.yaml` (`packages: []`, so the repo-root workspace
+never climbs into it), its own lockfile and `node_modules`, its own Convex project (`usertrack-waitlist`, prod
+`glad-lynx-143`) and its own Railway service (`usertrack-waitlist`). Nothing in the main app imports from it and nothing in
+it imports from the main app — the root `tsconfig.json`, `eslint.config.mjs` and `vitest.config.ts` all exclude `apps/`, and
+CI ignores `apps/**`. It shares only the Rybbit site, so the `waitlist_join` goal and the launched product are measured
+together. **DNS handover**: `usertrack.dev` points at the waitlist service during the interim phase and is moved to the
+`usertrack` service at launch — both phases, with the exact Cloudflare records, are `HUMAN_TODO.md` → step 12. See
+`apps/waitlist/README.md` for how to run and deploy it.
 
 ## Screenshots
 The v1.0 launch pass (`node scripts/shots-ship1.mjs`) captures every public and signed-in surface at 375 / 768 / 1440 in
