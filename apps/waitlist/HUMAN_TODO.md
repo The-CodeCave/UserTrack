@@ -2,6 +2,19 @@
 
 Everything else is done and deployed. These need a human:
 
+## 0. DONE (via CLI, 2026-09-04): custom domains attached to `usertrack-waitlist`
+
+Railway now expects these records in Cloudflare (usertrack.dev → DNS → Records):
+
+| Type  | Name                   | Value                                                                                             | Proxy   |
+|-------|------------------------|---------------------------------------------------------------------------------------------------|---------|
+| CNAME | `@`                    | `7a5rq84e.up.railway.app`                                                                         | Proxied |
+| TXT   | `_railway-verify`      | `railway-verify=railway-verify=0623efe3505e5ee024a822b9a778767bedc0093f670af5400be72911f85defc7` | –       |
+| CNAME | `www`                  | `zmnyegx5.up.railway.app`                                                                         | Proxied |
+| TXT   | `_railway-verify.www`  | `railway-verify=railway-verify=7b0502054ff2e1752bd5a7323e7cea8f0b0bdfe1d48cf8d03b9e2ebcb4b16cdd` | –       |
+
+Then Cloudflare → SSL/TLS → Overview → **Full (strict)**. Check: `curl -sI https://usertrack.dev | head -3`.
+
 ## 1. Point the domain (Cloudflare, not touched by the agent)
 
 Option A — apex for the interim phase:
