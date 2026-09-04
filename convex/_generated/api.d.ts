@@ -42,6 +42,7 @@ import type * as follows from "../follows.js";
 import type * as gateway from "../gateway.js";
 import type * as http from "../http.js";
 import type * as integrations from "../integrations.js";
+import type * as jobs from "../jobs.js";
 import type * as leaderboard from "../leaderboard.js";
 import type * as lib_analytics from "../lib/analytics.js";
 import type * as lib_authProviders from "../lib/authProviders.js";
@@ -148,6 +149,7 @@ declare const fullApi: ApiFromModules<{
   gateway: typeof gateway;
   http: typeof http;
   integrations: typeof integrations;
+  jobs: typeof jobs;
   leaderboard: typeof leaderboard;
   "lib/analytics": typeof lib_analytics;
   "lib/authProviders": typeof lib_authProviders;

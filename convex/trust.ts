@@ -1,4 +1,7 @@
+import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { PAGE, jobError, recordPage, startRun } from "./jobs";
 import type { Doc, Id } from "./_generated/dataModel";
 import { DAY } from "./lib/time";
 import { trustScore, trustState, type Flag } from "./lib/trust";
@@ -64,22 +67,32 @@ const AUTO_RESOLVE_DAYS: Record<Doc<"fraudFlags">["kind"], number> = {
   stale_source: 3,
 };
 
-// Daily: auto-resolve aged flags, open stale-source flags, refresh scores for everyone.
+// Daily: auto-resolve aged flags, open stale-source flags, refresh scores for everyone. One page of projects per transaction.
 export const dailyReview = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { cursor: v.optional(v.string()), runId: v.optional(v.id("jobRuns")) },
+  handler: async (ctx, args) => {
     const now = Date.now();
-    const all = await ctx.db.query("saas").collect();
-    for (const s of all) {
-      const open = await listOpenFlags(ctx, s._id);
-      for (const f of open) {
-        if (now - f.createdAt > AUTO_RESOLVE_DAYS[f.kind] * DAY) await ctx.db.patch(f._id, { resolvedAt: now });
+    const runId = args.runId ?? (await startRun(ctx, "trust review"));
+    const page = await ctx.db.query("saas").paginate({ cursor: args.cursor ?? null, numItems: PAGE.trust });
+    let errors = 0;
+    let lastError: string | undefined;
+    for (const s of page.page) {
+      try {
+        const open = await listOpenFlags(ctx, s._id);
+        for (const f of open) {
+          if (now - f.createdAt > AUTO_RESOLVE_DAYS[f.kind] * DAY) await ctx.db.patch(f._id, { resolvedAt: now });
+        }
+        const stale = s.isPublic && s.trust === "verified" && s.lastSyncedAt !== undefined && now - s.lastSyncedAt > 3 * DAY;
+        if (stale && !open.some((f) => f.kind === "stale_source")) {
+          await ctx.db.insert("fraudFlags", { saasId: s._id, kind: "stale_source", severity: "low", detail: "No successful sync for 3+ days", createdAt: now });
+        }
+        await refreshTrust(ctx, s._id);
+      } catch (e) {
+        errors++;
+        lastError = jobError("trust review", s._id, e);
       }
-      const stale = s.isPublic && s.trust === "verified" && s.lastSyncedAt !== undefined && now - s.lastSyncedAt > 3 * DAY;
-      if (stale && !open.some((f) => f.kind === "stale_source")) {
-        await ctx.db.insert("fraudFlags", { saasId: s._id, kind: "stale_source", severity: "low", detail: "No successful sync for 3+ days", createdAt: now });
-      }
-      await refreshTrust(ctx, s._id);
     }
+    await recordPage(ctx, runId, { items: page.page.length, errors, lastError, done: page.isDone });
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.trust.dailyReview, { cursor: page.continueCursor, runId });
   },
 });

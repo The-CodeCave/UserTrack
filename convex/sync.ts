@@ -60,12 +60,24 @@ const historyValidator = v.object({
 });
 
 // Spreads all integrations over a 10-minute window so provider APIs are never hit in one burst.
+// The id list is collected page by page (no full-table read in one transaction), then scheduled in chunks.
 export const runAll = internalAction({
   args: {},
   handler: async (ctx) => {
-    const ids = await ctx.runQuery(internal.integrations.listAll, {});
+    const runId = await ctx.runMutation(internal.jobs.begin, { job: "sync all integrations" });
+    const ids: Id<"integrations">[] = [];
+    let cursor: string | null = null;
+    for (;;) {
+      const page: { ids: Id<"integrations">[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.integrations.pageAll, { cursor });
+      ids.push(...page.ids);
+      if (page.isDone) break;
+      cursor = page.continueCursor;
+    }
     const step = ids.length ? STAGGER_WINDOW_MS / ids.length : 0;
-    await Promise.all(ids.map((integrationId, i) => ctx.scheduler.runAfter(Math.round(i * step), internal.sync.runOne, { integrationId, attempt: 1 })));
+    for (let i = 0; i < ids.length; i += 100) {
+      await Promise.all(ids.slice(i, i + 100).map((integrationId, j) => ctx.scheduler.runAfter(Math.round((i + j) * step), internal.sync.runOne, { integrationId, attempt: 1 })));
+    }
+    await ctx.runMutation(internal.jobs.record, { runId, items: ids.length, done: true });
   },
 });
 

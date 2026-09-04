@@ -7,6 +7,7 @@ import { enqueue } from "./send";
 import { getPreferences } from "./prefs";
 import { monthRange, monthlySummary, nextLocalHour, previousMonthKey, projectReport, type MonthlyPayload } from "../lib/emailRules";
 import { visibilityOf } from "../domain/visibility";
+import { recordPage, startRun } from "../jobs";
 
 async function buildReport(ctx: MutationCtx, profile: Doc<"profiles">, period: string, now: number): Promise<MonthlyPayload | null> {
   const { firstDay, lastDayExclusive, start, end } = monthRange(period);
@@ -27,10 +28,11 @@ async function buildReport(ctx: MutationCtx, profile: Doc<"profiles">, period: s
 
 // 1st of the month: build one report per profile in pages of 50, deliver at 09:00 local time.
 export const generateMonthly = internalMutation({
-  args: { cursor: v.optional(v.string()), period: v.optional(v.string()) },
+  args: { cursor: v.optional(v.string()), period: v.optional(v.string()), runId: v.optional(v.id("jobRuns")) },
   handler: async (ctx, args) => {
     const now = Date.now();
     const period = args.period ?? previousMonthKey(now);
+    const runId = args.runId ?? (await startRun(ctx, "monthly growth report"));
     const page = await ctx.db.query("profiles").paginate({ cursor: args.cursor ?? null, numItems: 50 });
     let created = 0;
     for (const p of page.page) {
@@ -45,7 +47,8 @@ export const generateMonthly = internalMutation({
       await ctx.scheduler.runAt(deliverAt, internal.email.reports.sendMonthly, { reportId });
       created++;
     }
-    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.email.reports.generateMonthly, { cursor: page.continueCursor, period });
+    await recordPage(ctx, runId, { items: page.page.length, done: page.isDone });
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.email.reports.generateMonthly, { cursor: page.continueCursor, period, runId });
     else console.log(`monthly report ${period}: batch done, ${created} created in this page`);
   },
 });

@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getProfileForUser, requireProfile } from "./profiles";
 import { DAY, weekKey } from "./lib/time";
 import { getPreferences } from "./email/prefs";
+import { recordPage, startRun } from "./jobs";
 import { enqueue } from "./email/send";
 import type { WeeklyDigestData } from "./email/templates";
 
@@ -22,20 +23,26 @@ export interface DigestPayload {
   generatedAt: number;
 }
 
+// Movers/followed are read from bounded windows: the top MOVERS_SCAN ranked products and at most FOLLOW_SCAN follows per profile.
+const MOVERS_SCAN = 200;
+const FOLLOW_SCAN = 500;
+
 const brief = (s: Doc<"saas">): DigestSaas => ({
   slug: s.slug, name: s.name, totalUsers: s.totalUsers, newUsers7d: s.newUsers7d, growth7dPct: s.growth7dPct ?? 0, rank: s.rank, prevRank: s.prevRank, trendingRank: s.trendingRank, trust: s.trust, activationRatePct: s.activationRatePct,
 });
 
 // Builds one digest per opted-in profile for the current ISO week (paged), and emails it through the mailer.
 export const generate = internalMutation({
-  args: { cursor: v.optional(v.string()), onlyProfileId: v.optional(v.id("profiles")) },
-  handler: async (ctx, { cursor, onlyProfileId }) => {
+  args: { cursor: v.optional(v.string()), onlyProfileId: v.optional(v.id("profiles")), runId: v.optional(v.id("jobRuns")) },
+  handler: async (ctx, { cursor, onlyProfileId, runId: prevRun }) => {
     const now = Date.now();
+    const runId = onlyProfileId ? undefined : (prevRun ?? (await startRun(ctx, "weekly digest")));
     const week = weekKey(now);
     const since = now - 7 * DAY;
-    const all = (await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).collect()).filter((s) => !s.isDemo);
-    const trending = all.filter((s) => s.trendingRank).sort((a, b) => a.trendingRank! - b.trendingRank!).slice(0, 5).map(brief);
-    const movers = all.filter((s) => s.rank && s.prevRank && s.prevRank > s.rank).sort((a, b) => (b.prevRank! - b.rank!) - (a.prevRank! - a.rank!)).slice(0, 5).map(brief);
+    // Bounded reads of the current standings instead of the whole public table (docs/ARCHITECTURE.md → Jobs).
+    const trending = (await ctx.db.query("saas").withIndex("by_public_trending", (q) => q.eq("isPublic", true).gte("trendingRank", 1)).take(10)).filter((s) => !s.isDemo).sort((a, b) => a.trendingRank! - b.trendingRank!).slice(0, 5).map(brief);
+    const ranked = (await ctx.db.query("saas").withIndex("by_public_rank", (q) => q.eq("isPublic", true).gte("rank", 1)).take(MOVERS_SCAN)).filter((s) => !s.isDemo);
+    const movers = ranked.filter((s) => s.prevRank && s.prevRank > s.rank!).sort((a, b) => (b.prevRank! - b.rank!) - (a.prevRank! - a.rank!)).slice(0, 5).map(brief);
     const recent = await ctx.db.query("milestones").withIndex("by_time", (q) => q.gte("achievedAt", since)).order("desc").take(50);
     const page = onlyProfileId
       ? { page: [await ctx.db.get(onlyProfileId)].filter((p): p is Doc<"profiles"> => Boolean(p)), isDone: true, continueCursor: "" }
@@ -46,18 +53,21 @@ export const generate = internalMutation({
       if (!prefs.weeklyDigest && !onlyProfileId) continue;
       const exists = await ctx.db.query("digests").withIndex("by_profile_week", (q) => q.eq("profileId", p._id).eq("weekKey", week)).unique();
       if (exists && !onlyProfileId) continue;
-      const own = (await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", p._id)).collect()).filter((s) => !s.isDemo).map(brief);
-      const follows = await ctx.db.query("follows").withIndex("by_follower", (q) => q.eq("followerId", p._id)).collect();
+      const ownRows = (await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", p._id)).collect()).filter((s) => !s.isDemo);
+      const own = ownRows.map(brief);
+      const follows = await ctx.db.query("follows").withIndex("by_follower", (q) => q.eq("followerId", p._id)).take(FOLLOW_SCAN);
       const followedIds = new Set<string>(follows.filter((f) => f.targetType === "saas").map((f) => f.targetId));
       for (const f of follows.filter((f) => f.targetType === "profile")) {
         for (const s of await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", f.targetId as Id<"profiles">)).collect()) followedIds.add(s._id);
       }
-      const followed = all.filter((s) => followedIds.has(s._id)).sort((a, b) => b.newUsers7d - a.newUsers7d).slice(0, 5).map(brief);
-      const ownIds = new Set(own.map((o) => o.slug));
-      const milestones = recent
-        .filter((m) => followedIds.has(m.saasId) || all.some((s) => s._id === m.saasId && ownIds.has(s.slug)))
-        .slice(0, 8)
-        .map((m) => ({ title: m.title, copy: m.copy, slug: all.find((s) => s._id === m.saasId)?.slug ?? "", achievedAt: m.achievedAt }));
+      const followedRows = (await Promise.all([...followedIds].map((id) => ctx.db.get(id as Id<"saas">)))).filter((s): s is Doc<"saas"> => Boolean(s) && s!.isPublic && !s!.isDemo);
+      const followed = followedRows.sort((a, b) => b.newUsers7d - a.newUsers7d).slice(0, 5).map(brief);
+      const ownIds = new Set<string>(ownRows.map((o) => o._id));
+      const milestones = [];
+      for (const m of recent.filter((m) => followedIds.has(m.saasId) || ownIds.has(m.saasId)).slice(0, 8)) {
+        const s = ownRows.find((o) => o._id === m.saasId) ?? followedRows.find((f) => f._id === m.saasId) ?? (await ctx.db.get(m.saasId));
+        milestones.push({ title: m.title, copy: m.copy, slug: s?.slug ?? "", achievedAt: m.achievedAt });
+      }
       const payload: DigestPayload = { week, own, followed, milestones, movers, trending, generatedAt: now };
       // Silence beats an empty digest.
       const hasSignal = own.some((s) => s.newUsers7d !== 0) || followed.length > 0 || milestones.length > 0;
@@ -69,7 +79,8 @@ export const generate = internalMutation({
       const row = await ctx.db.query("digests").withIndex("by_profile_week", (q) => q.eq("profileId", p._id).eq("weekKey", week)).unique();
       if (row) await ctx.db.patch(row._id, res.status === "queued" ? { sentAt: now } : { sendError: res.status === "skipped" ? res.reason : "duplicate" });
     }
-    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.digest.generate, { cursor: page.continueCursor });
+    if (runId) await recordPage(ctx, runId, { items: page.page.length, done: page.isDone });
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.digest.generate, { cursor: page.continueCursor, runId });
   },
 });
 

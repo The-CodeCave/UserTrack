@@ -60,8 +60,8 @@ describe("discovery feed", () => {
     const b = await seedSaas(tx, owner, { slug: "b", name: "B", newUsers7d: 30, newUsersPrev7d: 40, newUsers24h: 40, newUsersPrev24h: 5 });
     const demo = await seedSaas(tx, owner, { slug: "demo", isDemo: true });
     const review = await seedSaas(tx, owner, { slug: "rev", trustState: "review" });
-    await tx.mutation(internal.leaderboard.rerank, {});
-    await tx.mutation(internal.leaderboard.rerank, {});
+    await tx.action(internal.leaderboard.rerank, {});
+    await tx.action(internal.leaderboard.rerank, {});
     const get = (id: Id<"saas">) => tx.run((ctx) => ctx.db.get(id));
     const [ra, rb, rd, rr] = await Promise.all([get(a), get(b), get(demo), get(review)]);
     expect(ra!.trendingRank).toBe(1);
@@ -82,7 +82,7 @@ describe("discovery feed", () => {
     const owner = await seedOwner(tx);
     await seedSaas(tx, owner, { slug: "gem", name: "Gem", totalUsers: 400 });
     await seedSaas(tx, owner, { slug: "big", name: "Big", totalUsers: 50_000 });
-    await tx.mutation(internal.leaderboard.rerank, {});
+    await tx.action(internal.leaderboard.rerank, {});
     const d = await tx.query(api.public.discover, {});
     expect(d.hiddenGems.map((s) => s.slug)).toEqual(["gem"]);
     expect(d.hiddenGemRules.maxUsers).toBe(1000);

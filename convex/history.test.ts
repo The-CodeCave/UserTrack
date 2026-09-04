@@ -23,8 +23,8 @@ describe("ranking history", () => {
     const owner = await seedOwner(tx);
     const ids: Id<"saas">[] = [];
     for (let i = 0; i < 12; i++) ids.push(await seedSaas(tx, owner, { slug: `p${i}`, name: `P${i}`, newUsers30d: 1000 - i * 50 }));
-    await tx.mutation(internal.leaderboard.rerank, {});
-    await tx.mutation(internal.leaderboard.rerank, {});
+    await tx.action(internal.leaderboard.rerank, {});
+    await tx.action(internal.leaderboard.rerank, {});
     const today = dayKey(Date.now());
     const rows = await tx.run((ctx) => ctx.db.query("rankHistory").collect());
     // 12 leaderboard rows + 3 trending windows × 12, one per day each (the second rerank patched, never duplicated).
@@ -41,7 +41,7 @@ describe("ranking history", () => {
       await ctx.db.insert("rankHistory", { saasId: ids[11], kind: "leaderboard", window: "30d", day: dayKey(Date.now() - 7 * DAY), rank: 30, at: Date.now() - 7 * DAY });
       await ctx.db.insert("rankHistory", { saasId: ids[0], kind: "leaderboard", window: "30d", day: dayKey(Date.now() - 8 * DAY), rank: 3, at: Date.now() - 8 * DAY });
     });
-    await tx.mutation(internal.leaderboard.rerank, {});
+    await tx.action(internal.leaderboard.rerank, {});
     const moved = (await tx.run((ctx) => ctx.db.get(ids[11])))!;
     expect(moved.rank7dAgo).toBe(30);
     expect(moved.rankDelta7d).toBe(18);
@@ -51,7 +51,7 @@ describe("ranking history", () => {
     const jumps = await tx.run((ctx) => ctx.db.query("events").collect());
     expect(jumps.filter((e) => e.kind === "rank_jump").map((e) => [e.saasId, e.title])).toEqual([[ids[11], "#30 → #12"]]);
     // A second rerank the same week does not repeat the jump event.
-    await tx.mutation(internal.leaderboard.rerank, {});
+    await tx.action(internal.leaderboard.rerank, {});
     expect((await tx.run((ctx) => ctx.db.query("events").collect())).filter((e) => e.kind === "rank_jump").length).toBe(1);
     // Movers board + discovery read the stored movement; the rank history query exposes it with the best rank.
     const movers = await tx.query(api.public.board, { board: "movers" });
@@ -132,8 +132,8 @@ describe("benchmark history + monthly rankings", () => {
     const tx = t();
     const owner = await seedOwner(tx);
     for (let i = 0; i < 12; i++) await seedSaas(tx, owner, { slug: `p${i}`, name: `P${i}`, category: "ai", projectType: "mobile", growth30dPct: 10 + i * 10, activationRatePct: 20 + i * 5, totalUsers: 2000 + i });
-    await tx.mutation(internal.leaderboard.rerank, {});
-    await tx.mutation(internal.daily.benchmarks, {});
+    await tx.action(internal.leaderboard.rerank, {});
+    await tx.action(internal.daily.benchmarks, {});
     const aggs = await tx.run((ctx) => ctx.db.query("benchmarkAggregates").collect());
     const keys = new Set(aggs.map((a) => a.groupKey));
     expect(keys).toEqual(new Set(["cat:ai", "cat:ai|size:1k-10k", "size:1k-10k", "platform:mobile", "tracked:lt3m", "all"]));
@@ -142,7 +142,7 @@ describe("benchmark history + monthly rankings", () => {
     expect(hist.length).toBe(12);
     const top = hist.find((h) => h.standings.some((s) => s.groupKey === "cat:ai" && s.metric === "growth30dPct" && s.percentile === 95))!;
     expect(top).toBeDefined();
-    await tx.mutation(internal.daily.benchmarks, {});
+    await tx.action(internal.daily.benchmarks, {});
     expect((await tx.run((ctx) => ctx.db.query("benchmarkHistory").collect())).length).toBe(12);
     const events = await tx.run((ctx) => ctx.db.query("events").collect());
     const bench = events.filter((e) => e.kind === "benchmark");
@@ -161,9 +161,9 @@ describe("benchmark history + monthly rankings", () => {
     expect(bh?.weeks.length).toBe(1);
     expect(bh?.weeks[0].standings.every((s) => s.percentile >= 75 && !("value" in s))).toBe(true);
     // Monthly ranking snapshot: written once, force rewrites, categories below the floor are skipped.
-    const r1 = await tx.mutation(internal.daily.snapshotRankings, { period: "2026-08" });
+    const r1 = await tx.action(internal.daily.snapshotRankings, { period: "2026-08" });
     expect(r1.written).toBe(6);
-    const r2 = await tx.mutation(internal.daily.snapshotRankings, { period: "2026-08" });
+    const r2 = await tx.action(internal.daily.snapshotRankings, { period: "2026-08" });
     expect(r2.written).toBe(0);
     const snap = await tx.query(api.public.rankingSnapshot, { period: "2026-08", board: "fastest", category: "ai" });
     expect(snap?.rows[0]).toMatchObject({ slug: "p11", rank: 1, value: 120 });

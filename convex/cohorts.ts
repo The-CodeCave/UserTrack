@@ -9,28 +9,30 @@ import { buildCohorts, identityQualityOf, IDENTITY_QUALITY_META, type IdentityQu
 import { DAY, dayKey } from "./lib/time";
 import { requireOwnedSaas } from "./saas";
 import { visibilityOf } from "./domain/visibility";
+import { PAGE } from "./jobs";
 
-const PAGE = 2_000;
+const LINK_PAGE = 2_000;
 const MAX_SUBJECTS = 100_000;
 const cohortRow = v.object({ cohort: v.string(), signedUp: v.number(), activated: v.number(), trial: v.number(), converted: v.number(), activatedD7: v.number(), convertedD30: v.number(), medianTimeToActivationMs: v.optional(v.number()), medianTimeToConversionMs: v.optional(v.number()) });
 
 export const projectsWithLinks = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }) => {
     const out: Id<"saas">[] = [];
-    for (const s of await ctx.db.query("saas").collect()) {
+    const projects = await ctx.db.query("saas").paginate({ cursor, numItems: PAGE.cohorts });
+    for (const s of projects.page) {
       if (s.isDemo) continue;
       const any = await ctx.db.query("identityLinks").withIndex("by_saas_subject", (q) => q.eq("saasId", s._id)).first();
       if (any || s.identityQuality) out.push(s._id);
     }
-    return out;
+    return { ids: out, isDone: projects.isDone, continueCursor: projects.continueCursor };
   },
 });
 
 export const pageLinks = internalQuery({
   args: { saasId: v.id("saas"), stage: lifecycleStage, cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, { saasId, stage, cursor }) => {
-    const page = await ctx.db.query("identityLinks").withIndex("by_saas_stage_at", (q) => q.eq("saasId", saasId).eq("stage", stage)).order("desc").paginate({ cursor, numItems: PAGE });
+    const page = await ctx.db.query("identityLinks").withIndex("by_saas_stage_at", (q) => q.eq("saasId", saasId).eq("stage", stage)).order("desc").paginate({ cursor, numItems: LINK_PAGE });
     return { items: page.page.map((l) => [l.subject, l.at] as const), cursor: page.isDone ? null : page.continueCursor };
   },
 });
@@ -58,8 +60,16 @@ async function loadStage(ctx: { runQuery: (...args: never[]) => Promise<unknown>
 export const rebuildAll = internalAction({
   args: {},
   handler: async (ctx) => {
-    const ids = await ctx.runQuery(internal.cohorts.projectsWithLinks, {});
-    for (const [i, saasId] of ids.entries()) await ctx.scheduler.runAfter(i * 2_000, internal.cohorts.rebuild, { saasId });
+    const runId = await ctx.runMutation(internal.jobs.begin, { job: "cohort rebuild" });
+    let cursor: string | null = null;
+    let i = 0;
+    for (;;) {
+      const page: { ids: Id<"saas">[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.cohorts.projectsWithLinks, { cursor });
+      for (const saasId of page.ids) await ctx.scheduler.runAfter(i++ * 2_000, internal.cohorts.rebuild, { saasId });
+      if (page.isDone) break;
+      cursor = page.continueCursor;
+    }
+    await ctx.runMutation(internal.jobs.record, { runId, items: i, done: true });
   },
 });
 

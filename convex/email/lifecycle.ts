@@ -8,6 +8,7 @@ import { providerLabel } from "../providers";
 import { DAY } from "../lib/time";
 import { evaluateNoGrowth, isUnhealthy, NO_GROWTH } from "../lib/emailRules";
 import { dispatchEvent } from "../webhooks";
+import { recordPage, startRun } from "../jobs";
 
 export const REMINDER_DELAY_MS = 24 * 60 * 60_000;
 
@@ -79,8 +80,9 @@ export async function onSourceFailure(ctx: MutationCtx, integration: Doc<"integr
 
 // Daily: products with traction that went quiet for a week while the source stayed healthy.
 export const noGrowthSweep = internalMutation({
-  args: { cursor: v.optional(v.string()) },
-  handler: async (ctx, { cursor }) => {
+  args: { cursor: v.optional(v.string()), runId: v.optional(v.id("jobRuns")) },
+  handler: async (ctx, { cursor, runId: prevRun }) => {
+    const runId = prevRun ?? (await startRun(ctx, "quiet product check"));
     const page = await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).paginate({ cursor: cursor ?? null, numItems: 100 });
     const since = new Date(Date.now() - 40 * DAY).toISOString().slice(0, 10);
     const today = new Date().toISOString().slice(0, 10);
@@ -95,6 +97,7 @@ export const noGrowthSweep = internalMutation({
       if (!owner) continue;
       await enqueue(ctx, { userId: owner.userId, type: "no-growth", dedupeKey: `no-growth:${s._id}:${quiet.periodStart}`, saasId: s._id, data: { saasName: s.name, slug: s.slug, saasId: s._id, totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, days: NO_GROWTH.days } });
     }
-    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.email.lifecycle.noGrowthSweep, { cursor: page.continueCursor });
+    await recordPage(ctx, runId, { items: page.page.length, done: page.isDone });
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.email.lifecycle.noGrowthSweep, { cursor: page.continueCursor, runId });
   },
 });

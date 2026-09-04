@@ -23,7 +23,7 @@ Convex
   ├─ webhooks.ts: dispatchEvent (from milestones / rerank / sync / lifecycle) → signed async deliveries with retries ──► founder endpoints
   ├─ cohorts.ts: identity-link paging → signup cohorts + identity quality (daily, action) · migrations.ts (lifecycleV1)
   ├─ share.ts: share events (hooks in trust.addMilestones + sync spikes, daily benchmarkSweep), Share Center, shareStats · social.ts: X OAuth PKCE, prefs, hourly autoPost, deliverPost (founder OAuth2 / bot OAuth1a) ──► api.x.com
-  ├─ crons: sync every 4h (staggered) · rerank+trending +20min (+ rank history, movers, rank webhooks) · daily sweep 03:30 UTC (milestones → traction events → benchmarks v2 + weekly standings + benchmark events → benchmark share sweep → trust review → cohorts → webhook retry sweep → monthly ranking snapshot on the 1st) · webhook retry sweep hourly · social auto-post hourly
+  ├─ crons (all paged, see Background jobs): sync every 4h (staggered) · rerank+trending +20min (+ rank history, movers, rank webhooks) · daily sweep 03:30 UTC (milestones → traction events → benchmarks v2 + weekly standings + benchmark events → benchmark share sweep → trust review → cohorts → webhook retry sweep → monthly ranking snapshot on the 1st) · webhook retry sweep hourly · social auto-post hourly
   │         · digest Mon 08:00 UTC · monthly report 1st 05:00 UTC · per-entity scheduled reminders (24h)
   ├─ email/: send (Resend) · templates · prefs · lifecycle · growth · reports · webhook  ──► api.resend.com
   ├─ HTTP: /api/auth/* (Better Auth) · /webhooks/resend (Svix-verified) · /email/unsubscribe (one-click)
@@ -167,6 +167,40 @@ Public label: `pending` → Pending · `review` → **Data under review** · `un
 - Spikes and reconnects become `events` and render as chart annotations (`public.annotations`, capped at 8 + 8 per range).
 - Benchmarks v2 (`convex/lib/benchmarks.ts`, `convex/domain/benchmarks.ts`, `daily.benchmarks`, scheduled right after `daily.run`): daily deciles for ten metrics (growth 7d / 30d, new users 30d, **acceleration**, activation rate, trending score, four conversion rates) per cohort from `cohortsFor` — `cat:<slug>`, `cat:<slug>|size:<bucket>`, `size:<bucket>`, `platform:<type>`, `age:<bucket>` (founder-entered `foundedAt`) or `tracked:<bucket>` (tracking age), `all` — over rankable products; cohorts with < `MIN_SAMPLE` (**10**) finite values are deleted. Only nine deciles + `sampleSize` are stored per cohort, plus each product's own weekly standings in `benchmarkHistory` (previous percentile → "up from Top 27 % last month"). `percentileOf` rounds to steps of 5; `topBand` gives the public wording; `publicBenchmarkHighlight` returns a statement only at percentile ≥ 75 and only while `visibility.benchmarks` is on. Owner cards: `saas.benchmarks`, MCP `usertrack_get_benchmark` / `usertrack_get_benchmark_history`; public: `GET /api/v1/saas/{slug}/benchmarks` and `/benchmark-history`. `docs/BENCHMARKS.md`.
 - Monthly ranking snapshots (`daily.snapshotRankings`, 1st of the month): boards `most-new` / `fastest` / `trending` for all + every category with ≥ 3 rankable products are frozen into `rankingSnapshots` for `/rankings/<year>/<month>/<category>` and `GET /api/v1/datasets/rankings/history`.
+
+## Background jobs (v1.0, `convex/jobs.ts`)
+Every scheduled job walks its driving table with `paginate` — no cron reads or writes a whole table in one transaction, so a
+growing product count can never break rankings, milestones, trust or sync for everyone at once. Two shapes:
+
+- **Paged driver** (`internalMutation({ cursor?, runId? })`): reads one page, processes it, records the page and re-schedules
+  itself with `continueCursor` until `isDone`. `daily.run`, `trust.dailyReview`, `share.benchmarkSweep`, `daily.standings`,
+  `digest.generate`, `email.reports.generateMonthly`, `email.lifecycle.noGrowthSweep` (`quiet product check`).
+- **Two-phase driver** (`internalAction`) where the result needs a global ordering: phase 1 pages a compact projection
+  (ids + the few numbers the ordering needs) into the action, phase 2 computes in memory, phase 3 writes back in pages of
+  mutations. `leaderboard.rerank`, `daily.benchmarks`, `daily.snapshotRankings`, `sync.runAll`, `cohorts.rebuildAll`.
+
+| Job | Driver | Page | Per page |
+|---|---|---|---|
+| `daily sweep` (`daily.run`) | mutation | **10** projects | ≤ 400 `dailyMetrics` + all `milestones` per project |
+| `rerank leaderboard` (`leaderboard.rerank`) | action | **50** | phase 1 ≈ 1 read, phase 3 ≈ 20 reads + 6 writes per project |
+| `benchmarks` (`daily.benchmarks`) | action | **50** | projection only; aggregates written in chunks of 100 |
+| `benchmark standings` (`daily.standings`) | mutation | **50** | ≤ cohorts × 10 aggregate reads + 1 history row |
+| `trust review` (`trust.dailyReview`) | mutation | **50** | flags + integrations + 30 `syncRuns` per project |
+| `benchmark share sweep` (`share.benchmarkSweep`) | mutation | **100** | ≤ 20 aggregate reads per project |
+| `ranking snapshots` (`daily.snapshotRankings`) | action | **200** | one mutation per (board, category), ≤ 100 rows |
+| `cohort rebuild` (`cohorts.rebuildAll`) | action | **200** | 1 `identityLinks` probe per project |
+| `sync all integrations` (`sync.runAll`) | action | **500** integrations | ids only; scheduling in chunks of 100, same 10-min stagger |
+| `weekly digest` (`digest.generate`) · `monthly growth report` | mutation | **50** profiles | owner projects + bounded standings reads |
+
+Page sizes live in `PAGE` (`convex/jobs.ts`). A single project's failure is caught, logged and counted — it never stops its
+page or the rest of the job. Each driver writes one `jobRuns` row (`job`, `startedAt`, `finishedAt`, `pages`, `items`,
+`errors`, `lastError`); operators read it in the Convex dashboard (table `jobRuns`, index `by_job_time`).
+
+**Ceilings.** The two-phase accumulators live in the action's memory (~100 bytes per project for rerank / benchmarks, one id
+per integration for the sync fan-out), which is comfortable to ~50k projects; `daily.snapshotRankings` keeps the public
+rankable rows themselves and is the first to feel a large table. Beyond that the accumulator has to move to a scratch table.
+The weekly digest reads bounded windows instead of the whole public table: trending from `by_public_trending`, movers from
+the top **200** of `by_public_rank`, and at most **500** follows per profile.
 
 ## Follow, watchlist & digest (`docs/FOLLOWS.md`)
 `follows.follow` / `unfollow` are idempotent (self-follow, private targets and unknown ids are rejected) and maintain `followerCount`; `follows.ids` is the single subscription behind every follow chip. `follows.feed` → `watchlistFeed`: watched projects = direct follows ∪ public projects of followed founders; items are stored milestones and events (incl. `launched` shown as "new project from a founder you follow"), plus `rank_change` at ≥ 5 places from the materialized 7-day movement, deduped by stable id, private projects excluded. Follower emails (`notifyFollowers`) fan out only for ≥ 1K milestones, Top 10 entries and ≥ 3× spikes, gated by the master switch and the per-kind sub-preferences. `digest.generate` `digest.generate` (Monday 08:00 UTC, paged 50 profiles per mutation) builds one payload per profile with `weeklyDigest` enabled (own products, followed movers, milestones, leaderboard movers, trending), stores it in-app (`/app/digest`) and enqueues the `weekly-digest` email only when there is a signal (own movement, followed products or milestones). "Preview this week" rebuilds the caller's digest without emailing.

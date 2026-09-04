@@ -244,6 +244,9 @@ export default defineSchema({
     .index("by_public_trust_new30d", ["isPublic", "trust", "newUsers30d"])
     .index("by_public_new30d", ["isPublic", "newUsers30d"])
     .index("by_public_category", ["isPublic", "category"])
+    // Bounded reads of the current standings (weekly digest, health): ranks are only ever set on rankable products.
+    .index("by_public_rank", ["isPublic", "rank"])
+    .index("by_public_trending", ["isPublic", "trendingRank"])
     .searchIndex("search_name", { searchField: "name", filterFields: ["isPublic"] })
     .searchIndex("search_description", { searchField: "description", filterFields: ["isPublic"] }),
 
@@ -779,4 +782,15 @@ export default defineSchema({
   })
     .index("by_profile_period", ["profileId", "period"])
     .index("by_period", ["period"]),
+
+  // One row per run of a paged background job (convex/jobs.ts). Operators read it in the Convex dashboard and /api/health.
+  jobRuns: defineTable({
+    job: v.string(),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    pages: v.number(),
+    items: v.number(),
+    errors: v.number(),
+    lastError: v.optional(v.string()),
+  }).index("by_job_time", ["job", "startedAt"]),
 });

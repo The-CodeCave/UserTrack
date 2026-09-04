@@ -10,6 +10,7 @@ import type { ColumnInfo, TableInfo } from "./providers/postgres";
 import { fetchMetrics, hasHistory } from "./providerRun";
 import { defaultSsl, parseConnectionString, splitTable } from "./providers/postgres";
 import { stagesOf } from "./domain/integrations";
+import { PAGE } from "./jobs";
 
 export const detectedCount = (m: ProviderMetrics, role: Role) => (role === "users" ? m.totalUsers : role === "activation" ? m.activatedUsers : role === "traffic" ? m.visitors30d : (m.convertedUsers ?? m.payingUsers));
 
@@ -80,16 +81,18 @@ export const getForSync = internalQuery({
   },
 });
 
-export const listAll = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+// One page of syncable integration ids for the fan-out (sync.runAll walks the table with this).
+export const pageAll = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("integrations").paginate({ cursor, numItems: PAGE.integrations });
     const ids: Id<"integrations">[] = [];
-    for (const i of await ctx.db.query("integrations").collect()) {
+    for (const i of page.page) {
       if (i.awaitingVerification) continue;
       const s = await ctx.db.get(i.saasId);
       if (s && !s.isDemo) ids.push(i._id);
     }
-    return ids;
+    return { ids, isDone: page.isDone, continueCursor: page.continueCursor };
   },
 });
 

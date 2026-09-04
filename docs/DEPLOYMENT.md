@@ -10,6 +10,7 @@ Browser ──► Railway (Next.js 16, node)  ──► Convex prod (handsome-wa
 Convex crons ──► provider APIs (Clerk / Supabase / Firebase / Auth0 / PostHog / Plausible / GA4 / Stripe / endpoint)
              ──► Node runtime action (convex/node/postgres.ts, `pg` via convex.json node.externalPackages) ──► PostgreSQL / Supabase DB (TCP, read-only)
   every 4h sync (staggered) · +20min rerank+trending · 03:30 UTC daily sweep (+ quiet-product check) · Mon 08:00 UTC digest
+  all jobs page their table (convex/jobs.ts) and log to `jobRuns`; cron names are stable
   · 1st 05:00 UTC monthly report (delivered 09:00 local) · per-user/per-SaaS scheduled reminders (24h)
 Convex actions ──► Resend API (mail.usertrack.dev) · Resend webhooks ──► Convex HTTP /webhooks/resend
 ```
@@ -60,5 +61,6 @@ After a schema-changing deploy, run once: `npx convex run --prod leaderboard:rer
 - `GET /leaderboard`, `/trending`, `/discover`, `/sitemap.xml`, `/api/v1/leaderboard`, `/api/badge/<slug>.svg` → 200
 - Sign up → onboarding → publish → `/s/<slug>` renders, `og:image` returns `image/png`
 - Convex dashboard → Crons: `sync all integrations` (4h), `rerank leaderboard`, `daily sweep`, `weekly digest`, `monthly growth report`
+- Convex dashboard → Data → `jobRuns`: the latest row per `job` has a `finishedAt`, `pages ≈ projects / page size` (see ARCHITECTURE → Background jobs) and `errors: 0`; a non-zero `errors` names the failing project in `lastError`
 - `/app/settings/notifications` renders and toggles persist; `/forgot-password` sends (check `emailEvents` in the dashboard: `sent` with a Resend id, or `failed: email not configured`)
 - `npx convex run --prod email/testSend:run '{"to":"you@example.com"}'` → Resend → Emails shows *Delivered*
