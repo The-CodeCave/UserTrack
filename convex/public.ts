@@ -157,6 +157,21 @@ export const leaderboard = query({
   },
 });
 
+// One round trip for the homepage: top 100 by total users, the new-rising carousel, and directory stats. Demo rows never appear here.
+export const landing = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = (await publicSet(ctx)).filter((s) => !s.isDemo);
+    const top = [...rows].sort((a, b) => b.totalUsers - a.totalUsers).slice(0, 100);
+    const newAndHot = sortBoard(rows, { board: "new-rising", window: "7d", verifiedOnly: true, limit: 10 });
+    return {
+      top: await Promise.all(top.map((s) => withOwnerAndSpark(ctx, s))),
+      newAndHot: await Promise.all(newAndHot.map((s) => withOwnerAndSpark(ctx, s))),
+      stats: await statsFor(ctx),
+    };
+  },
+});
+
 export const saasBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {
@@ -420,19 +435,21 @@ export function computeStats(rows: Doc<"saas">[]) {
 const withCounts = (rows: { slug: string; count: number; verifiedCount: number }[], pick: (r: { count: number; verifiedCount: number }) => number) =>
   CATEGORIES.flatMap((c) => { const row = rows.find((r) => r.slug === c.slug); const count = row ? pick(row) : 0; return count > 0 ? [{ ...c, count }] : []; });
 
+async function statsFor(ctx: QueryCtx) {
+  const stored = await readPublicStats(ctx);
+  if (!stored) return computeStats(await publicSet(ctx));
+  return {
+    saasCount: stored.saasCount,
+    verifiedCount: stored.verifiedCount,
+    trackedUsers: stored.trackedUsers,
+    newUsers30d: stored.newUsers30d,
+    categories: withCounts(stored.categories, (c) => c.count),
+  };
+}
+
 export const stats = query({
   args: {},
-  handler: async (ctx) => {
-    const stored = await readPublicStats(ctx);
-    if (!stored) return computeStats(await publicSet(ctx));
-    return {
-      saasCount: stored.saasCount,
-      verifiedCount: stored.verifiedCount,
-      trackedUsers: stored.trackedUsers,
-      newUsers30d: stored.newUsers30d,
-      categories: withCounts(stored.categories, (c) => c.count),
-    };
-  },
+  handler: async (ctx) => statsFor(ctx),
 });
 
 export const search = query({

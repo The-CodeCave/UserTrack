@@ -101,6 +101,23 @@ describe("bounded board reads", () => {
   });
 });
 
+describe("landing query", () => {
+  it("excludes demo rows, sorts top by totalUsers desc and matches the new-rising board for newAndHot", async () => {
+    const tx = t();
+    const owner = await seed(tx);
+    await tx.run((ctx) =>
+      ctx.db.insert("saas", { ownerId: owner, name: "Demo", slug: "demo", description: "d", websiteUrl: "https://d.io", tags: [], isPublic: true, isDemo: true, trust: "verified", totalUsers: 999999, newUsers24h: 0, newUsers7d: 999, newUsers30d: 0, growth30dPct: 0, firstSnapshotAt: Date.now() }),
+    );
+    const rows = (await allPublic(tx)).filter((s) => !s.isDemo);
+    const landing = await tx.query(api.public.landing, {});
+    expect(landing.top.some((s) => s.slug === "demo")).toBe(false);
+    expect(landing.top.map((s) => s.slug)).toEqual([...rows].sort((a, b) => b.totalUsers - a.totalUsers).slice(0, 100).map((s) => s.slug));
+    expect(landing.newAndHot.map((s) => s.slug)).toEqual(sortBoard(rows, { board: "new-rising", window: "7d", verifiedOnly: true, limit: 10 }).map((s) => s.slug));
+    expect(landing.newAndHot.some((s) => s.slug === "demo")).toBe(false);
+    expect(landing.stats).toEqual(await tx.query(api.public.stats, {}));
+  });
+});
+
 describe("materialized directory counters", () => {
   it("sum the same numbers the live scan produced", async () => {
     const tx = t();
