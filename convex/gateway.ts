@@ -13,7 +13,7 @@ import { describeProvider, getProvider, normalizeRole, ProviderError, verificati
 import { detectedCount } from "./integrations";
 import { visibilityOf } from "./domain/visibility";
 import { fetchMetrics } from "./providerRun";
-import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, projectSummary, projectUrls, requireOwnedProject, siteUrl, updateProject } from "./domain/projects";
+import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, projectSummary, projectUrls, requireOwnedProject, requireVerifiedToPublish, siteUrl, updateProject } from "./domain/projects";
 import { connectIntegration, integrationView, listIntegrations, requestSync } from "./domain/integrations";
 import { TIMEFRAMES, metricsSummary, milestonesFor, seriesFor, shareData } from "./domain/metrics";
 import { INTEGRATION_CATALOG, conversionSetup as conversionPlan, identityMappingGuidance, integrationSetup, rankActivationEvents, recommendIntegrations } from "./lib/integrationSetup";
@@ -880,7 +880,10 @@ export const updateProfileTool = mutation({
       }
       if (patch.github !== undefined) next.github = strip(patch.github);
       if (patch.linkedin !== undefined) next.linkedin = strip(patch.linkedin);
-      if (patch.profilePublic !== undefined) next.profilePublic = patch.profilePublic;
+      if (patch.profilePublic !== undefined) {
+        if (patch.profilePublic && profile.profilePublic === false) requireVerifiedToPublish(await authComponent.getAnyUserById(ctx, profile.userId));
+        next.profilePublic = patch.profilePublic;
+      }
       await ctx.db.patch(profile._id, next);
       await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "update_profile", ok: true, detail: Object.keys(next).join(",") });
       return { updated: Object.keys(next), ...(await founderProfile(ctx, (await ctx.db.get(profile._id))!)) };

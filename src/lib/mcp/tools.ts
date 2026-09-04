@@ -438,7 +438,7 @@ const TOOLS_SHARE: Tool[] = [
       linkedin: z.string().optional(),
       location: z.string().max(60).optional(),
       avatarUrl: z.string().optional(),
-      profilePublic: z.boolean().optional().describe("false hides /u/<username> from the public, search and the API"),
+      profilePublic: z.boolean().optional().describe("false hides /u/<username> from the public, search and the API; setting it back to true requires a verified email"),
     },
     run: (auth, a) => fetchMutation(api.gateway.updateProfileTool, { auth, ...a }),
   }),

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fetchQuery = vi.fn();
 vi.mock("convex/nextjs", () => ({ fetchQuery: (...args: unknown[]) => fetchQuery(...args) }));
@@ -6,7 +6,8 @@ vi.mock("convex/nextjs", () => ({ fetchQuery: (...args: unknown[]) => fetchQuery
 const { GET } = await import("./route");
 const call = (url = "http://localhost/api/health") => GET(new Request(url));
 
-afterEach(() => { fetchQuery.mockReset(); vi.useRealTimers(); });
+beforeEach(() => { process.env.UT_GATEWAY_SECRET = "test-gateway-secret"; });
+afterEach(() => { fetchQuery.mockReset(); vi.useRealTimers(); delete process.env.UT_GATEWAY_SECRET; });
 
 describe("GET /api/health", () => {
   it("answers without touching Convex", async () => {
@@ -27,11 +28,19 @@ describe("GET /api/health", () => {
     expect(body).toMatchObject({ ok: true, convex: "ok", jobs });
   });
 
+  it("keeps convex: ok when only the gateway secret is missing", async () => {
+    delete process.env.UT_GATEWAY_SECRET;
+    fetchQuery.mockResolvedValueOnce({ saasCount: 3 });
+    const body = await (await call("http://localhost/api/health?deep=1")).json();
+    expect(body).toMatchObject({ ok: true, convex: "ok", jobs: "unavailable: gateway secret not configured" });
+    expect(fetchQuery).toHaveBeenCalledTimes(1);
+  });
+
   it("stays 200 with convex: down when the read fails", async () => {
     fetchQuery.mockRejectedValue(new Error("unreachable"));
     const res = await call("http://localhost/api/health?deep=1");
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, convex: "down" });
+    expect(await res.json()).toMatchObject({ ok: true, convex: "down", jobs: "unavailable: jobs.health did not answer" });
   });
 
   it("gives up on a hanging deployment after 3 seconds", async () => {

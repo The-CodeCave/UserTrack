@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EVENTS, MASK_PATTERNS, SERVER_EVENTS, SKIP_PATTERNS, cleanProps, flushIdentity, identify, reset, track, type Rybbit } from "./analytics";
+import { EVENTS, MASK_PATTERNS, SERVER_EVENTS, SKIP_PATTERNS, cleanProps, flushIdentity, identify, reset, resolveSiteId, track, type Rybbit } from "./analytics";
 
 const fake = (): Rybbit => ({ event: vi.fn(), pageview: vi.fn(), identify: vi.fn(), clearUserId: vi.fn(), getUserId: vi.fn(() => "old") });
 
@@ -57,6 +57,25 @@ describe("identify / reset", () => {
     (r.getUserId as ReturnType<typeof vi.fn>).mockReturnValue(null);
     reset();
     expect(r.clearUserId).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("resolveSiteId", () => {
+  it("defaults to the production site only for a production build of usertrack.dev", () => {
+    expect(resolveSiteId({ nodeEnv: "production", siteUrl: "https://usertrack.dev" })).toBe("753f44fa9c50");
+    expect(resolveSiteId({ nodeEnv: "production", siteUrl: "https://usertrack.dev/leaderboard" })).toBe("753f44fa9c50");
+  });
+
+  it("stays empty in dev, test, CI and preview deployments", () => {
+    expect(resolveSiteId({ nodeEnv: "development", siteUrl: "http://localhost:3000" })).toBe("");
+    expect(resolveSiteId({ nodeEnv: "test", siteUrl: "https://usertrack.dev" })).toBe("");
+    expect(resolveSiteId({ nodeEnv: "production", siteUrl: "https://usertrack-production.up.railway.app" })).toBe("");
+    expect(resolveSiteId({ nodeEnv: "production" })).toBe("");
+  });
+
+  it("always honours an explicit site id, including the empty kill switch", () => {
+    expect(resolveSiteId({ siteId: "abc123", nodeEnv: "development" })).toBe("abc123");
+    expect(resolveSiteId({ siteId: "", nodeEnv: "production", siteUrl: "https://usertrack.dev" })).toBe("");
   });
 });
 

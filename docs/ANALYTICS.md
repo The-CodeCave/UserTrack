@@ -6,7 +6,7 @@
 
 | Piece | Where | Notes |
 |---|---|---|
-| Tracker script | `src/components/analytics/analytics.tsx` → `<AnalyticsScript/>` in `src/app/layout.tsx` | `next/script` (`afterInteractive`), `data-site-id`, `data-skip-patterns='["/api/**","/embed/**","/mcp"]'`, `data-mask-patterns='["/email/preferences*","/reset-password*"]'` (tokens never reach analytics); `/api/**` also covers Railway's `/api/health` poll. Rendered only when `ANALYTICS_ENABLED` (site id non-empty and `NODE_ENV !== "test"`). |
+| Tracker script | `src/components/analytics/analytics.tsx` → `<AnalyticsScript/>` in `src/app/layout.tsx` | `next/script` (`afterInteractive`), `data-site-id`, `data-skip-patterns='["/api/**","/embed/**","/mcp"]'`, `data-mask-patterns='["/email/preferences*","/reset-password*"]'` (tokens never reach analytics); `/api/**` also covers Railway's `/api/health` poll. Rendered only when `ANALYTICS_ENABLED` (site id non-empty and `NODE_ENV !== "test"`). Since FIX-1 the site id is **not** defaulted outside production `usertrack.dev` — see the env table. |
 | Identity | `<AnalyticsIdentity/>` (same file, inside the Convex/Better Auth provider) | `authClient.useSession()` → `identify(user.id)`; `reset()` (→ `clearUserId`) once the session is gone. Calls made before the script loads are replayed from `onLoad`. No traits are ever sent. |
 | Client SDK | `src/lib/analytics.ts` | `track(event, props)` — typed against `Events`, no-op without `window.rybbit`, booleans → `"true"`/`"false"`, `undefined` dropped. `EVENTS` is the catalog as a value. `CtaLink`, `TrackedA`, `TrackOnMount` let server components attach tracking to links / page views. |
 | Server events (Next) | `src/lib/analytics-server.ts` → `serverTrack(req, event, props)` | Queued with `after()` (runs once the response is sent), `POST {host}/api/track` with `type: "custom_event"`, `hostname: SITE_HOST`, the request **path only** (no query string, no headers, no IP forwarded), `properties` as a JSON string, 2 s timeout, never throws. `RYBBIT_API_KEY` (optional) is sent as `Authorization: Bearer` — with it Rybbit skips bot detection and domain validation for server calls. |
@@ -19,7 +19,7 @@
 | Variable | Where | Default | Effect |
 |---|---|---|---|
 | `NEXT_PUBLIC_RYBBIT_HOST` | Next.js | `https://rybbit.internal.thecodecave.de` | Script origin, `/api/track` target, CSP entry |
-| `NEXT_PUBLIC_RYBBIT_SITE_ID` | Next.js | `753f44fa9c50` | **Empty string disables** the script and every Next.js server event |
+| `NEXT_PUBLIC_RYBBIT_SITE_ID` | Next.js | `753f44fa9c50` **only when** `NODE_ENV=production` **and** `NEXT_PUBLIC_SITE_URL` starts with `https://usertrack.dev`; otherwise `""` | **Empty string disables** the script and every Next.js server event. Without this variable, `pnpm dev`, CI builds and Railway preview services send nothing (they used to report into the production site). Set it explicitly on the Railway prod service |
 | `RYBBIT_API_KEY` | Next.js + Convex | — | Optional bearer for `/api/track` |
 | `RYBBIT_SITE_ID` / `RYBBIT_HOST` | Convex deployment | — / same host | Enables `webhook_delivered` + `sync_completed` |
 

@@ -116,6 +116,20 @@ describe("paged jobs — 250 projects", () => {
   });
 });
 
+describe("jobRuns bookkeeping", () => {
+  it("never un-finishes a run that a later page reports as not done", async () => {
+    const tx = t();
+    const runId = await tx.mutation(internal.jobs.begin, { job: "manual" });
+    await tx.mutation(internal.jobs.record, { runId, items: 1, done: true });
+    const finishedAt = await tx.run(async (ctx) => (await ctx.db.get(runId))!.finishedAt);
+    expect(finishedAt).toBeDefined();
+    await tx.mutation(internal.jobs.record, { runId, items: 2 });
+    const run = await tx.run(async (ctx) => (await ctx.db.get(runId))!);
+    expect(run.finishedAt).toBe(finishedAt);
+    expect(run).toMatchObject({ pages: 2, items: 3 });
+  });
+});
+
 describe("paged jobs — failure isolation", () => {
   it("counts a failing project on the run and still processes the rest of the page", async () => {
     const tx = t();

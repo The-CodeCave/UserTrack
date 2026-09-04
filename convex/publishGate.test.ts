@@ -68,6 +68,26 @@ describe("publishing requires a verified email", () => {
     expect(ok.project.isPublic).toBe(true);
   });
 
+  it("gateway.updateProfileTool gates profilePublic: true but not other edits", async () => {
+    const tx = t();
+    const { profileId } = await seed(tx);
+    await tx.run((ctx) => ctx.db.patch(profileId, { profilePublic: false }));
+    expect(await message(tx.mutation(api.gateway.updateProfileTool, { auth, profilePublic: true }))).toContain("Verify your email to publish");
+    await tx.mutation(api.gateway.updateProfileTool, { auth, bio: "Building Acme" });
+    expect(await tx.run(async (ctx) => (await ctx.db.get(profileId))!.profilePublic)).toBe(false);
+    user.emailVerified = true;
+    const ok = await tx.mutation(api.gateway.updateProfileTool, { auth, profilePublic: true });
+    expect(ok.updated).toContain("profilePublic");
+    expect(await tx.run(async (ctx) => (await ctx.db.get(profileId))!.profilePublic)).toBe(true);
+  });
+
+  it("gateway.updateProfileTool lets an unverified founder hide the profile", async () => {
+    const tx = t();
+    const { profileId } = await seed(tx);
+    await tx.mutation(api.gateway.updateProfileTool, { auth, profilePublic: false });
+    expect(await tx.run(async (ctx) => (await ctx.db.get(profileId))!.profilePublic)).toBe(false);
+  });
+
   it("profiles.upsert refuses a public founder profile until verified, private is fine; completeOnboarding is gated too", async () => {
     const tx = t();
     await seed(tx);

@@ -2,7 +2,17 @@
 // Every browser call is a no-op until the script has loaded; identify/reset are replayed once it has.
 
 export const RYBBIT_HOST = (process.env.NEXT_PUBLIC_RYBBIT_HOST || "https://rybbit.internal.thecodecave.de").replace(/\/$/, "");
-export const RYBBIT_SITE_ID = process.env.NEXT_PUBLIC_RYBBIT_SITE_ID ?? "753f44fa9c50";
+const PROD_SITE_ID = "753f44fa9c50";
+const PROD_ORIGIN = "https://usertrack.dev";
+
+// The production site id is only implied by a production build of usertrack.dev itself; dev, CI and preview
+// deployments stay silent unless NEXT_PUBLIC_RYBBIT_SITE_ID names a site explicitly.
+export function resolveSiteId(env: { siteId?: string; nodeEnv?: string; siteUrl?: string }) {
+  if (env.siteId !== undefined) return env.siteId;
+  return env.nodeEnv === "production" && (env.siteUrl ?? "").startsWith(PROD_ORIGIN) ? PROD_SITE_ID : "";
+}
+
+export const RYBBIT_SITE_ID = resolveSiteId({ siteId: process.env.NEXT_PUBLIC_RYBBIT_SITE_ID, nodeEnv: process.env.NODE_ENV, siteUrl: process.env.NEXT_PUBLIC_SITE_URL });
 export const ANALYTICS_ENABLED = RYBBIT_SITE_ID !== "" && process.env.NODE_ENV !== "test";
 // Paths never sent (machine endpoints) and paths sent with the token stripped from the URL.
 export const SKIP_PATTERNS = ["/api/**", "/embed/**", "/mcp"];

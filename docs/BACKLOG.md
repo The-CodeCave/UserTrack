@@ -362,4 +362,5 @@ Goal: every meaningful growth event is one click from a designed, shareable asse
 ## v1.0.1 — Post-loop review fixes
 
 ### Epic 96 — Review findings (P0)
+- ☑ **FIX-1** — trusted client IP behind Cloudflare (`cf-connecting-ip` / `true-client-ip` gated on `UT_TRUST_CF_HEADERS=1`), MCP `updateProfileTool` publish gate (`requireVerifiedToPublish` on `profilePublic: false → true`), Rybbit site id no longer defaulted outside a production build of `https://usertrack.dev`, `/api/health?deep=1` probes `public.stats` and `jobs.health` separately (+ `clearTimeout`), `jobRuns.finishedAt` no longer deleted by a later non-final page. AC: `client-ip.test.ts`, `analytics.test.ts`, `src/app/api/health/route.test.ts`, `convex/publishGate.test.ts`, `convex/jobs.test.ts`. Done.
 - ☑ **FIX-0** — branch setup: `.codecraft-loop-*.md` gitignored, `landing-v2` fast-forwarded into `main` (brand tokens, `public.landing`, list-first homepage). Baseline on the merged tree green with no fixes needed — lint 0 errors, typecheck, 636 tests / 82 files, build.

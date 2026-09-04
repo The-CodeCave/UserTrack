@@ -25,7 +25,7 @@ Last updated: 2026-09-04 · code state: **v1.0 launch hardening complete** (SEC-
 | 9 | **`npx convex deploy --yes`** | Backend first: new tables (`profilePrefills`, `publicStats`, `jobRuns`), 29 new indexes, the `@convex-dev/rate-limiter` component, the new crons and functions. | *9. Deploy Convex* |
 | 10 | **`npx convex run --prod migrations:nativeV1`** | The one migration that may still be pending from v0.7. Idempotent and paged — safe to run again. | *10. Run the pending migration* |
 | 11 | **`railway up --service usertrack --ci`** | Then the app. Also: set the Railway health-check path to `/api/health` (OPS-3 changed it in `railway.toml`; a service created with the path in the dashboard needs it there too). | *11. Deploy the app* |
-| 12 | **Domain / DNS** | `usertrack.dev` has Cloudflare nameservers but **no A/CNAME record**, so nothing resolves. During the interim phase point it at the **waitlist** service, then switch the record to the main app. | *12. Domain / DNS (interim waitlist → main app)* |
+| 12 | **Domain / DNS** (+ `UT_TRUST_CF_HEADERS`) | `usertrack.dev` has Cloudflare nameservers but **no A/CNAME record**, so nothing resolves. During the interim phase point it at the **waitlist** service, then switch the record to the main app. The moment the record is **proxied** (orange cloud), set `UT_TRUST_CF_HEADERS=1` on Railway or every visitor shares one rate-limit bucket. | *12. Domain / DNS (interim waitlist → main app)* |
 | 13 | **Post-deploy checks** | Health, headers, one real sign-up, one real import, one real X connect. | *13. Post-deploy checks* |
 
 ### Recommended — after launch
@@ -116,15 +116,27 @@ Then, **once**: Railway → project `usertrack` → service `usertrack` → Sett
 2. Repoint both CNAMEs at the target Railway prints for `usertrack`.
 3. ```bash
    railway variables --service usertrack --set "NEXT_PUBLIC_SITE_URL=https://usertrack.dev"
+   railway variables --service usertrack --set "NEXT_PUBLIC_RYBBIT_SITE_ID=753f44fa9c50"
    npx convex env set --prod SITE_URL https://usertrack.dev
    railway up --service usertrack --ci     # the public URL is baked into the client bundle
    ```
 4. Update the exact-match callbacks that contain the host: Google (`https://usertrack.dev/api/auth/callback/google`), GitHub (`/api/auth/callback/github`), X (`/api/auth/callback/twitter` **and** `/api/social/x/callback`).
 5. Google Search Console → add property `usertrack.dev` → submit `https://usertrack.dev/sitemap.xml`.
 
+**Phase C — trust the Cloudflare client-IP headers** (the moment the DNS record is switched from *DNS only* to **proxied / orange cloud**, for either service)
+
+```bash
+railway variables --service usertrack --set "UT_TRUST_CF_HEADERS=1"   # then redeploy / restart
+```
+
+Behind a proxied record the last `x-forwarded-for` hop is Cloudflare's own address, so without this flag every visitor
+shares one rate-limit bucket (60 anonymous API requests per minute for the whole internet). With it, `clientIp()` reads
+`cf-connecting-ip` / `true-client-ip` first. **Do not set it while the record is grey-cloud / DNS only** — the origin is
+then reachable directly and anyone can forge those headers. Unset it again if you ever turn the proxy off.
+
 Everything else (OG images, badges, embed snippets, MCP config snippets, email links, the OpenAPI server URL) renders `NEXT_PUBLIC_SITE_URL` / `SITE_URL` and becomes correct automatically.
 
-**Status** — * [ ] Phase A pending · * [ ] Phase B pending
+**Status** — * [ ] Phase A pending · * [ ] Phase B pending · * [ ] Phase C pending (`UT_TRUST_CF_HEADERS=1` when the record is proxied)
 
 ---
 
@@ -514,7 +526,7 @@ The tracker, the event catalog (`docs/ANALYTICS.md`) and the server-side events 
 
 **Steps**
 1. **Site settings → Tracking**: SPA navigation **on**, initial page view **on**, outbound links **on**, web vitals **on**, error tracking **on**, autocapture: button clicks **on**, form submissions **on**, copy **on**, input changes **off**; URL parameters **off**; **Session replay OFF** (the privacy policy promises this); Track IP **off**; User-ID salting **on**; Block bot traffic **on**.
-2. **Traffic filtering → Hostname exclusions**: add `localhost*` (local dev sends the production site id).
+2. **Traffic filtering → Hostname exclusions**: add `localhost*`. Since FIX-1 local dev / CI / preview builds send nothing at all (the production site id is only implied for a production build of `https://usertrack.dev`), so this is now belt and braces for anyone who sets `NEXT_PUBLIC_RYBBIT_SITE_ID` locally.
 3. **Goals → Create goal** (name · type · value):
    | Name | Type | Value |
    |---|---|---|
@@ -537,6 +549,7 @@ The tracker, the event catalog (`docs/ANALYTICS.md`) and the server-side events 
    | Developer | page `/developers` → event `token_created` → event `mcp_tool_called` |
 5. **API key** (Site settings → API keys → create, name `usertrack-server`) so server-side events bypass bot detection / domain validation:
    ```bash
+   railway variables --service usertrack --set "NEXT_PUBLIC_RYBBIT_SITE_ID=753f44fa9c50"   # belt and braces: FIX-1 only infers it for a production build of https://usertrack.dev
    railway variables set RYBBIT_API_KEY=rb_xxx            # Next.js server events (api_request, mcp_tool_called, badge_rendered, embed_rendered, native_event_ingested)
    npx convex env set --prod RYBBIT_SITE_ID 753f44fa9c50   # enables webhook_delivered + sync_completed from Convex
    npx convex env set --prod RYBBIT_API_KEY rb_xxx
@@ -547,7 +560,7 @@ The tracker, the event catalog (`docs/ANALYTICS.md`) and the server-side events 
 `identify()` stores the pseudonymous Better Auth user id in the visitor's local storage while signed in (cleared on sign-out). `/privacy` §7 + §8 describe it; counsel should confirm this stays within the consent-free § 25 TDDDG / Art. 6(1)(f) reading. If not, remove `<AnalyticsIdentity/>` from `src/app/layout.tsx` — nothing else depends on it.
 
 **Values**
-`RYBBIT_API_KEY` (Railway + Convex prod), `RYBBIT_SITE_ID=753f44fa9c50` (Convex prod)
+`NEXT_PUBLIC_RYBBIT_SITE_ID=753f44fa9c50` + `RYBBIT_API_KEY` (Railway), `RYBBIT_SITE_ID=753f44fa9c50` + `RYBBIT_API_KEY` (Convex prod)
 
 **Status**
 * [ ] **Required** — without the goals the funnels in the dashboard stay empty

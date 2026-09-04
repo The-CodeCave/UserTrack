@@ -40,7 +40,7 @@ One endpoint **requires** a key: `GET /following` returns the key owner's own wa
 | Caching | `public, s-maxage=300, stale-while-revalidate=600` | `private, no-store` |
 | `X-RateLimit-Window` | `minute` | `day` |
 
-Every limit is a durable token bucket in Convex (`@convex-dev/rate-limiter`, shared by every replica, survives deploys) behind a cheap in-process bucket that absorbs floods first. Anonymous buckets are keyed on the client IP — the **last** `x-forwarded-for` hop, which is the one Railway's edge appends; client-supplied entries are ignored. Keyed requests are additionally counted per UTC day in the backend (`X-RateLimit-Window: day`).
+Every limit is a durable token bucket in Convex (`@convex-dev/rate-limiter`, shared by every replica, survives deploys) behind a cheap in-process bucket that absorbs floods first. Anonymous buckets are keyed on the client IP — the **last** `x-forwarded-for` hop, which is the one Railway's edge appends; client-supplied entries are ignored. Behind Cloudflare (`UT_TRUST_CF_HEADERS=1`) `cf-connecting-ip` / `true-client-ip` are used instead, so all visitors do not collapse into the proxy's single bucket. Keyed requests are additionally counted per UTC day in the backend (`X-RateLimit-Window: day`).
 
 Every response carries:
 

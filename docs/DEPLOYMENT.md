@@ -24,6 +24,8 @@ Convex actions ──► Resend API (mail.usertrack.dev) · Resend webhooks ─�
 | | `NEXT_PUBLIC_CONVEX_SITE_URL` | `https://<prod>.convex.site` |
 | | `NEXT_PUBLIC_SITE_URL` | `https://usertrack-production.up.railway.app` |
 | | `UT_GATEWAY_SECRET` | `openssl rand -hex 32` — **same value on Convex prod**; every gateway / embed / native-event call carries it and the Convex side rejects calls when it is missing or different (fail closed) |
+| | `UT_TRUST_CF_HEADERS` | `1` **only while Cloudflare proxies the app** (orange cloud). Then `cf-connecting-ip` / `true-client-ip` key the rate limits instead of the last `x-forwarded-for` hop, which would otherwise be Cloudflare's address for every visitor. Unset/`0` = ignored (they are forgeable when the origin is reachable directly) |
+| | `NEXT_PUBLIC_RYBBIT_SITE_ID` | `753f44fa9c50`. Since FIX-1 the site id is only implied for a production build whose `NEXT_PUBLIC_SITE_URL` starts with `https://usertrack.dev`; set it explicitly here so analytics never depends on that inference. Empty string disables the script and every Next.js server event |
 | Convex prod (`npx convex env set --prod`) | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
 | | `UT_GATEWAY_SECRET` | same value as on Railway (fail closed: unset = every gateway call rejected) |
 | | `SITE_URL` | same as `NEXT_PUBLIC_SITE_URL` (Better Auth `baseURL` + trusted origin, digest links) |
@@ -68,10 +70,12 @@ After a schema-changing deploy, run once: `npx convex run --prod leaderboard:rer
 | Request | Answer |
 |---|---|
 | `GET /api/health` | `200 {"ok":true,"version":"<sha>","uptime":<seconds>}`, `Cache-Control: no-store`, no Convex read. This is what Railway polls |
-| `GET /api/health?deep=1` | the same plus `"convex":"ok"\|"down"` and `"jobs"`: the latest `jobRuns` row per job (`job`, `startedAt`, `finishedAt`, `items`, `errors`). One `public.stats` read behind a 3 s timeout; **always 200**, so a Convex blip is visible without triggering a restart |
+| `GET /api/health?deep=1` | the same plus `"convex":"ok"\|"down"` and `"jobs"`: the latest `jobRuns` row per job (`job`, `startedAt`, `finishedAt`, `items`, `errors`). Two independent probes, each behind a 3 s timeout — `convex` comes from the `public.stats` read alone, `jobs` from the gateway-gated `jobs.health`; **always 200**, so a Convex blip is visible without triggering a restart |
 
-The deep check reads `jobs.health`, which requires `UT_GATEWAY_SECRET` on both sides (fail closed) — a mismatch shows up as
-`convex: "down"`. `/api/health` is not tracked by analytics (`SKIP_PATTERNS` → `/api/**`).
+`jobs.health` requires `UT_GATEWAY_SECRET` on both sides (fail closed). A missing or mismatched secret shows up as
+`jobs: "unavailable: gateway secret not configured"` / `"unavailable: jobs.health did not answer"` and leaves
+`convex: "ok"` — only the `public.stats` probe decides that field. `/api/health` is not tracked by analytics
+(`SKIP_PATTERNS` → `/api/**`).
 
 ## CI (`.github/workflows/ci.yml`)
 Push and pull request (ignores `apps/**` and markdown): `pnpm install --frozen-lockfile` → `lint` → `typecheck` → `test` →

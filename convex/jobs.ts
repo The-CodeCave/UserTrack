@@ -33,7 +33,8 @@ export async function recordPage(ctx: MutationCtx, runId: Id<"jobRuns">, page: {
     items: run.items + page.items,
     errors: run.errors + (page.errors ?? 0),
     lastError: page.lastError ?? run.lastError,
-    finishedAt: page.done ? Date.now() : undefined,
+    // Only on the final page: an explicit `undefined` would DELETE finishedAt on an already-closed run.
+    ...(page.done ? { finishedAt: Date.now() } : {}),
   });
 }
 
