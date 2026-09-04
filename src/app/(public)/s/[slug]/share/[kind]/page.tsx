@@ -13,7 +13,8 @@ import { verificationLine } from "@/lib/share-card";
 import { loadShare as load } from "@/lib/og/share-card";
 import { saasUrl, shareUrl } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
+export const generateStaticParams = async () => [];
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string; kind: string }> }): Promise<Metadata> {
   const { slug, kind } = await params;

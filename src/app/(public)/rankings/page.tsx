@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { fetchQuery } from "convex/nextjs";
+import { publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
@@ -9,7 +9,7 @@ import { categoryLabel } from "@/lib/categories";
 import { formatDate } from "@/lib/format";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 export const metadata: Metadata = {
   title: "Monthly SaaS rankings archive",
   description: "Frozen monthly rankings of the fastest growing, most new users and trending SaaS products, overall and per category. Snapshotted on the 1st of each month from verified data and never rewritten.",
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 export default async function RankingsPage() {
-  const periods = await fetchQuery(api.public.rankingPeriods, {});
+  const periods = await publicQuery(api.public.rankingPeriods, {});
   // Group by period, then one row per category with its available boards.
   const byPeriod = new Map<string, Map<string | null, typeof periods>>();
   for (const r of periods) {

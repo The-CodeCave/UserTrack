@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { CACHEABLE_PUBLIC, PUBLIC_CACHE_CONTROL } from "./src/lib/public-cache";
 
 const RYBBIT = process.env.NEXT_PUBLIC_RYBBIT_HOST || "https://rybbit.internal.thecodecave.de";
 const csp = (frameAncestors: string) =>
@@ -27,6 +28,7 @@ const SECURITY_HEADERS = [
 // Routes third parties embed in iframes: framable by anyone, everything else denies framing.
 const EMBEDDABLE = ["/embed/:slug*", "/api/badge/:slug*", "/api/embed/:slug*", "/widget.js"];
 
+
 const nextConfig: NextConfig = {
   async redirects() {
     return [
@@ -40,6 +42,7 @@ const nextConfig: NextConfig = {
       { source: "/(.*)", headers: [...SECURITY_HEADERS, { key: "Content-Security-Policy", value: csp("'none'") }] },
       { source: "/((?!embed/|api/badge/|api/embed/|widget\\.js).*)", headers: [{ key: "X-Frame-Options", value: "DENY" }] },
       ...EMBEDDABLE.map((source) => ({ source, headers: [{ key: "Content-Security-Policy", value: csp("*") }] })),
+      ...CACHEABLE_PUBLIC.map((source) => ({ source, headers: [{ key: "Cache-Control", value: PUBLIC_CACHE_CONTROL }] })),
       { source: "/widget.js", headers: [{ key: "Cache-Control", value: "public, max-age=3600, stale-while-revalidate=86400" }, { key: "Access-Control-Allow-Origin", value: "*" }] },
     ];
   },

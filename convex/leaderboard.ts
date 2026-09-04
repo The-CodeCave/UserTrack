@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { PAGE, jobError, recordPage } from "./jobs";
 import type { Doc, Id } from "./_generated/dataModel";
 import { trendingScore } from "./lib/trending";
+import { growth24h, isVerified } from "./lib/boardRules";
 import { rankMilestones, trendingMilestones } from "./lib/milestones";
 import { addMilestones } from "./trust";
 import { onRerank } from "./email/growth";
@@ -50,7 +51,9 @@ const rankRow = v.object({
   s24: v.number(), s7: v.number(), s30: v.number(),
 });
 type RankRow = { saasId: Id<"saas">; rank?: number; t24?: number; t7?: number; t30?: number; s24: number; s7: number; s30: number };
-interface RankInput { id: Id<"saas">; slug: string; eligible: boolean; newUsers30d: number; growth30dPct: number; totalUsers: number; s24: number; s7: number; s30: number }
+interface RankInput { id: Id<"saas">; slug: string; eligible: boolean; newUsers30d: number; growth30dPct: number; totalUsers: number; s24: number; s7: number; s30: number; pub?: PublicRow }
+// The public facts the directory counters are summed from (convex/schema.ts → publicStats).
+interface PublicRow { verified: boolean; totalUsers: number; newUsers30d: number; category?: string; stacks?: string[]; lastSyncedAt?: number }
 
 export const rankInputs = internalQuery({
   args: { cursor: v.union(v.string(), v.null()), now: v.number() },
@@ -58,7 +61,8 @@ export const rankInputs = internalQuery({
     const page = await ctx.db.query("saas").paginate({ cursor, numItems: PAGE.rerank });
     const rows: RankInput[] = page.page.map((s) => {
       const i = trendingInputs(s, now);
-      return { id: s._id, slug: s.slug, eligible: rankable(s), newUsers30d: s.newUsers30d, growth30dPct: s.growth30dPct, totalUsers: s.totalUsers, s24: trendingScore(i["24h"]), s7: trendingScore(i["7d"]), s30: trendingScore(i["30d"]) };
+      const pub = s.isPublic ? { verified: isVerified(s), totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, category: s.category, stacks: s.techStack, lastSyncedAt: s.lastSyncedAt } : undefined;
+      return { id: s._id, slug: s.slug, eligible: rankable(s), newUsers30d: s.newUsers30d, growth30dPct: s.growth30dPct, totalUsers: s.totalUsers, s24: trendingScore(i["24h"]), s7: trendingScore(i["7d"]), s30: trendingScore(i["30d"]), pub };
     });
     return { rows, isDone: page.isDone, continueCursor: page.continueCursor };
   },
@@ -96,10 +100,55 @@ export const rerank = internalAction({
       await ctx.runMutation(internal.leaderboard.applyRanks, { rows: rows.slice(i, i + PAGE.rerank), eligibleCount: eligible.length, now, runId, done: i + PAGE.rerank >= rows.length });
     }
     if (!rows.length) await ctx.runMutation(internal.jobs.record, { runId, items: 0, done: true });
+    await ctx.runMutation(internal.leaderboard.writePublicStats, { stats: publicStatsOf(all), now });
   },
 });
 
 // Phase 3: one page of patches. A single product's failure is logged and never stops the page.
+// Directory-wide counters, summed once from the page walk the rerank already does (convex/public.ts → stats / boardMeta).
+export function publicStatsOf(all: { pub?: PublicRow }[]) {
+  const rows = all.flatMap((s) => (s.pub ? [s.pub] : []));
+  const scope = () => ({ count: 0, verifiedCount: 0, updatedAt: undefined as number | undefined });
+  const bucket = (map: Map<string, ReturnType<typeof scope>>, key: string, r: PublicRow) => {
+    const b = map.get(key) ?? scope();
+    b.count += 1;
+    if (r.verified) b.verifiedCount += 1;
+    b.updatedAt = Math.max(b.updatedAt ?? 0, r.lastSyncedAt ?? 0) || undefined;
+    map.set(key, b);
+  };
+  const categories = new Map<string, ReturnType<typeof scope>>();
+  const stacks = new Map<string, ReturnType<typeof scope>>();
+  for (const r of rows) {
+    if (r.category) bucket(categories, r.category, r);
+    for (const t of new Set(r.stacks ?? [])) bucket(stacks, t, r);
+  }
+  const list = (map: Map<string, ReturnType<typeof scope>>) => [...map].map(([slug, b]) => ({ slug, ...b }));
+  return {
+    saasCount: rows.length,
+    verifiedCount: rows.filter((r) => r.verified).length,
+    trackedUsers: rows.reduce((a, r) => a + r.totalUsers, 0),
+    newUsers30d: rows.reduce((a, r) => a + Math.max(0, r.newUsers30d), 0),
+    updatedAt: rows.reduce((a, r) => Math.max(a, r.lastSyncedAt ?? 0), 0) || undefined,
+    categories: list(categories),
+    stacks: list(stacks),
+  };
+}
+
+const scopeCount = v.object({ slug: v.string(), count: v.number(), verifiedCount: v.number(), updatedAt: v.optional(v.number()) });
+
+export const writePublicStats = internalMutation({
+  args: {
+    now: v.number(),
+    stats: v.object({ saasCount: v.number(), verifiedCount: v.number(), trackedUsers: v.number(), newUsers30d: v.number(), updatedAt: v.optional(v.number()), categories: v.array(scopeCount), stacks: v.array(scopeCount) }),
+  },
+  handler: async (ctx, { stats, now }) => {
+    const row = { key: "public", ...stats, computedAt: now };
+    const existing = await ctx.db.query("publicStats").withIndex("by_key", (q) => q.eq("key", "public")).unique();
+    if (existing) await ctx.db.patch(existing._id, row);
+    else await ctx.db.insert("publicStats", row);
+  },
+});
+
 export const applyRanks = internalMutation({
   args: { rows: v.array(rankRow), eligibleCount: v.number(), now: v.number(), runId: v.id("jobRuns"), done: v.boolean() },
   handler: async (ctx, { rows, eligibleCount, now, runId, done }) => {
@@ -115,7 +164,7 @@ export const applyRanks = internalMutation({
         const { rank, t24, t7, t30 } = row;
         const sc = { "24h": row.s24, "7d": row.s7, "30d": row.s30 } as const;
         // Trending "previous" is the position at the last refresh (so a stable #1 reads "same", not "new" forever).
-        const patch: Partial<Doc<"saas">> = { trendingScore24h: sc["24h"], trendingScore7d: sc["7d"], trendingScore30d: sc["30d"], prevTrendingRank: s.trendingRank, trendingRank: t7, prevTrendingRank24h: s.trendingRank24h, trendingRank24h: t24, prevTrendingRank30d: s.trendingRank30d, trendingRank30d: t30 };
+        const patch: Partial<Doc<"saas">> = { growth24hPct: growth24h(s), trendingScore24h: sc["24h"], trendingScore7d: sc["7d"], trendingScore30d: sc["30d"], prevTrendingRank: s.trendingRank, trendingRank: t7, prevTrendingRank24h: s.trendingRank24h, trendingRank24h: t24, prevTrendingRank30d: s.trendingRank30d, trendingRank30d: t30 };
         if (s.rank !== rank) { patch.prevRank = s.rank; patch.rank = rank; }
         if (rank && (s.bestRank === undefined || rank < s.bestRank)) patch.bestRank = rank;
         if (t7 && (s.bestTrendingRank === undefined || t7 < s.bestTrendingRank)) patch.bestTrendingRank = t7;

@@ -1,6 +1,6 @@
 # Discovery
 
-**TL;DR** — `/discover` (optionally per category), the boards (`/trending`, `/leaderboard`, `/fastest-growing-saas`, `/new-saas`, `/hidden-gems`, `/biggest-movers`, category and platform pages) and the activity feed are computed from verified snapshots and **stored** events only. Every rule below is deterministic, documented and returned with the section so the UI can explain it. Code: `convex/public.ts` (`sortBoard`, `discover`, `feedItems`), `convex/leaderboard.ts`, `convex/daily.ts`, `convex/domain/events.ts`.
+**TL;DR** — `/discover` (optionally per category), the boards (`/trending`, `/leaderboard`, `/fastest-growing-saas`, `/new-saas`, `/hidden-gems`, `/biggest-movers`, category and platform pages) and the activity feed are computed from verified snapshots and **stored** events only. Every rule below is deterministic, documented and returned with the section so the UI can explain it. Code: `convex/lib/boardRules.ts` (`BOARD_RULES`, `sortBoard`), `convex/public.ts` (`boardRows`, `discover`, `feedItems`), `convex/leaderboard.ts`, `convex/daily.ts`, `convex/domain/events.ts`. Boards are read through the index that carries their sort order and stop at the page size (`docs/ARCHITECTURE.md` → Public caching); the rules below are unchanged.
 
 ## Eligibility
 

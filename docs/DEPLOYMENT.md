@@ -42,7 +42,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build   # VERIFY
 npx convex deploy --yes                                   # backend first (schema, functions, crons)
 railway up --service usertrack --ci                       # then the app
 ```
-`railway.toml` pins the builder (Railpack), `pnpm build` / `pnpm start`, and a health check on `/leaderboard`.
+`railway.toml` pins the builder (Railpack), `pnpm build` / `pnpm start`, and a health check on `/leaderboard`. Since OPS-2 the public pages are prerendered, so `pnpm build` reads Convex: `NEXT_PUBLIC_CONVEX_URL` must point at a reachable deployment during the build (`pnpm railway:build` does this by construction).
 
 Convex is deployed from a logged-in machine (`npx convex login`). CI can instead set `CONVEX_DEPLOY_KEY` and run `pnpm railway:build` (`convex deploy --cmd 'pnpm build'`).
 

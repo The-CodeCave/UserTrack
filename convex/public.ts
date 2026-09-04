@@ -15,19 +15,15 @@ import { CATEGORIES } from "../src/lib/categories";
 import { TECH_STACK } from "../src/lib/tech-stack";
 import { aggregateHistory, founderAggregates } from "./lib/founder";
 import { downsample, findGaps, rankMovement, resolutionFor, type HistoryPoint } from "./lib/history";
+import { BOARDS, HIDDEN_GEM_RULES, NEW_RISING_RULES, PLATFORMS, boardCompare, boardIndex, boardPass, isVerified, platformOf, sortBoard, type Board, type BoardFilters, type BoardWindow } from "./lib/boardRules";
 
 const rangeArg = v.union(...RANGES.map((r) => v.literal(r)));
-// Secondary conversion boards only list products whose owner published the rate (visibility), never merely connected a source.
-export const BOARDS = ["trending", "fastest", "most-users", "most-new", "most-activated", "activation-rate", "new-rising", "hidden-gems", "movers", "best-conversion", "best-trial-conversion", "converted-growth"] as const;
-export type Board = (typeof BOARDS)[number];
 const boardArg = v.union(...BOARDS.map((b) => v.literal(b)));
 const windowArg = v.union(v.literal("24h"), v.literal("7d"), v.literal("30d"));
 const sizeArg = v.union(...SIZE_BUCKETS.map((b) => v.literal(b.key)));
-export const PLATFORMS = ["web", "mobile", "hybrid"] as const;
 const platformArg = v.union(...PLATFORMS.map((p) => v.literal(p)));
-export const platformOf = (s: Pick<Doc<"saas">, "projectType">) => s.projectType ?? "web";
-// New & rising: listed within the last 30 days (first stored snapshot, backfills included), ranked by 7-day new users.
-export const NEW_RISING_RULES = { maxAgeDays: 30, minNew7d: 5 } as const;
+export { BOARDS, HIDDEN_GEM_RULES, NEW_RISING_RULES, PLATFORMS, isVerified, platformOf, sortBoard };
+export type { Board, BoardFilters };
 
 export function publicProfile(p: Doc<"profiles">) {
   const { _id, username, displayName, avatarUrl, bio, website, x, github, linkedin, location, followerCount, xFollowers, xFollowersAt, _creationTime } = p;
@@ -66,92 +62,54 @@ async function withOwnerAndSpark(ctx: QueryCtx, s: Doc<"saas">) {
   return { ...publicSaas(s), owner: await publicOwner(ctx, s), spark: await sparkline(ctx, s._id) };
 }
 
-// Stack is filtered in memory like size / platform: the public set is small and needs no index.
-async function publicSet(ctx: QueryCtx, category?: string, stack?: string) {
+// Highest-30-day-growth public products first, capped: the fallback for the few queries that genuinely need a
+// set rather than a board page (search, sitemap, the most-activated board). A category narrows it by index.
+// Stack is filtered in memory like size / platform.
+export const MAX_PUBLIC_SCAN = 5000;
+// Same-category / strongest-overall candidates behind "Related products".
+const RELATED_CANDIDATES = 300;
+// Tag / category matches in search are ranked below name and description hits, so they only scan the strongest rows.
+const SEARCH_SCAN = 500;
+// URL cap per sitemap: 5,000 products, well inside Google's 50k / 50 MB limit and one bounded index walk.
+export const SITEMAP_CHUNK = 5000;
+// Directory-wide counters. Rendered on every board page, so they are read from the single row the rerank job
+// writes; the live set is only walked when that row does not exist yet (fresh deployment, tests).
+const readPublicStats = (ctx: QueryCtx) => ctx.db.query("publicStats").withIndex("by_key", (q) => q.eq("key", "public")).unique();
+async function publicSet(ctx: QueryCtx, category?: string, stack?: string, limit = MAX_PUBLIC_SCAN) {
   const rows = category
-    ? await ctx.db.query("saas").withIndex("by_public_category", (q) => q.eq("isPublic", true).eq("category", category)).collect()
-    : await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).collect();
+    ? await ctx.db.query("saas").withIndex("by_public_category", (q) => q.eq("isPublic", true).eq("category", category)).take(limit)
+    : await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).order("desc").take(limit);
   return stack ? rows.filter((s) => s.techStack?.includes(stack)) : rows;
 }
 
-const isVerified = (s: Doc<"saas">) => s.trust === "verified" && s.trustState !== "review";
-
-// Hidden gems: small products with unusually strong, trustworthy traction. The criteria are public so the list is explainable.
-export const HIDDEN_GEM_RULES = { maxUsers: 1000, minNew7d: 10, minGrowth7dPct: 10, minHistoryDays: 7, minTrustScore: 60 } as const;
-const isHiddenGem = (s: Doc<"saas">, now: number) =>
-  isVerified(s) && !s.isDemo && s.totalUsers < HIDDEN_GEM_RULES.maxUsers && s.newUsers7d >= HIDDEN_GEM_RULES.minNew7d && (s.growth7dPct ?? 0) >= HIDDEN_GEM_RULES.minGrowth7dPct &&
-  s.firstSnapshotAt !== undefined && now - s.firstSnapshotAt >= HIDDEN_GEM_RULES.minHistoryDays * DAY && (s.trustScore ?? 0) >= HIDDEN_GEM_RULES.minTrustScore;
-
-
-export interface BoardFilters { board: Board; window: "24h" | "7d" | "30d"; verifiedOnly: boolean; category?: string; size?: string; platform?: string; stack?: string; limit: number }
-
-// Sort + filter over the (small) public set. Ranks/trending are precomputed; everything else is a field sort.
-export function sortBoard(rows: Doc<"saas">[], f: BoardFilters) {
-  const w = f.window;
-  const newIn = (s: Doc<"saas">) => (w === "24h" ? s.newUsers24h : w === "7d" ? s.newUsers7d : s.newUsers30d);
-  const growthIn = (s: Doc<"saas">) => (w === "30d" ? s.growth30dPct : w === "7d" ? (s.growth7dPct ?? 0) : s.totalUsers - s.newUsers24h > 0 ? (s.newUsers24h / (s.totalUsers - s.newUsers24h)) * 100 : 0);
-  const trendingIn = (s: Doc<"saas">) => (w === "24h" ? s.trendingScore24h : w === "7d" ? s.trendingScore7d : s.trendingScore30d) ?? 0;
-  const activatedIn = (s: Doc<"saas">) => (w === "24h" ? s.activated24h : w === "7d" ? s.activated7d : s.activated30d);
+// Bounded board read. The board's index is already in board order, so the walk stops as soon as the page is
+// full; it is extended while the indexed score ties with the last row on the page so the boundary can never
+// depend on insertion order. Category / stack pages are narrowed by their own index instead.
+const MAX_BOARD_SCAN = 5000;
+export async function boardRows(ctx: QueryCtx, f: BoardFilters) {
+  const idx = f.category || f.stack ? undefined : boardIndex(f);
+  if (!idx) return sortBoard(await publicSet(ctx, f.category, f.stack), f);
   const now = Date.now();
-  let list = rows.filter((s) => (!f.verifiedOnly || isVerified(s)) && (!f.size || sizeBucket(s.totalUsers) === f.size) && (!f.category || s.category === f.category) && (!f.platform || platformOf(s) === f.platform));
-  const by = (fn: (s: Doc<"saas">) => number) => list.sort((a, b) => fn(b) - fn(a) || b.newUsers30d - a.newUsers30d || b.totalUsers - a.totalUsers);
-  switch (f.board) {
-    case "trending":
-      list = list.filter((s) => trendingIn(s) > 0);
-      by(trendingIn);
-      break;
-    case "fastest":
-      list = list.filter((s) => newIn(s) >= 10);
-      by(growthIn);
-      break;
-    case "most-users":
-      by((s) => s.totalUsers);
-      break;
-    case "most-new":
-      by(newIn);
-      break;
-    case "most-activated":
-      list = list.filter((s) => (activatedIn(s) ?? s.activatedUsers) !== undefined);
-      by((s) => activatedIn(s) ?? s.activatedUsers ?? 0);
-      break;
-    case "activation-rate":
-      list = list.filter((s) => s.activationRatePct !== undefined && s.totalUsers >= 50);
-      by((s) => s.activationRatePct ?? 0);
-      break;
-    case "new-rising":
-      list = list.filter((s) => s.firstSnapshotAt !== undefined && now - s.firstSnapshotAt <= NEW_RISING_RULES.maxAgeDays * DAY && s.newUsers7d >= NEW_RISING_RULES.minNew7d);
-      by((s) => s.newUsers7d);
-      break;
-    case "hidden-gems":
-      list = list.filter((s) => isHiddenGem(s, now));
-      by((s) => s.growth7dPct ?? 0);
-      break;
-    case "movers":
-      // Stored 7-day leaderboard movement (rankHistory, materialized by rerank): climbers first, biggest climb wins.
-      list = list.filter((s) => isVerified(s) && !s.isDemo && s.rank !== undefined && (s.rankDelta7d ?? 0) > 0);
-      list.sort((a, b) => (b.rankDelta7d ?? 0) - (a.rankDelta7d ?? 0) || (a.rank ?? 0) - (b.rank ?? 0));
-      break;
-    case "best-conversion":
-      list = list.filter((s) => s.signupToConvertedPct !== undefined && s.totalUsers >= 50 && visibilityOf(s).conversionRate);
-      by((s) => s.signupToConvertedPct ?? 0);
-      break;
-    case "best-trial-conversion":
-      list = list.filter((s) => s.trialToConvertedPct !== undefined && visibilityOf(s).trialConversion);
-      by((s) => s.trialToConvertedPct ?? 0);
-      break;
-    case "converted-growth":
-      list = list.filter((s) => s.convertedGrowth30dPct !== undefined && (s.convertedUsers ?? 0) >= 10 && visibilityOf(s).conversionRate);
-      by((s) => s.convertedGrowth30dPct ?? 0);
-      break;
+  const matches: Doc<"saas">[] = [];
+  let boundary: number | undefined;
+  let scanned = 0;
+  for await (const s of ctx.db.query("saas").withIndex(idx.name, (q) => q.eq("isPublic", true)).order("desc")) {
+    if (++scanned > MAX_BOARD_SCAN) break;
+    const key = idx.key(s);
+    if (matches.length >= f.limit && key !== undefined && boundary !== undefined && key < boundary) break;
+    if (!boardPass(s, f, now)) continue;
+    matches.push(s);
+    if (matches.length === f.limit) boundary = key;
   }
-  return list.slice(0, f.limit);
+  return matches.sort(boardCompare(f)).slice(0, f.limit);
 }
+
 
 export const board = query({
   args: { board: boardArg, window: v.optional(windowArg), verifiedOnly: v.optional(v.boolean()), category: v.optional(v.string()), size: v.optional(sizeArg), platform: v.optional(platformArg), stack: v.optional(v.string()), limit: v.optional(v.number()) },
   handler: async (ctx, a) => {
     const f: BoardFilters = { board: a.board, window: a.window ?? (a.board === "trending" ? "7d" : "30d"), verifiedOnly: a.verifiedOnly ?? true, category: a.category, size: a.size, platform: a.platform, stack: a.stack, limit: Math.min(a.limit ?? 50, 100) };
-    const rows = sortBoard(await publicSet(ctx, f.category, f.stack), f);
+    const rows = await boardRows(ctx, f);
     return Promise.all(
       rows.map(async (s) => ({
         ...(await withOwnerAndSpark(ctx, s)),
@@ -162,12 +120,20 @@ export const board = query({
   },
 });
 
-// Last-updated stamp for public pages: the newest successful sync among the listed rows.
+// Last-updated stamp for public pages: the newest successful sync among the listed rows. Read from the
+// materialized counters (rerank) unless the page combines a category with a stack, which nothing precomputes.
 export const boardMeta = query({
   args: { category: v.optional(v.string()), stack: v.optional(v.string()) },
   handler: async (ctx, { category, stack }) => {
-    const rows = (await publicSet(ctx, category, stack)).filter(isVerified);
-    return { updatedAt: rows.reduce((a, s) => Math.max(a, s.lastSyncedAt ?? 0), 0) || null, count: rows.length };
+    if (!(category && stack)) {
+      const stats = await readPublicStats(ctx);
+      if (stats) {
+        const scope = category ? stats.categories.find((c) => c.slug === category) : stack ? stats.stacks.find((t) => t.slug === stack) : { verifiedCount: stats.verifiedCount, updatedAt: stats.updatedAt };
+        return { updatedAt: scope?.updatedAt ?? null, count: scope?.verifiedCount ?? 0 };
+      }
+    }
+    const rows = await publicSet(ctx, category, stack);
+    return { updatedAt: rows.reduce((a, s) => Math.max(a, s.lastSyncedAt ?? 0), 0) || null, count: rows.filter(isVerified).length };
   },
 });
 
@@ -186,7 +152,7 @@ function movement(rank?: number, prev?: number) {
 export const leaderboard = query({
   args: { verifiedOnly: v.boolean(), limit: v.optional(v.number()) },
   handler: async (ctx, { verifiedOnly, limit = 50 }) => {
-    const rows = sortBoard(await publicSet(ctx), { board: "most-new", window: "30d", verifiedOnly, limit });
+    const rows = await boardRows(ctx, { board: "most-new", window: "30d", verifiedOnly, limit });
     return Promise.all(rows.map((s) => withOwnerAndSpark(ctx, s)));
   },
 });
@@ -356,7 +322,12 @@ export const related = query({
   handler: async (ctx, { slug, limit }) => {
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
     if (!s || !s.isPublic) return [];
-    const all = (await publicSet(ctx)).filter((x) => x._id !== s._id && isVerified(x) && !x.isDemo === !s.isDemo);
+    // Candidates: everything in the same category plus the strongest public products overall — a superset of
+    // every row that can score above zero without walking the whole table.
+    const sameCategory = s.category ? await ctx.db.query("saas").withIndex("by_public_category", (q) => q.eq("isPublic", true).eq("category", s.category)).take(RELATED_CANDIDATES) : [];
+    const strongest = await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).order("desc").take(RELATED_CANDIDATES);
+    const seenCandidate = new Set<string>();
+    const all = [...sameCategory, ...strongest].filter((x) => !seenCandidate.has(x._id) && seenCandidate.add(x._id) && x._id !== s._id && isVerified(x) && !x.isDemo === !s.isDemo);
     const bucket = sizeBucket(s.totalUsers);
     const score = (x: Doc<"saas">) => (x.category && x.category === s.category ? 4 : 0) + (sizeBucket(x.totalUsers) === bucket ? 2 : 0) + (Math.sign(x.growth30dPct - 10) === Math.sign(s.growth30dPct - 10) ? 1 : 0);
     const rows = all.map((x) => ({ x, score: score(x) })).filter((r) => r.score > 0).sort((a, b) => b.score - a.score || b.x.newUsers30d - a.x.newUsers30d).slice(0, Math.min(limit ?? 4, 8));
@@ -435,16 +406,31 @@ export const founderHistory = query({
   },
 });
 
+export function computeStats(rows: Doc<"saas">[]) {
+  return {
+    saasCount: rows.length,
+    verifiedCount: rows.filter(isVerified).length,
+    trackedUsers: rows.reduce((a, s) => a + s.totalUsers, 0),
+    newUsers30d: rows.reduce((a, s) => a + Math.max(0, s.newUsers30d), 0),
+    categories: CATEGORIES.map((c) => ({ ...c, count: rows.filter((s) => s.category === c.slug).length })).filter((c) => c.count > 0),
+  };
+}
+
+// Canonical CATEGORIES order, whatever order the counters were written in.
+const withCounts = (rows: { slug: string; count: number; verifiedCount: number }[], pick: (r: { count: number; verifiedCount: number }) => number) =>
+  CATEGORIES.flatMap((c) => { const row = rows.find((r) => r.slug === c.slug); const count = row ? pick(row) : 0; return count > 0 ? [{ ...c, count }] : []; });
+
 export const stats = query({
   args: {},
   handler: async (ctx) => {
-    const rows = await publicSet(ctx);
+    const stored = await readPublicStats(ctx);
+    if (!stored) return computeStats(await publicSet(ctx));
     return {
-      saasCount: rows.length,
-      verifiedCount: rows.filter(isVerified).length,
-      trackedUsers: rows.reduce((a, s) => a + s.totalUsers, 0),
-      newUsers30d: rows.reduce((a, s) => a + Math.max(0, s.newUsers30d), 0),
-      categories: CATEGORIES.map((c) => ({ ...c, count: rows.filter((s) => s.category === c.slug).length })).filter((c) => c.count > 0),
+      saasCount: stored.saasCount,
+      verifiedCount: stored.verifiedCount,
+      trackedUsers: stored.trackedUsers,
+      newUsers30d: stored.newUsers30d,
+      categories: withCounts(stored.categories, (c) => c.count),
     };
   },
 });
@@ -456,7 +442,7 @@ export const search = query({
     if (term.length < 2) return { saas: [], profiles: [], categories: [] };
     const byName = await ctx.db.query("saas").withSearchIndex("search_name", (s) => s.search("name", term).eq("isPublic", true)).take(10);
     const byDesc = await ctx.db.query("saas").withSearchIndex("search_description", (s) => s.search("description", term).eq("isPublic", true)).take(10);
-    const all = await publicSet(ctx);
+    const all = await publicSet(ctx, undefined, undefined, SEARCH_SCAN);
     const byTag = all.filter((s) => s.tags.some((t) => t.includes(term)) || s.category === term || CATEGORIES.some((c) => c.slug === s.category && c.label.toLowerCase().includes(term)));
     const seen = new Set<string>();
     const saas = [...byName, ...byDesc, ...byTag].filter((s) => !seen.has(s._id) && seen.add(s._id)).slice(0, 12);
@@ -467,7 +453,8 @@ export const search = query({
       const rows = await founderRows(ctx, p);
       founders.push({ ...publicProfile(p), projectCount: rows.length, totalUsers: rows.reduce((a, s) => a + s.totalUsers, 0), newUsers30d: rows.reduce((a, s) => a + Math.max(0, s.newUsers30d), 0) });
     }
-    const categories = CATEGORIES.filter((c) => c.slug.includes(term) || c.label.toLowerCase().includes(term) || c.seo.toLowerCase().includes(term)).map((c) => ({ slug: c.slug, label: c.label, count: all.filter((s) => s.category === c.slug && isVerified(s)).length })).filter((c) => c.count > 0);
+    const counts = await categoryCounts(ctx, null);
+    const categories = CATEGORIES.filter((c) => c.slug.includes(term) || c.label.toLowerCase().includes(term) || c.seo.toLowerCase().includes(term)).map((c) => ({ slug: c.slug, label: c.label, count: counts.find((x) => x.slug === c.slug)?.count ?? 0 })).filter((c) => c.count > 0);
     return { saas: await Promise.all(saas.map((s) => withOwnerAndSpark(ctx, s))), profiles: founders, categories };
   },
 });
@@ -476,37 +463,64 @@ export const search = query({
 export const discover = query({
   args: { category: v.optional(v.string()), stack: v.optional(v.string()) },
   handler: async (ctx, { category, stack }) => {
-    const now = Date.now();
-    const all = await publicSet(ctx, category, stack);
-    const pick = (board: Board, window: "24h" | "7d" | "30d", extra?: Partial<BoardFilters>, n = 5) => sortBoard(all, { board, window, verifiedOnly: true, limit: n, category, ...extra });
-    const verifiedRecently = all.filter((s) => isVerified(s) && !s.isDemo && s.verifiedAt !== undefined).sort((a, b) => b.verifiedAt! - a.verifiedAt!).slice(0, 5);
-    const expand = (rows: Doc<"saas">[], w: "24h" | "7d" | "30d" = "7d") => Promise.all(rows.map(async (s) => ({ ...(await withOwnerAndSpark(ctx, s)), movement: trendingMovement(s, w) })));
-    const movers = pick("movers", "30d");
+    // A category / stack page narrows the set by index once and reuses it; the unfiltered page reads every
+    // section straight off its board index instead (each section is five rows).
+    const narrowed = category || stack ? await publicSet(ctx, category, stack) : null;
+    const pick = (board: Board, window: BoardWindow, extra?: Partial<BoardFilters>, n = 5) => {
+      const f: BoardFilters = { board, window, verifiedOnly: true, limit: n, category, stack, ...extra };
+      return narrowed ? Promise.resolve(sortBoard(narrowed, f)) : boardRows(ctx, f);
+    };
+    const verifiedRecently = narrowed
+      ? narrowed.filter((s) => isVerified(s) && !s.isDemo && s.verifiedAt !== undefined).sort((a, b) => b.verifiedAt! - a.verifiedAt!).slice(0, 5)
+      : await recentlyVerifiedRows(ctx, 5);
+    const expand = (rows: Doc<"saas">[], w: BoardWindow = "7d") => Promise.all(rows.map(async (s) => ({ ...(await withOwnerAndSpark(ctx, s)), movement: trendingMovement(s, w) })));
+    const movers = await pick("movers", "30d");
     return {
       category: category ?? null,
-      trending: await expand(pick("trending", "7d")),
-      fastestToday: await expand(pick("fastest", "24h"), "24h"),
-      fastestWeek: await expand(pick("fastest", "7d")),
-      fastestMonth: await expand(pick("fastest", "30d"), "30d"),
-      newest: await expand(pick("new-rising", "7d")),
+      trending: await expand(await pick("trending", "7d")),
+      fastestToday: await expand(await pick("fastest", "24h"), "24h"),
+      fastestWeek: await expand(await pick("fastest", "7d")),
+      fastestMonth: await expand(await pick("fastest", "30d"), "30d"),
+      newest: await expand(await pick("new-rising", "7d")),
       recentlyVerified: await expand(verifiedRecently),
       // Movement over 7 stored days: `rank7dAgo → rank` (rankHistory), never the position at the previous 4-hour refresh.
       movers: await Promise.all(movers.map(async (s) => ({ ...(await withOwnerAndSpark(ctx, s)), movement: rankMovement(s.rank7dAgo, s.rank), rank7dAgo: s.rank7dAgo, rankDelta7d: s.rankDelta7d }))),
-      hiddenGems: await expand(pick("hidden-gems", "7d")),
+      hiddenGems: await expand(await pick("hidden-gems", "7d")),
       hiddenGemRules: HIDDEN_GEM_RULES,
       newRisingRules: NEW_RISING_RULES,
-      devTools: category ? [] : await expand(pick("most-new", "30d", { category: "developer-tools" })),
-      ai: category ? [] : await expand(pick("most-new", "30d", { category: "ai" })),
-      mobile: await expand(pick("most-new", "30d", { platform: "mobile" }), "30d"),
-      feed: await feedItems(ctx, all, 12, category),
-      categories: categoryCounts(category ? await publicSet(ctx) : all),
-      updatedAt: all.reduce((a, s) => Math.max(a, s.lastSyncedAt ?? 0), 0) || null,
+      devTools: category ? [] : await expand(await pick("most-new", "30d", { category: "developer-tools" })),
+      ai: category ? [] : await expand(await pick("most-new", "30d", { category: "ai" })),
+      mobile: await expand(await pick("most-new", "30d", { platform: "mobile" }), "30d"),
+      feed: await feedItems(ctx, 12, category),
+      categories: await categoryCounts(ctx, narrowed),
+      updatedAt: await lastSyncedAt(ctx, narrowed),
     };
   },
 });
 
-function categoryCounts(rows: Doc<"saas">[]) {
-  return CATEGORIES.map((c) => ({ ...c, count: rows.filter((s) => s.category === c.slug && isVerified(s)).length })).filter((c) => c.count > 0);
+// Verified products per category: the rerank counters when the page is unfiltered, else counted on the narrowed set.
+async function categoryCounts(ctx: QueryCtx, rows: Doc<"saas">[] | null) {
+  const stored = rows ? null : await readPublicStats(ctx);
+  if (stored) return withCounts(stored.categories, (c) => c.verifiedCount);
+  const set = rows ?? (await publicSet(ctx));
+  return CATEGORIES.map((c) => ({ ...c, count: set.filter((s) => s.category === c.slug && isVerified(s)).length })).filter((c) => c.count > 0);
+}
+
+export async function lastSyncedAt(ctx: QueryCtx, rows: Doc<"saas">[] | null) {
+  if (!rows) { const stored = await readPublicStats(ctx); if (stored) return stored.updatedAt ?? null; }
+  const set = rows ?? (await publicSet(ctx));
+  return set.reduce((a, s) => Math.max(a, s.lastSyncedAt ?? 0), 0) || null;
+}
+
+// Newest verified products, straight off the index (the "recently verified" strip on /discover).
+async function recentlyVerifiedRows(ctx: QueryCtx, n: number) {
+  const out: Doc<"saas">[] = [];
+  for await (const s of ctx.db.query("saas").withIndex("by_public_verified_at", (q) => q.eq("isPublic", true)).order("desc")) {
+    if (s.verifiedAt === undefined) break;
+    if (isVerified(s) && !s.isDemo) out.push(s);
+    if (out.length === n) break;
+  }
+  return out;
 }
 
 export type FeedKind = "milestone" | "spike" | "activation_spike" | "launched" | "verified" | "rank_jump" | "traction" | "benchmark";
@@ -514,11 +528,16 @@ const FEED_EVENT_KINDS = new Set(["spike", "activation_spike", "launched", "veri
 
 // The discovery feed is a merge of two stored, deduplicated logs: milestones (unique key per SaaS) and events (unique kind per day).
 // Identity is stable (`milestone:{saasId}:{key}` / `{kind}:{saasId}:{day}`), so the feed never invents or repeats activity.
-export async function feedItems(ctx: QueryCtx, all: Doc<"saas">[], limit: number, category?: string) {
-  const bySaas = new Map(all.filter((s) => isVerified(s) && !s.isDemo && (!category || s.category === category)).map((s) => [s._id, s]));
+export async function feedItems(ctx: QueryCtx, limit: number, category?: string) {
   const take = Math.min(200, limit * 4);
   const milestones = await ctx.db.query("milestones").withIndex("by_time").order("desc").take(take);
   const events = await ctx.db.query("events").withIndex("by_time").order("desc").take(take);
+  // One lookup per distinct project referenced by the window of recent activity, instead of the whole public set.
+  const bySaas = new Map<Id<"saas">, Doc<"saas"> | undefined>();
+  for (const id of new Set([...milestones, ...events].map((r) => r.saasId))) {
+    const s = await ctx.db.get(id);
+    bySaas.set(id, s && s.isPublic && isVerified(s) && !s.isDemo && (!category || s.category === category) ? s : undefined);
+  }
   const card = (s: Doc<"saas">) => ({ slug: s.slug, name: s.name, logoUrl: publicLogo(s), category: s.category, totalUsers: s.totalUsers, trust: s.trust, trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore) });
   const items = [
     ...milestones.flatMap((m) => { const s = bySaas.get(m.saasId); return s ? [{ id: `milestone:${m.saasId}:${m.key}`, kind: "milestone" as FeedKind, subkind: m.kind, at: m.achievedAt, title: m.title, detail: m.copy, value: m.value, share: `share/milestone-${m._id}`, saas: card(s) }] : []; }),
@@ -530,7 +549,7 @@ export async function feedItems(ctx: QueryCtx, all: Doc<"saas">[], limit: number
 
 export const feed = query({
   args: { limit: v.optional(v.number()), category: v.optional(v.string()) },
-  handler: async (ctx, { limit, category }) => feedItems(ctx, await publicSet(ctx), Math.min(limit ?? 30, 100), category),
+  handler: async (ctx, { limit, category }) => feedItems(ctx, Math.min(limit ?? 30, 100), category),
 });
 
 // Public explanation of a product's trending position (factors, never raw internals).
@@ -568,15 +587,18 @@ export const suggest = query({
   args: { q: v.string(), exclude: v.optional(v.array(v.string())) },
   handler: async (ctx, { q, exclude = [] }) => {
     const term = q.trim().toLowerCase();
-    const rows = term.length < 1 ? sortBoard(await publicSet(ctx), { board: "most-new", window: "30d", verifiedOnly: false, limit: 8 }) : await ctx.db.query("saas").withSearchIndex("search_name", (s) => s.search("name", term).eq("isPublic", true)).take(8);
+    const rows = term.length < 1 ? await boardRows(ctx, { board: "most-new", window: "30d", verifiedOnly: false, limit: 8 }) : await ctx.db.query("saas").withSearchIndex("search_name", (s) => s.search("name", term).eq("isPublic", true)).take(8);
     return rows.filter((s) => !exclude.includes(s.slug)).map((s) => ({ slug: s.slug, name: s.name, logoUrl: publicLogo(s), totalUsers: s.totalUsers }));
   },
 });
 
+// The SITEMAP_CHUNK strongest public products, walked through the by_public index instead of collected.
+// hideFromSearch products stay on boards but never in the sitemap (their page is noindex).
 export const sitemap = query({
   args: {},
   handler: async (ctx) => {
-    const rows = await publicSet(ctx);
+    const scan = await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).order("desc").take(SITEMAP_CHUNK + 1);
+    const rows = scan.slice(0, SITEMAP_CHUNK);
     const owners = new Map<string, Doc<"profiles">>();
     for (const s of rows) {
       if (!owners.has(s.ownerId)) {
@@ -584,8 +606,8 @@ export const sitemap = query({
         if (p) owners.set(s.ownerId, p);
       }
     }
-    // hideFromSearch products stay on boards but never in the sitemap (their page is noindex).
     return {
+      hasMore: scan.length > SITEMAP_CHUNK,
       saas: rows.filter((s) => !s.hideFromSearch).map((s) => ({ slug: s.slug, updatedAt: s.lastSyncedAt ?? s._creationTime })),
       profiles: [...owners.values()].filter(isProfilePublic).map((p) => ({ username: p.username, updatedAt: p._creationTime })),
       categories: CATEGORIES.map((c) => c.slug).filter((c) => rows.some((s) => s.category === c)),

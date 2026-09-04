@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { fetchQuery } from "convex/nextjs";
+import { cachedQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
@@ -38,9 +38,9 @@ export async function BoardPage({
   methodology?: { title: string; body: React.ReactNode };
 }) {
   const [rows, stats, meta] = await Promise.all([
-    fetchQuery(api.public.board, { board: state.board as BoardKind, window: state.window, verifiedOnly: state.verified, category: state.category, size: state.size as never, platform: state.platform as never, stack: state.stack, limit: 100 }),
-    fetchQuery(api.public.stats, {}),
-    fetchQuery(api.public.boardMeta, { category: state.category, stack: state.stack }),
+    cachedQuery(api.public.board, { board: state.board as BoardKind, window: state.window, verifiedOnly: state.verified, category: state.category, size: state.size as never, platform: state.platform as never, stack: state.stack, limit: 100 }),
+    cachedQuery(api.public.stats, {}),
+    cachedQuery(api.public.boardMeta, { category: state.category, stack: state.stack }),
   ]);
   const board = BOARD_META[state.board];
   const jsonLd = {

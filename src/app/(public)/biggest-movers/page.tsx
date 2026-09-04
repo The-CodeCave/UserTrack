@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { BoardPage, parseBoard, type SP } from "@/components/public/board-page";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 const title = "Biggest movers on the SaaS leaderboard this week";
 const description = "SaaS products that climbed the most places on the 30-day user-growth leaderboard in the last 7 days, computed from stored daily rank history.";
 export const metadata: Metadata = { title, description, alternates: { canonical: `${SITE_URL}/biggest-movers` }, openGraph: { title, description, url: `${SITE_URL}/biggest-movers` } };

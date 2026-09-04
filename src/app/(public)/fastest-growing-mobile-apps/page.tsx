@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { BoardPage, parseBoard, type SP } from "@/components/public/board-page";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 const title = "Fastest growing mobile apps";
 const description = "Mobile apps ranked by verified registered-user growth. Real signups from connected auth backends — not store download estimates.";
 export const metadata: Metadata = { title, description, alternates: { canonical: `${SITE_URL}/fastest-growing-mobile-apps` }, openGraph: { title, description, url: `${SITE_URL}/fastest-growing-mobile-apps` } };

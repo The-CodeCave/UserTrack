@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { BoardPage, parseBoard, type SP } from "@/components/public/board-page";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 export const metadata: Metadata = {
   title: "New SaaS on UserTrack",
   description: "Recently listed SaaS products, ranked by their first week of verified user growth. Discover new tools before they hit the main leaderboard.",

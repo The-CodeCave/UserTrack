@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { fetchQuery } from "convex/nextjs";
+import { cachedQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
@@ -13,7 +13,7 @@ import { formatCompact, formatDate, formatDelta, formatPct } from "@/lib/format"
 import { SITE_URL, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 const SNAPSHOT_BOARDS = ["most-new", "fastest", "trending"] as const;
 type SnapshotBoard = (typeof SNAPSHOT_BOARDS)[number];
@@ -55,7 +55,7 @@ export async function generateMetadata({ params, searchParams }: { params: Param
 export default async function RankingSnapshotPage({ params, searchParams }: { params: Params; searchParams: Search }) {
   const r = await resolve(params, searchParams);
   if (!r) notFound();
-  const snap = await fetchQuery(api.public.rankingSnapshot, { period: r.period, board: r.board, category: r.category });
+  const snap = await cachedQuery(api.public.rankingSnapshot, { period: r.period, board: r.board, category: r.category });
   if (!snap) notFound();
   const title = titleFor(r.board, r.category, r.period);
   const path = rankingPath(r.period, r.category);

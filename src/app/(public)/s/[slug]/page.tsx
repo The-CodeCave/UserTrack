@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { fetchQuery } from "convex/nextjs";
+import { publicQuery } from "@/lib/convex-public";
 import { ExternalLink, Flame, Zap, Repeat, Globe, Target, ImageIcon, Award, Apple, Play, EyeOff } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { normalizeRole } from "@convex/providers/types";
@@ -34,11 +34,13 @@ import { saasUrl, shareUrl } from "@/lib/site";
 import { availableShareKinds } from "@/lib/share";
 import { cn } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
+// Registers the route for on-demand ISR: without generateStaticParams a dynamic segment is never cached.
+export const generateStaticParams = async () => [];
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const s = await fetchQuery(api.public.saasBySlug, { slug });
+  const s = await publicQuery(api.public.saasBySlug, { slug });
   if (!s) return { title: "Not found" };
   const title = `${s.name} — ${formatCompact(s.totalUsers)} users`;
   const description = `${s.description} · +${formatCompact(s.newUsers30d)} new users in 30 days${s.rank ? ` · #${s.rank} on UserTrack` : ""}${s.trendingRank ? ` · #${s.trendingRank} trending` : ""}.`;
@@ -48,9 +50,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function SaasPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const s = await fetchQuery(api.public.saasBySlug, { slug });
+  const s = await publicQuery(api.public.saasBySlug, { slug });
   if (!s) notFound();
-  const [bench, cohorts, related] = await Promise.all([fetchQuery(api.public.benchmarkHighlight, { slug }), fetchQuery(api.cohorts.publicCohorts, { slug }), fetchQuery(api.public.related, { slug, limit: 4 })]);
+  const [bench, cohorts, related] = await Promise.all([publicQuery(api.public.benchmarkHighlight, { slug }), publicQuery(api.cohorts.publicCohorts, { slug }), publicQuery(api.public.related, { slug, limit: 4 })]);
   const ranked = Boolean(s.rank || s.trendingRank);
   // "up from Top 25% last month" only when the previous standing exists and differs.
   const benchChange = bench?.previousPercentile !== undefined && bench.previousPercentile !== bench.percentile ? `${bench.percentile > bench.previousPercentile ? "up" : "down"} from ${bench.previousBand ?? `top ${100 - bench.previousPercentile}%`} last month` : null;

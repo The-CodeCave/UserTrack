@@ -4,7 +4,7 @@ import { BoardPage, parseBoard, type SP } from "@/components/public/board-page";
 import { TECH_STACK_BY_SLUG } from "@/lib/tech-stack";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 // "SaaS built with Next.js": one SEO page per curated technology; free-text stack entries only work as ?stack= on /discover.
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {

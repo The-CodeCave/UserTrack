@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { fetchQuery } from "convex/nextjs";
+import { cachedQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
@@ -12,7 +12,7 @@ import { ShareButtons } from "@/components/public/share-buttons";
 import { formatCompact, formatDelta, formatPct, formatRate } from "@/lib/format";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 type Days = 7 | 30 | 90 | 365 | 0;
 const WINDOWS: { days: Days; label: string; title: string }[] = [
@@ -41,7 +41,7 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
   const slugs = parse(sp.s);
   const days = parseDays(sp.days);
   const win = WINDOWS.find((w) => w.days === days)!;
-  const items = slugs.length ? await fetchQuery(api.public.compare, { slugs, days }) : [];
+  const items = slugs.length ? await cachedQuery(api.public.compare, { slugs, days }) : [];
   const rows: { label: string; get: (s: (typeof items)[number]) => string; accent?: boolean }[] = [
     { label: "Total users", get: (s) => formatCompact(s.totalUsers), accent: true },
     { label: "New · 7d", get: (s) => formatDelta(s.newUsers7d) },

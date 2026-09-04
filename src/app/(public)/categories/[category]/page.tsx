@@ -4,7 +4,7 @@ import { BoardPage, parseBoard, type SP } from "@/components/public/board-page";
 import { CATEGORIES } from "@/lib/categories";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 export async function generateMetadata({ params }: { params: Promise<{ category: string }> }): Promise<Metadata> {
   const { category } = await params;

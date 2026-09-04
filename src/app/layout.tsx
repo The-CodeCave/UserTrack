@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { AnalyticsIdentity, AnalyticsScript } from "@/components/analytics/analytics";
 import { ConvexClientProvider } from "@/components/providers/convex-client-provider";
 import { Toaster } from "@/components/ui/sonner";
-import { getToken } from "@/lib/auth-server";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -22,14 +21,14 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { themeColor: "#0b0c0e", colorScheme: "dark" };
 
-export default async function RootLayout({ children }: LayoutProps<"/">) {
-  const token = await getToken();
+export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <link rel="privacy-policy" href="/privacy" />
         <link rel="terms-of-service" href="/terms" />
-        <ConvexClientProvider initialToken={token}>
+        {/* No cookie read in the root layout: it would opt every public page out of ISR (OPS-2). The Convex token is resolved client-side. */}
+        <ConvexClientProvider>
           {children}
           <AnalyticsIdentity />
         </ConvexClientProvider>

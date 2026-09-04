@@ -47,6 +47,7 @@ import type * as leaderboard from "../leaderboard.js";
 import type * as lib_analytics from "../lib/analytics.js";
 import type * as lib_authProviders from "../lib/authProviders.js";
 import type * as lib_benchmarks from "../lib/benchmarks.js";
+import type * as lib_boardRules from "../lib/boardRules.js";
 import type * as lib_domain from "../lib/domain.js";
 import type * as lib_emailRules from "../lib/emailRules.js";
 import type * as lib_founder from "../lib/founder.js";
@@ -154,6 +155,7 @@ declare const fullApi: ApiFromModules<{
   "lib/analytics": typeof lib_analytics;
   "lib/authProviders": typeof lib_authProviders;
   "lib/benchmarks": typeof lib_benchmarks;
+  "lib/boardRules": typeof lib_boardRules;
   "lib/domain": typeof lib_domain;
   "lib/emailRules": typeof lib_emailRules;
   "lib/founder": typeof lib_founder;

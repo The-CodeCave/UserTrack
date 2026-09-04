@@ -21,7 +21,7 @@ import { ENV_PROJECT_ID, ENV_SECRET, envSnippet, NATIVE_PACKAGE, nativeSetup } f
 import { createNativeIntegration, nativeSourceArg } from "./native";
 import { metricsUrl } from "./providers/native";
 import { normalizeSource, type NativeSource } from "./lib/nativeProtocol";
-import { founderRows, publicProfile, publicSaas, sortBoard, trendingRankFor, feedItems, HIDDEN_GEM_RULES, NEW_RISING_RULES, PLATFORMS, type Board } from "./public";
+import { boardRows, founderRows, lastSyncedAt, publicProfile, publicSaas, trendingRankFor, feedItems, HIDDEN_GEM_RULES, NEW_RISING_RULES, PLATFORMS, type Board } from "./public";
 import { followTarget, unfollowTarget, watchlistFeed } from "./follows";
 import { createEndpoint, deleteEndpoint, listEndpoints, recentDeliveries, rotateEndpointSecret, sendTestEvent, updateEndpoint } from "./webhooks";
 import { MAX_ENDPOINTS, WEBHOOK_EVENTS } from "./lib/webhooks";
@@ -694,8 +694,7 @@ export const trending = query({
   handler: async (ctx, { auth, projectId, slug, window = "7d", category, limit }) =>
     run(async () => {
       const { profile } = await authenticate(ctx, auth, "mcp", "metrics:read");
-      const all = await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).collect();
-      const rows = sortBoard(all, { board: "trending", window, verifiedOnly: true, category, limit: Math.min(limit ?? 20, 50) });
+      const rows = await boardRows(ctx, { board: "trending", window, verifiedOnly: true, category, limit: Math.min(limit ?? 20, 50) });
       const own = projectId || slug ? await requireOwnedProject(ctx, profile._id, { id: projectId, slug }) : null;
       const item = (s: Doc<"saas">) => {
         const r = trendingRankFor(s, window);
@@ -980,8 +979,6 @@ async function lift<T>(fn: () => Promise<T>): Promise<T> {
 type Window = "24h" | "7d" | "30d";
 const windowArg = v.union(v.literal("24h"), v.literal("7d"), v.literal("30d"));
 const platformArg = v.union(...PLATFORMS.map((p) => v.literal(p)));
-const publicRows = (ctx: QueryCtx | MutationCtx) => ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).collect();
-
 // Compact public row for discovery / dataset answers: public projection only, never owner or visibility internals.
 function discoverRow(s: Doc<"saas">, w: Window) {
   const p = publicSaas(s);
@@ -1001,14 +998,13 @@ export const discover = query({
     run(async () => {
       await authenticate(ctx, auth, "mcp", "metrics:read");
       if (category && !CATEGORIES.some((c) => c.slug === category)) fail("bad_request", `category must be one of ${CATEGORIES.map((c) => c.slug).join(", ")}`);
-      const all = await publicRows(ctx);
-      const pick = (board: Board, w: Window, extra: { platform?: string } = {}) => sortBoard(all, { board, window: w, verifiedOnly: true, category, limit: 10, ...extra }).map((s) => discoverRow(s, w));
+      const pick = async (board: Board, w: Window, extra: { platform?: string } = {}) => (await boardRows(ctx, { board, window: w, verifiedOnly: true, category, limit: 10, ...extra })).map((s) => discoverRow(s, w));
       const base = siteUrlOf();
       return {
         category: category ?? null,
         window,
-        sections: { trending: pick("trending", window), fastestGrowing: pick("fastest", window), newAndRising: pick("new-rising", "7d"), hiddenGems: pick("hidden-gems", "7d"), movers: pick("movers", "30d"), mobile: pick("most-new", "30d", { platform: "mobile" }) },
-        feed: (await feedItems(ctx, all, 12, category)).map((i) => ({ id: i.id, kind: i.kind, at: new Date(i.at).toISOString(), title: i.title, detail: i.detail, value: i.value, project: { slug: i.saas.slug, name: i.saas.name, category: i.saas.category, totalUsers: i.saas.totalUsers, verification: i.saas.trust }, url: `${base}/s/${i.saas.slug}` })),
+        sections: { trending: await pick("trending", window), fastestGrowing: await pick("fastest", window), newAndRising: await pick("new-rising", "7d"), hiddenGems: await pick("hidden-gems", "7d"), movers: await pick("movers", "30d"), mobile: await pick("most-new", "30d", { platform: "mobile" }) },
+        feed: (await feedItems(ctx, 12, category)).map((i) => ({ id: i.id, kind: i.kind, at: new Date(i.at).toISOString(), title: i.title, detail: i.detail, value: i.value, project: { slug: i.saas.slug, name: i.saas.name, category: i.saas.category, totalUsers: i.saas.totalUsers, verification: i.saas.trust }, url: `${base}/s/${i.saas.slug}` })),
         hiddenGemRules: HIDDEN_GEM_RULES,
         newRisingRules: NEW_RISING_RULES,
         urls: { discover: `${base}/discover${category ? `?category=${category}` : ""}`, hiddenGems: `${base}/hidden-gems`, trending: `${base}/trending` },
@@ -1167,11 +1163,10 @@ export const dataset = query({
       const def = DATASETS[dataset as DatasetName];
       const w = window ?? def.window;
       const b = (dataset === "category" && board ? board : def.board) as Board;
-      const all = await publicRows(ctx);
-      const rows = sortBoard(all, { board: b, window: w, verifiedOnly: true, category, platform, limit: Math.min(limit ?? 50, 100) }).map((s, i) => datasetRow(publicSaas(s), i + 1, base));
+      const rows = (await boardRows(ctx, { board: b, window: w, verifiedOnly: true, category, platform, limit: Math.min(limit ?? 50, 100) })).map((s, i) => datasetRow(publicSaas(s), i + 1, base));
       const qs = new URLSearchParams({ window: w, ...(category ? { category } : {}), ...(platform ? { platform } : {}) });
       const path = dataset === "category" ? `/api/v1/datasets/categories/${category}` : `/api/v1/datasets/${dataset}`;
-      return { dataset, board: b, window: w, category: category ?? null, platform: platform ?? null, rows, updatedAt: all.reduce((a, s) => Math.max(a, s.lastSyncedAt ?? 0), 0) || null, methodology: `${base}${def.methodology}`, urls: { json: `${base}${path}?${qs}`, csv: `${base}${path}?${qs}&format=csv` } };
+      return { dataset, board: b, window: w, category: category ?? null, platform: platform ?? null, rows, updatedAt: await lastSyncedAt(ctx, null), methodology: `${base}${def.methodology}`, urls: { json: `${base}${path}?${qs}`, csv: `${base}${path}?${qs}&format=csv` } };
     }),
 });
 

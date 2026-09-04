@@ -6,7 +6,7 @@
 
 | Route | What |
 |---|---|
-| `/u/<username>` | Public profile (server-rendered, `force-dynamic`, JSON-LD `Person`, canonical, OG + Twitter card). Founders without public projects are `noindex` (no thin pages). |
+| `/u/<username>` | Public profile (server-rendered, ISR `revalidate = 300`, JSON-LD `Person`, canonical, OG + Twitter card). Founders without public projects are `noindex` (no thin pages). |
 | `/u/<username>/opengraph-image` | Social preview, rendered by the same founder-card renderer (90-day aggregate curve). |
 | `/u/<username>/card?style=…&size=…&range=…` | Downloadable founder card PNG (see `docs/SHARING.md`). |
 | `/api/v1/users/<username>` · `/api/v1/users/<username>/history` | Public JSON (`docs/API.md`). |

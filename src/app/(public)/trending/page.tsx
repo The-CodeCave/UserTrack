@@ -4,7 +4,7 @@ import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 export const metadata: Metadata = {
   title: "Trending SaaS right now",
   description: "SaaS products gaining meaningful traction right now — ranked by the UserTrack Trending Score (new users × growth × acceleration × trust × freshness × history), not by size.",

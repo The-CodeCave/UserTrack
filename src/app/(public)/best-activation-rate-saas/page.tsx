@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { BoardPage, parseBoard, type SP } from "@/components/public/board-page";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 const title = "SaaS with the best activation rate";
 const description = "SaaS products ranked by verified activation rate: activated users ÷ total users from a connected product-analytics source. Minimum 50 users.";
 export const metadata: Metadata = { title, description, alternates: { canonical: `${SITE_URL}/best-activation-rate-saas` }, openGraph: { title, description, url: `${SITE_URL}/best-activation-rate-saas` } };

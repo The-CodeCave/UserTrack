@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { BoardPage, parseBoard, type SP } from "@/components/public/board-page";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 export const metadata: Metadata = {
   title: "Best signup to converted rate",
   description: "SaaS products with the highest verified signup → converted rate. Only products that chose to publish their conversion rate are listed; user counts, never revenue.",

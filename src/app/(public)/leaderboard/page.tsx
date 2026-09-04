@@ -4,7 +4,7 @@ import { BOARD_META } from "@/lib/boards";
 import { categoryLabel } from "@/lib/categories";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 export async function generateMetadata({ searchParams }: { searchParams: Promise<SP> }): Promise<Metadata> {
   const s = parseBoard(await searchParams, { board: "most-new" });

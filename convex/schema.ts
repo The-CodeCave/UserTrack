@@ -135,6 +135,8 @@ export default defineSchema({
     newUsers30d: v.number(),
     growth30dPct: v.number(),
     growth7dPct: v.optional(v.number()),
+    // Materialized so the 24h "fastest growing" board can be read from an index instead of a full scan (OPS-2).
+    growth24hPct: v.optional(v.number()),
     newUsersPrev24h: v.optional(v.number()),
     newUsersPrev7d: v.optional(v.number()),
     newUsersPrev30d: v.optional(v.number()),
@@ -247,6 +249,23 @@ export default defineSchema({
     // Bounded reads of the current standings (weekly digest, health): ranks are only ever set on rankable products.
     .index("by_public_rank", ["isPublic", "rank"])
     .index("by_public_trending", ["isPublic", "trendingRank"])
+    // One index per public board sort key: `.order("desc")` on these is the board order, so a board read walks
+    // only as far as it needs instead of collecting every public row (convex/lib/boardRules.ts).
+    .index("by_public_trending24h", ["isPublic", "trendingScore24h"])
+    .index("by_public_trending7d", ["isPublic", "trendingScore7d"])
+    .index("by_public_trending30d", ["isPublic", "trendingScore30d"])
+    .index("by_public_growth24h", ["isPublic", "growth24hPct"])
+    .index("by_public_growth7d", ["isPublic", "growth7dPct"])
+    .index("by_public_growth30d", ["isPublic", "growth30dPct"])
+    .index("by_public_total", ["isPublic", "totalUsers"])
+    .index("by_public_new24h", ["isPublic", "newUsers24h"])
+    .index("by_public_new7d", ["isPublic", "newUsers7d"])
+    .index("by_public_activation_rate", ["isPublic", "activationRatePct"])
+    .index("by_public_rank_delta7d", ["isPublic", "rankDelta7d"])
+    .index("by_public_signup_conv", ["isPublic", "signupToConvertedPct"])
+    .index("by_public_trial_conv", ["isPublic", "trialToConvertedPct"])
+    .index("by_public_converted_growth", ["isPublic", "convertedGrowth30dPct"])
+    .index("by_public_verified_at", ["isPublic", "verifiedAt"])
     .searchIndex("search_name", { searchField: "name", filterFields: ["isPublic"] })
     .searchIndex("search_description", { searchField: "description", filterFields: ["isPublic"] }),
 
@@ -597,6 +616,21 @@ export default defineSchema({
   })
     .index("by_period_board_category", ["period", "board", "category"])
     .index("by_period", ["period"]),
+
+  // Single row (`key: "public"`) with the directory-wide counters every public page shows. Rewritten by the
+  // rerank job, which already pages the whole table, so /leaderboard never scans `saas` just to render 3 numbers.
+  publicStats: defineTable({
+    key: v.string(),
+    saasCount: v.number(),
+    verifiedCount: v.number(),
+    trackedUsers: v.number(),
+    newUsers30d: v.number(),
+    updatedAt: v.optional(v.number()),
+    // `count` = public products, `verifiedCount` = the ones boards actually list.
+    categories: v.array(v.object({ slug: v.string(), count: v.number(), verifiedCount: v.number(), updatedAt: v.optional(v.number()) })),
+    stacks: v.array(v.object({ slug: v.string(), count: v.number(), verifiedCount: v.number(), updatedAt: v.optional(v.number()) })),
+    computedAt: v.number(),
+  }).index("by_key", ["key"]),
 
   // Provenance of every history import (one row per attempt). Idempotent: re-running never duplicates snapshots.
   backfills: defineTable({

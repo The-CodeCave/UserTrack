@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { fetchQuery } from "convex/nextjs";
+import { publicQuery } from "@/lib/convex-public";
 import { ArrowRight, Plug, LineChart, Share2, ShieldCheck, Lock, Clock } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { CtaLink } from "@/components/analytics/analytics";
@@ -11,13 +11,13 @@ import { DemoChart } from "@/components/public/demo-chart";
 import { LeaderboardRow, MiniSaasCard } from "@/components/public/saas-card";
 import { formatCompact } from "@/lib/format";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 export default async function LandingPage() {
   const [top, trending, stats] = await Promise.all([
-    fetchQuery(api.public.leaderboard, { verifiedOnly: false, limit: 5 }),
-    fetchQuery(api.public.board, { board: "trending", window: "7d", verifiedOnly: false, limit: 3 }),
-    fetchQuery(api.public.stats, {}),
+    publicQuery(api.public.leaderboard, { verifiedOnly: false, limit: 5 }),
+    publicQuery(api.public.board, { board: "trending", window: "7d", verifiedOnly: false, limit: 3 }),
+    publicQuery(api.public.stats, {}),
   ]);
 
   return (

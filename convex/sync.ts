@@ -8,6 +8,7 @@ import { identitySalt, subjectHash } from "./lib/identity";
 import { fetchHistory, fetchMetrics, hasHistory } from "./providerRun";
 import { DAY, HOUR, dayKey, dayStart } from "./lib/time";
 import { growthPct, pct, previousWindowDelta, windowDelta } from "./lib/metrics";
+import { growth24h } from "./lib/boardRules";
 import { estimateRetention } from "./lib/retention";
 import { detectSpike } from "./lib/spikes";
 import { thresholdMilestones } from "./lib/milestones";
@@ -241,6 +242,7 @@ export async function recomputeDerived(ctx: MutationCtx, saasId: Id<"saas">, rep
     newUsers30d,
     growth30dPct: growthPct(total, b30d, first),
     growth7dPct: growthPct(total, b7d, first),
+    growth24hPct: growth24h({ totalUsers: total, newUsers24h }),
     newUsersPrev24h: previousWindowDelta(b24h, b48h, first),
     newUsersPrev7d: previousWindowDelta(b7d, b14d, first),
     newUsersPrev30d: previousWindowDelta(b30d, b60d, first),

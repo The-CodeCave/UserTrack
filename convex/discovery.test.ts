@@ -6,6 +6,7 @@ import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { markLaunched } from "./domain/events";
+import { sortBoard } from "./lib/boardRules";
 
 vi.mock("./email/users", () => ({ findAuthUser: async () => null }));
 
@@ -91,5 +92,34 @@ describe("discovery feed", () => {
     expect(await tx.query(api.public.benchmarkHighlight, { slug: "gem" })).toBeNull();
     const cmp = await tx.query(api.public.compare, { slugs: ["gem", "big", "gem"], days: 7 });
     expect(cmp.map((c) => c.slug)).toEqual(["gem", "big"]);
+  });
+
+  it("builds every /discover section from the board indexes, with and without a category filter (OPS-2)", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    const now = Date.now();
+    for (let i = 0; i < 15; i++) {
+      await seedSaas(tx, owner, {
+        slug: `d${i}`, name: `D${i}`, category: i % 3 === 0 ? "ai" : "developer-tools", projectType: i % 4 === 0 ? "mobile" : "web",
+        totalUsers: 200 + i * 40, newUsers7d: 12 + i * 3, newUsers30d: 40 + i * 20, growth7dPct: 11 + i, growth30dPct: 20 + i,
+        firstSnapshotAt: now - (i % 20) * DAY, verifiedAt: now - i * 1000,
+      });
+    }
+    await tx.action(internal.leaderboard.rerank, {});
+    const rows = await tx.run((ctx) => ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).order("desc").collect());
+    for (const category of [undefined, "ai"]) {
+      const d = await tx.query(api.public.discover, { category });
+      const pick = (board: Parameters<typeof sortBoard>[1]["board"], window: "24h" | "7d" | "30d", extra = {}) =>
+        sortBoard(rows, { board, window, verifiedOnly: true, limit: 5, category, ...extra }).map((s) => s.slug);
+      expect(d.trending.map((s) => s.slug), `trending/${category}`).toEqual(pick("trending", "7d"));
+      expect(d.fastestWeek.map((s) => s.slug)).toEqual(pick("fastest", "7d"));
+      expect(d.newest.map((s) => s.slug)).toEqual(pick("new-rising", "7d"));
+      expect(d.hiddenGems.map((s) => s.slug)).toEqual(pick("hidden-gems", "7d"));
+      expect(d.mobile.map((s) => s.slug)).toEqual(pick("most-new", "30d", { platform: "mobile" }));
+      expect(d.recentlyVerified.map((s) => s.slug)).toEqual(
+        rows.filter((s) => (!category || s.category === category) && s.verifiedAt !== undefined).sort((a, b) => b.verifiedAt! - a.verifiedAt!).slice(0, 5).map((s) => s.slug),
+      );
+      expect(d.updatedAt).toBe(rows.filter((s) => !category || s.category === category).reduce((a, s) => Math.max(a, s.lastSyncedAt ?? 0), 0));
+    }
   });
 });

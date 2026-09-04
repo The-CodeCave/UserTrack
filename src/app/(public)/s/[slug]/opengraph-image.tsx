@@ -1,4 +1,4 @@
-import { fetchQuery } from "convex/nextjs";
+import { publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { OgFrame, OgChart, OgEyebrow, OgLogo, OgStat, OgChip, OgBadge, OgArrowUp, ogImage, ogWordmark, remoteImage, truncate, OG_SIZE, MUTED, HOST } from "@/lib/og/frame";
 import { formatCompact, formatDelta, formatPct, formatRate, timeAgo } from "@/lib/format";
@@ -11,7 +11,7 @@ export const revalidate = 300;
 
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const s = await fetchQuery(api.public.saasBySlug, { slug });
+  const s = await publicQuery(api.public.saasBySlug, { slug });
   const wordmark = await ogWordmark();
   if (!s) {
     return ogImage(

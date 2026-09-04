@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { fetchQuery } from "convex/nextjs";
+import { cachedQuery } from "@/lib/convex-public";
 import { ArrowRight } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
@@ -15,7 +15,7 @@ import { formatCompact, formatDelta, formatPct, timeAgo } from "@/lib/format";
 import { SITE_URL, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 type Search = Promise<{ category?: string | string[]; stack?: string | string[] }>;
 
 // `?category=` narrows to a category, `?stack=` to products built with one technology (canonical page: /stacks/<slug>).
@@ -41,7 +41,7 @@ const chip = "inline-flex shrink-0 items-center gap-1.5 border px-2.5 py-1 font-
 
 export default async function DiscoverPage({ searchParams }: { searchParams: Search }) {
   const { category, stack } = await filtersOf(searchParams);
-  const d = await fetchQuery(api.public.discover, { category, stack });
+  const d = await cachedQuery(api.public.discover, { category, stack });
   const g = d.hiddenGemRules;
   const n = d.newRisingRules;
   const q = category ? `?category=${category}` : "";

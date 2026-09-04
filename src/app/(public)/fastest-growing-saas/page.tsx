@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { BoardPage, parseBoard, type SP } from "@/components/public/board-page";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 export const metadata: Metadata = {
   title: "Fastest growing SaaS",
   description: "The fastest growing SaaS products by verified percentage user growth — today, this week and this month. Live data from connected auth providers.",

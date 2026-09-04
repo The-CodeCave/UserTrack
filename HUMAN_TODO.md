@@ -544,3 +544,57 @@ Clerk, Supabase (API + read-only database mode), Firebase (createdAt scan), Post
 ### Benchmarks need real cohorts
 
 Benchmark cards and the public "Top X% …" statement only appear once a cohort (all / category / category × size / size bucket / platform / age) has at least **10** verified, non-demo products (`MIN_SAMPLE` in `convex/lib/benchmarks.ts`, raised from 5 in v0.9). Nothing to configure — this is a reminder that the dashboard shows "Not enough benchmark data yet" until enough founders have connected; the weekly benchmark history and the "up from Top 27 % last month" sentences start accumulating from the first day a cohort exists. **Status** [ ] Nothing to do
+
+---
+
+### Cloudflare "Cache Everything" for `/api/v1/*` and `/s/*` (OPS-2, optional)
+
+Every public page now answers with `Cache-Control: public, s-maxage=300, stale-while-revalidate=1800` and the JSON API with `public, s-maxage=300, stale-while-revalidate=600`, so any CDN in front of Railway caches them without further configuration. Cloudflare's *free* plan ignores `s-maxage` on HTML by default — it only caches static extensions — so if you want the HTML edge-cached too, add a Cache Rule once the domain is live:
+
+```
+# Cloudflare dashboard → Caching → Cache Rules → Create rule
+Name:       UserTrack public HTML
+Expression: (http.host eq "usertrack.dev" and not starts_with(http.request.uri.path, "/app")
+             and not starts_with(http.request.uri.path, "/api/auth")
+             and not starts_with(http.request.uri.path, "/sign-"))
+Action:     Cache eligibility → Eligible for cache
+            Edge TTL → Use cache-control header if present
+            Browser TTL → Respect origin
+```
+
+Verify afterwards with `curl -sI https://usertrack.dev/leaderboard | grep -i cf-cache-status` (expect `HIT` on the second request). Do **not** add `/app`, `/sign-in`, `/sign-up`, `/api/auth/*` or `/api/account/export` — they carry session cookies.
+
+**Status**
+* [ ] Optional
+
+---
+
+### Split the sitemap once the directory passes 5,000 public products (OPS-2)
+
+`public.sitemap` caps at 5,000 products (`SITEMAP_CHUNK` in `convex/public.ts`) and returns `hasMore: true` when it is full — one Convex query may read at most 8,192 documents, so the cap is a hard limit rather than a preference. Check it occasionally:
+
+```bash
+export PATH=/opt/homebrew/bin:$PATH
+npx convex run --prod public:sitemap '{}' | head -c 200   # look for "hasMore": true
+```
+
+When it flips to `true`, split `src/app/sitemap.ts` with Next's `generateSitemaps` (one file per 5,000 URLs) and give `public.sitemap` a cursor argument; `/sitemap/:id.xml` then needs adding back to `CACHEABLE_PUBLIC` in `src/lib/public-cache.ts`.
+
+**Status**
+* [ ] Nothing to do yet
+
+---
+
+### Re-run the rerank once after deploying OPS-2 (production)
+
+The new `publicStats` counters and the materialized `saas.growth24hPct` are written by the rerank job. It runs every 20 minutes on its own, so this is only to avoid one cycle of live-counted stats (identical numbers, just slower) and a 24-hour "fastest growing" board ordered from stale values:
+
+```bash
+export PATH=/opt/homebrew/bin:$PATH
+npx convex run --prod leaderboard:rerank '{}'
+npx convex data --prod publicStats          # one row, key "public"
+```
+
+**Status**
+* [ ] Recommended right after the deploy
+

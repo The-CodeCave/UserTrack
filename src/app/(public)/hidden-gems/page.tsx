@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { BoardPage, parseBoard, type SP } from "@/components/public/board-page";
 import { SITE_URL } from "@/lib/site";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 const title = "Hidden gem SaaS: small products with verified traction";
 const description = "SaaS products under 1,000 users that gained at least 10 new users and 10% this week from a verified source. Small, real and growing — before anyone else notices.";
 export const metadata: Metadata = { title, description, alternates: { canonical: `${SITE_URL}/hidden-gems` }, openGraph: { title, description, url: `${SITE_URL}/hidden-gems` } };

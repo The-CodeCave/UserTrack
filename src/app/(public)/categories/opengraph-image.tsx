@@ -1,4 +1,4 @@
-import { fetchQuery } from "convex/nextjs";
+import { publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { OgFrame, OgEyebrow, ogImage, ogWordmark, OG_SIZE, LINE, PINK, MUTED, DIM, HOST } from "@/lib/og/frame";
 import { CATEGORIES } from "@/lib/categories";
@@ -9,7 +9,7 @@ export const alt = "SaaS growth leaderboards by category";
 export const revalidate = 300;
 
 export default async function Image() {
-  const stats = await fetchQuery(api.public.stats, {});
+  const stats = await publicQuery(api.public.stats, {});
   const counts = new Map(stats.categories.map((c) => [c.slug, c.count]));
 
   return ogImage(

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { fetchQuery } from "convex/nextjs";
+import { publicQuery } from "@/lib/convex-public";
 import { Globe, MapPin, CalendarDays, Award, Flame, Zap } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
@@ -19,11 +19,12 @@ import { xProfileUrl } from "@/lib/social";
 import { xDraft } from "@/lib/x-drafts";
 import { cn } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
+export const generateStaticParams = async () => [];
 
 export async function generateMetadata({ params }: { params: Promise<{ username: string }> }): Promise<Metadata> {
   const { username } = await params;
-  const p = await fetchQuery(api.public.profileByUsername, { username });
+  const p = await publicQuery(api.public.profileByUsername, { username });
   if (!p) return { title: "Not found", robots: { index: false } };
   const a = p.aggregates;
   const title = `${p.displayName} — SaaS Founder on UserTrack`;
@@ -34,7 +35,7 @@ export async function generateMetadata({ params }: { params: Promise<{ username:
 
 export default async function ProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = await params;
-  const p = await fetchQuery(api.public.profileByUsername, { username });
+  const p = await publicQuery(api.public.profileByUsername, { username });
   if (!p) notFound();
   const a = p.aggregates;
   const url = profileUrl(p.username);
