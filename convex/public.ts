@@ -50,12 +50,15 @@ async function publicOwner(ctx: QueryCtx, s: Doc<"saas">) {
   return owner ? publicProfile(owner) : null;
 }
 
+// One row per day, so the range holds ~30 anyway — but the read is bounded explicitly: newest first, then reversed.
+const SPARK_DAYS = 30;
 async function sparkline(ctx: QueryCtx, saasId: Id<"saas">) {
   const rows = await ctx.db
     .query("dailyMetrics")
-    .withIndex("by_saas_day", (q) => q.eq("saasId", saasId).gte("day", dayKey(Date.now() - 30 * DAY)))
-    .collect();
-  return rows.map((r) => r.totalUsers);
+    .withIndex("by_saas_day", (q) => q.eq("saasId", saasId).gte("day", dayKey(Date.now() - SPARK_DAYS * DAY)))
+    .order("desc")
+    .take(SPARK_DAYS);
+  return rows.reverse().map((r) => r.totalUsers);
 }
 
 async function withOwnerAndSpark(ctx: QueryCtx, s: Doc<"saas">) {
@@ -95,8 +98,9 @@ export async function boardRows(ctx: QueryCtx, f: BoardFilters) {
   let scanned = 0;
   for await (const s of ctx.db.query("saas").withIndex(idx.name, (q) => q.eq("isPublic", true)).order("desc")) {
     if (++scanned > MAX_BOARD_SCAN) break;
-    const key = idx.key(s);
-    if (matches.length >= f.limit && key !== undefined && boundary !== undefined && key < boundary) break;
+    // A row whose key was never written (a field added after its last sync) sorts last on the index, so it counts as the lowest.
+    const key = idx.key(s) ?? -Infinity;
+    if (matches.length >= f.limit && boundary !== undefined && key < boundary) break;
     if (!boardPass(s, f, now)) continue;
     matches.push(s);
     if (matches.length === f.limit) boundary = key;
@@ -157,15 +161,16 @@ export const leaderboard = query({
   },
 });
 
-// One round trip for the homepage: top 100 by total users, the new-rising carousel, and directory stats. Demo rows never appear here.
+// One round trip for the homepage: top 100 by total users, the new-rising carousel and the directory counters.
+// Both lists are bounded index walks and demo rows never appear. The Top 100 renders as dense rows (rank, logo,
+// name, total users) — no sparkline and no founder — so those rows carry neither: ~110 + 10 sparklines per request.
 export const landing = query({
   args: {},
   handler: async (ctx) => {
-    const rows = (await publicSet(ctx)).filter((s) => !s.isDemo);
-    const top = [...rows].sort((a, b) => b.totalUsers - a.totalUsers).slice(0, 100);
-    const newAndHot = sortBoard(rows, { board: "new-rising", window: "7d", verifiedOnly: true, limit: 10 });
+    const top = await boardRows(ctx, { board: "most-users", window: "30d", verifiedOnly: false, hideDemo: true, limit: 100 });
+    const newAndHot = await boardRows(ctx, { board: "new-rising", window: "7d", verifiedOnly: true, hideDemo: true, limit: 10 });
     return {
-      top: await Promise.all(top.map((s) => withOwnerAndSpark(ctx, s))),
+      top: top.map((s) => ({ ...publicSaas(s), spark: [] as number[] })),
       newAndHot: await Promise.all(newAndHot.map((s) => withOwnerAndSpark(ctx, s))),
       stats: await statsFor(ctx),
     };

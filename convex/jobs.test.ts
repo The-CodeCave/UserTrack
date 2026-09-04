@@ -32,6 +32,12 @@ async function seedProjects(tx: ReturnType<typeof t>, ownerId: Id<"profiles">, c
   });
 }
 
+// The rerank is a scheduler chain (phase 1 pages → rankPlan → applyRanks pages); tests drive it to completion.
+const rerank = async (tx: ReturnType<typeof t>) => {
+  await tx.mutation(internal.leaderboard.rerank, {});
+  await tx.finishAllScheduledFunctions(() => {});
+};
+
 const runsFor = (tx: ReturnType<typeof t>, job: string) => tx.run((ctx) => ctx.db.query("jobRuns").withIndex("by_job_time", (q) => q.eq("job", job)).collect());
 
 // Every driver must finish its table in ceil(N / pageSize) pages, and no page may hold more than the page size.
@@ -50,7 +56,7 @@ describe("paged jobs — identical results", () => {
     const tx = t();
     const owner = await seedOwner(tx);
     await seedProjects(tx, owner, 120);
-    await tx.action(internal.leaderboard.rerank, {});
+    await rerank(tx);
     const rows = await tx.run((ctx) => ctx.db.query("saas").collect());
     const reference = [...rows].sort((a, b) => b.newUsers30d - a.newUsers30d || b.growth30dPct - a.growth30dPct || b.totalUsers - a.totalUsers).map((s) => s.slug);
     expect([...rows].sort((a, b) => a.rank! - b.rank!).map((s) => s.slug)).toEqual(reference);
@@ -99,6 +105,23 @@ describe("paged jobs — 250 projects", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reranks the whole table through the scheduler chain with the single-shot ordering and leaves no scratch behind", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    await seedProjects(tx, owner, 250);
+    await rerank(tx);
+    const rows = await tx.run((ctx) => ctx.db.query("saas").collect());
+    const reference = [...rows].sort((a, b) => b.newUsers30d - a.newUsers30d || b.growth30dPct - a.growth30dPct || b.totalUsers - a.totalUsers).map((s) => s.slug);
+    expect([...rows].sort((a, b) => a.rank! - b.rank!).map((s) => s.slug)).toEqual(reference);
+    const trending = rows.filter((s) => s.trendingRank !== undefined).sort((a, b) => a.trendingRank! - b.trendingRank!);
+    expect(trending.map((s) => s.trendingRank)).toEqual(trending.map((_, i) => i + 1));
+    // Only phase 3 records pages, so the run still reads as one page of 50 products per page.
+    await expectRun(tx, "rerank leaderboard", 250, PAGE.rerank);
+    expect(await tx.run((ctx) => ctx.db.query("rankScratch").collect())).toHaveLength(0);
+    const stats = await tx.run((ctx) => ctx.db.query("publicStats").withIndex("by_key", (q) => q.eq("key", "public")).unique());
+    expect(stats).toMatchObject({ saasCount: 250, verifiedCount: 250 });
   });
 
   it("stages the sync fan-out and the cohort rebuild without reading either table at once", async () => {
@@ -201,11 +224,27 @@ describe("jobRuns running lock", () => {
     const owner = await seedOwner(tx);
     await seedProjects(tx, owner, 5);
     await tx.mutation(internal.jobs.begin, { job: "rerank leaderboard" });
-    await tx.action(internal.leaderboard.rerank, {});
+    await rerank(tx);
     const runs = await runsFor(tx, "rerank leaderboard");
     expect(runs).toHaveLength(1);
     expect(runs[0].pages).toBe(0);
     expect(await tx.run((ctx) => ctx.db.query("saas").collect())).toSatisfy((rows: { rank?: number }[]) => rows.every((s) => s.rank === undefined));
+  });
+
+  it("drops the scratch rows a dead rerank chain left behind before the next one starts", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    await seedProjects(tx, owner, 3);
+    const dead = (await tx.mutation(internal.jobs.begin, { job: "rerank leaderboard" }))!;
+    await tx.run(async (ctx) => {
+      const s = (await ctx.db.query("saas").first())!;
+      await ctx.db.insert("rankScratch", { runId: dead, saasId: s._id, slug: s.slug, eligible: true, newUsers30d: 9, growth30dPct: 9, totalUsers: 9, s24: 0, s7: 0, s30: 0, rank: 99 });
+      await ctx.db.patch(dead, { finishedAt: Date.now(), lastError: "abandoned (lock expired)" });
+    });
+    await rerank(tx);
+    expect(await tx.run((ctx) => ctx.db.query("rankScratch").collect())).toHaveLength(0);
+    const rows = await tx.run((ctx) => ctx.db.query("saas").collect());
+    expect(rows.map((s) => s.rank).sort()).toEqual([1, 2, 3]);
   });
 
   it("closes the run of a page that throws instead of holding the lock until the TTL", async () => {

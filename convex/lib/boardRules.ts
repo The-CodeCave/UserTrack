@@ -19,7 +19,7 @@ export const HIDDEN_GEM_RULES = { maxUsers: 1000, minNew7d: 10, minGrowth7dPct: 
 
 export const isVerified = (s: Doc<"saas">) => s.trust === "verified" && s.trustState !== "review";
 
-export interface BoardFilters { board: Board; window: BoardWindow; verifiedOnly: boolean; category?: string; size?: string; platform?: string; stack?: string; limit: number }
+export interface BoardFilters { board: Board; window: BoardWindow; verifiedOnly: boolean; category?: string; size?: string; platform?: string; stack?: string; hideDemo?: boolean; limit: number }
 
 const newIn = (s: Doc<"saas">, w: BoardWindow) => (w === "24h" ? s.newUsers24h : w === "7d" ? s.newUsers7d : s.newUsers30d);
 // 24h growth is materialized on the row (growth24hPct) but recomputed here so a row synced before the field existed still sorts right.
@@ -60,6 +60,8 @@ export const BOARD_RULES: Record<Board, Rule> = {
       { name: "by_public_trending30d" as const, key: (s: Doc<"saas">) => s.trendingScore30d },
     ),
   },
+  // `growth24hPct` is only written by `recomputeDerived` / every rerank: a row synced before it existed has no index
+  // key and sorts last (undefined is the lowest key), so run one rerank after deploying (HUMAN_TODO step 9).
   fastest: {
     include: (s, w) => newIn(s, w) >= 10,
     score: growthIn,
@@ -127,6 +129,7 @@ export const SIZE_KEYS = SIZE_BUCKETS.map((b) => b.key);
 // Filters that apply to every board, in the order the boards have always applied them.
 export function boardPass(s: Doc<"saas">, f: BoardFilters, now: number) {
   if (f.verifiedOnly && !isVerified(s)) return false;
+  if (f.hideDemo && s.isDemo) return false;
   if (f.size && sizeBucket(s.totalUsers) !== f.size) return false;
   if (f.category && s.category !== f.category) return false;
   if (f.platform && platformOf(s) !== f.platform) return false;

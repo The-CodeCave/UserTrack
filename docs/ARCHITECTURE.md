@@ -177,12 +177,19 @@ growing product count can never break rankings, milestones, trust or sync for ev
   `digest.generate`, `email.reports.generateMonthly`, `email.lifecycle.noGrowthSweep` (`quiet product check`).
 - **Two-phase driver** (`internalAction`) where the result needs a global ordering: phase 1 pages a compact projection
   (ids + the few numbers the ordering needs) into the action, phase 2 computes in memory, phase 3 writes back in pages of
-  mutations. `leaderboard.rerank`, `daily.benchmarks`, `daily.snapshotRankings`, `sync.runAll`, `cohorts.rebuildAll`.
+  mutations. `daily.benchmarks`, `daily.snapshotRankings`, `sync.runAll`, `cohorts.rebuildAll`.
+- **Three-phase chain of mutations** for the one job that must both walk the whole table and order it globally,
+  `leaderboard.rerank` (FIX-3): phase 1 pages `saas` and writes one compact `rankScratch` row per product, phase 2
+  (`rankPlan`) reads those rows, computes the leaderboard + 24h/7d/30d trending orderings in memory, stamps the ranks
+  back onto them and writes `publicStats`, phase 3 (`applyRanks`) pages the scratch rows, patches the products and
+  deletes each row it applied. Every step carries the same `runId` and the same `now`; only phase 3 records pages, so a
+  run still reads `pages = ceil(products / 50)`. Nothing lives in an action, so the 10-minute action limit cannot end a
+  rerank half-applied. Ceiling: phase 2 is one transaction over every scratch row → ~8k products (A219).
 
 | Job | Driver | Page | Per page |
 |---|---|---|---|
 | `daily sweep` (`daily.run`) | mutation | **10** projects | ≤ 400 `dailyMetrics` + all `milestones` per project |
-| `rerank leaderboard` (`leaderboard.rerank`) | action | **50** | phase 1 ≈ 1 read, phase 3 ≈ 20 reads + 6 writes per project |
+| `rerank leaderboard` (`leaderboard.rerank`) | mutation chain | **50** | phase 1 ≈ 1 read + 1 write, phase 3 ≈ 20 reads + 6 writes per project |
 | `benchmarks` (`daily.benchmarks`) | action | **50** | projection only; aggregates written in chunks of 100 |
 | `benchmark standings` (`daily.standings`) | mutation | **50** | ≤ cohorts × 10 aggregate reads + 1 history row |
 | `trust review` (`trust.dailyReview`) | mutation | **50** | flags + integrations + 30 `syncRuns` per project |
@@ -220,9 +227,11 @@ before the next trigger arrives. TTLs live in `LOCK_TTL_MS` / `DEFAULT_LOCK_TTL_
 
 `/api/health?deep=1` reports `running` and `stale` (open past its TTL) per job next to the counters.
 
-**Ceilings.** The two-phase accumulators live in the action's memory (~100 bytes per project for rerank / benchmarks, one id
+**Ceilings.** The remaining two-phase accumulators live in the action's memory (~100 bytes per project for benchmarks, one id
 per integration for the sync fan-out), which is comfortable to ~50k projects; `daily.snapshotRankings` keeps the public
-rankable rows themselves and is the first to feel a large table. Beyond that the accumulator has to move to a scratch table.
+rankable rows themselves and is the first to feel a large table. Beyond that the accumulator has to move to a scratch table,
+which is what `leaderboard.rerank` already did (FIX-3): its ceiling is phase 2, one transaction over every scratch row, ~8k
+products (A219).
 The weekly digest reads bounded windows instead of the whole public table: trending from `by_public_trending`, movers from
 the top **200** of `by_public_rank`, and at most **500** follows per profile.
 
@@ -358,6 +367,8 @@ The directory counters on every board page (`public.stats`, `public.boardMeta`, 
 | **Total** | **3 N** | **~102**, independent of N |
 
 At 200 public products that is 600 → ~102 documents per crawler hit; at 5,000 it is 15,000 → ~102, and with ISR the whole page is served from cache for 5 minutes anyway. `/discover` went from one N-row collect to ten ≤ 5-row index walks plus one `publicStats` read; `/sitemap.xml` from N to at most 5,000.
+
+**Read cost of one `/` (homepage) request.** `public.landing` answers the whole page: `top` is `boardRows(most-users, limit 100, verifiedOnly false, hideDemo)`, `newAndHot` is `boardRows(new-rising, 7d, limit 10)` and `stats` is the `publicStats` row. The Top 100 renders as dense rows (position, logo, name, total users) — no sparkline and no founder — so those rows carry neither; only the ten carousel cards resolve an owner and a sparkline, and `sparkline` itself is now `take(30)` off `by_saas_day` (descending, then reversed) instead of an unbounded `collect`. Measured under a 600-document transaction limit on a 1,000-product seed (`convex/boardScan.test.ts`): **~430 documents** — ~110 board rows + 10 owners + 10 × 30 daily rows + the counters row — instead of 5,000 products + 110 unbounded history reads.
 
 ## Error tracking, health and degraded reads (v1.0, OPS-3)
 - **Sentry** is feature-flagged on `NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_DSN`. Without a DSN `Sentry.init` is never called and

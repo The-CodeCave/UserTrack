@@ -22,7 +22,7 @@ Last updated: 2026-09-04 · code state: **v1.0 launch hardening complete** (SEC-
 | 6 | **Rybbit goals + funnels (incl. `waitlist_join`)** | Rybbit has no API for goals/funnels. Without them every funnel in the dashboard stays empty — including the waitlist phase. | *Rybbit — site settings, goals, funnels and API key (ANALYTICS-1)* |
 | 7 | **Google OAuth consent screen with `/privacy` + `/terms`** | Both pages exist since LEGAL-1. Google needs them before the app can leave "Testing" (100 manually added users). | *Google sign-in — create the OAuth client*, step 2 |
 | 8 | **Lawyer review of the legal texts** | `/impressum`, `/privacy`, `/terms` were written by an agent from the code. They are accurate about the software; they are not legal advice. | *Legal pages — lawyer review + effective date (LEGAL-1)* |
-| 9 | **`npx convex deploy --yes`** | Backend first: new tables (`profilePrefills`, `publicStats`, `jobRuns`), 29 new indexes, the `@convex-dev/rate-limiter` component, the new crons and functions. | *9. Deploy Convex* |
+| 9 | **`npx convex deploy --yes`** + one manual `leaderboard:rerank` | Backend first: new tables (`profilePrefills`, `publicStats`, `jobRuns`, `rankScratch`), 30 new indexes, the `@convex-dev/rate-limiter` component, the new crons and functions. The rerank materializes `growth24hPct` on rows listed before v1.0, without which the 24h "fastest growing" board is short until the first cron. | *9. Deploy Convex* |
 | 10 | **`npx convex run --prod migrations:nativeV1`** | The one migration that may still be pending from v0.7. Idempotent and paged — safe to run again. | *10. Run the pending migration* |
 | 11 | **`railway up --service usertrack --ci`** | Then the app. Also: set the Railway health-check path to `/api/health` (OPS-3 changed it in `railway.toml`; a service created with the path in the dashboard needs it there too). | *11. Deploy the app* |
 | 12 | **Domain / DNS** (+ `UT_TRUST_CF_HEADERS`) | `usertrack.dev` has Cloudflare nameservers but **no A/CNAME record**, so nothing resolves. During the interim phase point it at the **waitlist** service, then switch the record to the main app. The moment the record is **proxied** (orange cloud), set `UT_TRUST_CF_HEADERS=1` on Railway or every visitor shares one rate-limit bucket. | *12. Domain / DNS (interim waitlist → main app)* |
@@ -69,7 +69,13 @@ railway up --service usertrack --ci
 npx convex env list --prod           # UT_GATEWAY_SECRET + RESEND_API_KEY present (steps 1 and 2)
 npx convex deploy --yes
 ```
-Adds three tables (`profilePrefills`, `publicStats`, `jobRuns`), 29 indexes, the `@convex-dev/rate-limiter` component tables and optional fields on `saas` / `profiles`. **Nothing is removed or renamed**, so the currently deployed app keeps working while this runs. Rollback: `npx convex deploy --yes` from the previous commit (`docs/RELEASE-v1.0.md` → Rollback).
+Adds four tables (`profilePrefills`, `publicStats`, `jobRuns`, `rankScratch`), 30 indexes, the `@convex-dev/rate-limiter` component tables and optional fields on `saas` / `profiles`. **Nothing is removed or renamed**, so the currently deployed app keeps working while this runs. Rollback: `npx convex deploy --yes` from the previous commit (`docs/RELEASE-v1.0.md` → Rollback).
+
+Then, in the same session, kick one ranking pass by hand:
+```bash
+npx convex run --prod leaderboard:rerank '{}'
+```
+**Why it cannot wait for the cron** — the board indexes sort on materialized fields, and `saas.growth24hPct` is only written by a rerank. Every product listed before v1.0 therefore has no key on `by_public_growth24h` and sorts last, so `/fastest-growing-saas?window=24h` stays short until the first rerank after deploy. The next cron (`20 */4 * * *`) fixes it within four hours anyway; running it manually makes the first public hour correct. The command returns immediately — it starts a scheduler chain; watch `jobRuns` in the dashboard (`job = "rerank leaderboard"`, `finishedAt` set, `errors = 0`) and confirm `rankScratch` is empty afterwards.
 
 **Status** — * [ ] Pending
 

@@ -49,6 +49,12 @@ async function seed(tx: ReturnType<typeof t>, n = 40) {
   return owner;
 }
 
+// The rerank is a scheduler chain (phase 1 pages → rankPlan → applyRanks pages); tests drive it to completion.
+const rerank = async (tx: ReturnType<typeof t>) => {
+  await tx.mutation(internal.leaderboard.rerank, {});
+  await tx.finishAllScheduledFunctions(() => {});
+};
+
 const allPublic = (tx: ReturnType<typeof t>) => tx.run((ctx) => ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).order("desc").collect()) as Promise<Doc<"saas">[]>;
 
 describe("bounded board reads", () => {
@@ -115,6 +121,39 @@ describe("landing query", () => {
     expect(landing.newAndHot.map((s) => s.slug)).toEqual(sortBoard(rows, { board: "new-rising", window: "7d", verifiedOnly: true, limit: 10 }).map((s) => s.slug));
     expect(landing.newAndHot.some((s) => s.slug === "demo")).toBe(false);
     expect(landing.stats).toEqual(await tx.query(api.public.stats, {}));
+    // The Top 100 renders dense (no sparkline, no founder), the carousel cards render both.
+    expect(landing.top.every((s) => s.spark.length === 0)).toBe(true);
+    expect(landing.newAndHot.every((s) => s.owner?.username === "ada")).toBe(true);
+  });
+
+  // FIX-3: the payload used to be `publicSet` (take(5000)) + an unbounded dailyMetrics collect per row.
+  it("stays under 600 read documents on a 1,000-product directory", async () => {
+    const tx = convexTest({ schema, modules, transactionLimits: { documentsRead: 600 } });
+    const owner = await tx.run((ctx) => ctx.db.insert("profiles", { userId: "u1", username: "ada", displayName: "Ada", onboardingCompleted: true }));
+    const now = Date.now();
+    for (let chunk = 0; chunk < 10; chunk++) {
+      await tx.run(async (ctx) => {
+        for (let j = 0; j < 100; j++) {
+          const i = chunk * 100 + j;
+          // The 12 youngest products are the only ones the carousel can list, and they carry 40 days of history each.
+          const rising = i < 12;
+          const saasId = await ctx.db.insert("saas", {
+            ownerId: owner, name: `S${i}`, slug: `s${i}`, description: "d", websiteUrl: "https://a.io", tags: [], category: "ai", isPublic: true, trust: "verified", trustScore: 80,
+            totalUsers: 100_000 - i, newUsers24h: 1, newUsers7d: rising ? 900 - i : 5, newUsers30d: 100 - (i % 90), growth30dPct: i % 30, growth7dPct: 4,
+            firstSnapshotAt: rising ? now - DAY : now - 200 * DAY, lastSyncedAt: now,
+          });
+          if (rising) for (let d = 0; d < 40; d++) await ctx.db.insert("dailyMetrics", { saasId, day: new Date(now - d * DAY).toISOString().slice(0, 10), totalUsers: 10 + d, newUsers: 1 });
+        }
+      });
+    }
+    // The counters come from the singleton every rerank writes; without it `stats` falls back to the capped live scan.
+    await tx.run((ctx) => ctx.db.insert("publicStats", { key: "public", saasCount: 1000, verifiedCount: 1000, trackedUsers: 1, newUsers30d: 1, categories: [], stacks: [], computedAt: now }));
+    const landing = await tx.query(api.public.landing, {});
+    expect(landing.top).toHaveLength(100);
+    expect(landing.top[0].slug).toBe("s0");
+    expect(landing.newAndHot).toHaveLength(10);
+    // ~110 board rows + 10 owners + 10 × 30 sparkline days + the counters row.
+    expect(landing.newAndHot.every((s) => s.spark.length === 30)).toBe(true);
   });
 });
 
@@ -124,7 +163,7 @@ describe("materialized directory counters", () => {
     await seed(tx, 12);
     const rows = await allPublic(tx);
     const live = await tx.query(api.public.stats, {});
-    await tx.action(internal.leaderboard.rerank, {});
+    await rerank(tx);
     const stored = await tx.query(api.public.stats, {});
     expect(stored.saasCount).toBe(live.saasCount);
     expect(stored.trackedUsers).toBe(live.trackedUsers);
@@ -142,7 +181,7 @@ describe("materialized directory counters", () => {
     await tx.run(async (ctx) => {
       for (const s of await ctx.db.query("saas").collect()) await ctx.db.patch(s._id, { growth24hPct: undefined });
     });
-    await tx.action(internal.leaderboard.rerank, {});
+    await rerank(tx);
     const rows = await allPublic(tx);
     expect(rows.every((s) => s.growth24hPct === growth24h(s))).toBe(true);
   });

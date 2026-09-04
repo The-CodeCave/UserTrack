@@ -10,6 +10,12 @@ vi.mock("./email/users", () => ({ findAuthUser: async () => null }));
 
 const modules = import.meta.glob("./**/*.*s");
 const t = () => convexTest(schema, modules);
+
+// The rerank is a scheduler chain (phase 1 pages → rankPlan → applyRanks pages); tests drive it to completion.
+const rerank = async (tx: ReturnType<typeof t>) => {
+  await tx.mutation(internal.leaderboard.rerank, {});
+  await tx.finishAllScheduledFunctions(() => {});
+};
 const DAY = 86_400_000;
 const dayKey = (ts: number) => new Date(ts).toISOString().slice(0, 10);
 
@@ -23,8 +29,8 @@ describe("ranking history", () => {
     const owner = await seedOwner(tx);
     const ids: Id<"saas">[] = [];
     for (let i = 0; i < 12; i++) ids.push(await seedSaas(tx, owner, { slug: `p${i}`, name: `P${i}`, newUsers30d: 1000 - i * 50 }));
-    await tx.action(internal.leaderboard.rerank, {});
-    await tx.action(internal.leaderboard.rerank, {});
+    await rerank(tx);
+    await rerank(tx);
     const today = dayKey(Date.now());
     const rows = await tx.run((ctx) => ctx.db.query("rankHistory").collect());
     // 12 leaderboard rows + 3 trending windows × 12, one per day each (the second rerank patched, never duplicated).
@@ -41,7 +47,7 @@ describe("ranking history", () => {
       await ctx.db.insert("rankHistory", { saasId: ids[11], kind: "leaderboard", window: "30d", day: dayKey(Date.now() - 7 * DAY), rank: 30, at: Date.now() - 7 * DAY });
       await ctx.db.insert("rankHistory", { saasId: ids[0], kind: "leaderboard", window: "30d", day: dayKey(Date.now() - 8 * DAY), rank: 3, at: Date.now() - 8 * DAY });
     });
-    await tx.action(internal.leaderboard.rerank, {});
+    await rerank(tx);
     const moved = (await tx.run((ctx) => ctx.db.get(ids[11])))!;
     expect(moved.rank7dAgo).toBe(30);
     expect(moved.rankDelta7d).toBe(18);
@@ -51,7 +57,7 @@ describe("ranking history", () => {
     const jumps = await tx.run((ctx) => ctx.db.query("events").collect());
     expect(jumps.filter((e) => e.kind === "rank_jump").map((e) => [e.saasId, e.title])).toEqual([[ids[11], "#30 → #12"]]);
     // A second rerank the same week does not repeat the jump event.
-    await tx.action(internal.leaderboard.rerank, {});
+    await rerank(tx);
     expect((await tx.run((ctx) => ctx.db.query("events").collect())).filter((e) => e.kind === "rank_jump").length).toBe(1);
     // Movers board + discovery read the stored movement; the rank history query exposes it with the best rank.
     const movers = await tx.query(api.public.board, { board: "movers" });
@@ -132,7 +138,7 @@ describe("benchmark history + monthly rankings", () => {
     const tx = t();
     const owner = await seedOwner(tx);
     for (let i = 0; i < 12; i++) await seedSaas(tx, owner, { slug: `p${i}`, name: `P${i}`, category: "ai", projectType: "mobile", growth30dPct: 10 + i * 10, activationRatePct: 20 + i * 5, totalUsers: 2000 + i });
-    await tx.action(internal.leaderboard.rerank, {});
+    await rerank(tx);
     await tx.action(internal.daily.benchmarks, {});
     const aggs = await tx.run((ctx) => ctx.db.query("benchmarkAggregates").collect());
     const keys = new Set(aggs.map((a) => a.groupKey));

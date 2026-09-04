@@ -829,6 +829,27 @@ export default defineSchema({
     .index("by_profile_period", ["profileId", "period"])
     .index("by_period", ["period"]),
 
+  // Scratch rows of one rerank chain (convex/leaderboard.ts): one compact projection per product, written by phase 1,
+  // stamped with the computed ranks by phase 2 and deleted page by page by phase 3. Never read by anything public.
+  rankScratch: defineTable({
+    runId: v.id("jobRuns"),
+    saasId: v.id("saas"),
+    slug: v.string(),
+    eligible: v.boolean(),
+    newUsers30d: v.number(),
+    growth30dPct: v.number(),
+    totalUsers: v.number(),
+    s24: v.number(),
+    s7: v.number(),
+    s30: v.number(),
+    // The public facts the directory counters are summed from; absent for a private product.
+    pub: v.optional(v.object({ verified: v.boolean(), totalUsers: v.number(), newUsers30d: v.number(), category: v.optional(v.string()), stacks: v.optional(v.array(v.string())), lastSyncedAt: v.optional(v.number()) })),
+    rank: v.optional(v.number()),
+    t24: v.optional(v.number()),
+    t7: v.optional(v.number()),
+    t30: v.optional(v.number()),
+  }).index("by_run", ["runId"]),
+
   // One row per run of a paged background job (convex/jobs.ts). Operators read it in the Convex dashboard and /api/health.
   jobRuns: defineTable({
     job: v.string(),

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { internalMutation, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { PAGE, failActionRun, jobError, recordPage } from "./jobs";
+import { PAGE, failRun, jobError, recordPage, startRun } from "./jobs";
 import type { Doc, Id } from "./_generated/dataModel";
 import { trendingScore } from "./lib/trending";
 import { growth24h, isVerified } from "./lib/boardRules";
@@ -42,75 +42,76 @@ export async function rankOn(ctx: MutationCtx, saasId: Id<"saas">, kind: Kind, w
 }
 
 // ---- Rerank -------------------------------------------------------------------------------------------------------
-// Three phases so no transaction ever reads the whole table: (1) a paged query returns one compact row per product
-// (ids + the numbers the orderings need), (2) ranks are computed in memory, (3) patches are written in pages.
-// Ceiling: the phase-2 accumulator lives in the action, ~100 bytes per product — fine well past 50k products.
+// Four scheduler-chained steps, so neither a transaction nor a single function ever holds the whole table:
+// (1) `rerank` pages `saas` and writes one compact `rankScratch` row per product, (2) `rankPlan` reads those rows,
+// computes every ordering in memory with the same pure comparators as before, stamps the ranks back onto them and
+// writes the directory counters, (3) `applyRanks` pages the scratch rows, patches the products and deletes the rows
+// it applied. Every step carries the same `runId` and the same `now`; only phase 3 records pages on the run.
+// Ceiling: phase 2 reads and patches every scratch row in one transaction — Convex's per-transaction document limits
+// put that at ~8k products (A219); carrying the accumulator in scheduler args instead would need ~10 MB at 50k.
+const SCRATCH_MAX = 8000;
+// A chain that died between pages leaves its rows behind; the next run drops that many before it starts.
+const SCRATCH_SWEEP = 500;
 
-const rankRow = v.object({
-  saasId: v.id("saas"), rank: v.optional(v.number()), t24: v.optional(v.number()), t7: v.optional(v.number()), t30: v.optional(v.number()),
-  s24: v.number(), s7: v.number(), s30: v.number(),
-});
-type RankRow = { saasId: Id<"saas">; rank?: number; t24?: number; t7?: number; t30?: number; s24: number; s7: number; s30: number };
-interface RankInput { id: Id<"saas">; slug: string; eligible: boolean; newUsers30d: number; growth30dPct: number; totalUsers: number; s24: number; s7: number; s30: number; pub?: PublicRow }
 // The public facts the directory counters are summed from (convex/schema.ts → publicStats).
 interface PublicRow { verified: boolean; totalUsers: number; newUsers30d: number; category?: string; stacks?: string[]; lastSyncedAt?: number }
 
-export const rankInputs = internalQuery({
-  args: { cursor: v.union(v.string(), v.null()), now: v.number() },
-  handler: async (ctx, { cursor, now }) => {
-    const page = await ctx.db.query("saas").paginate({ cursor, numItems: PAGE.rerank });
-    const rows: RankInput[] = page.page.map((s) => {
-      const i = trendingInputs(s, now);
-      const pub = s.isPublic ? { verified: isVerified(s), totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, category: s.category, stacks: s.techStack, lastSyncedAt: s.lastSyncedAt } : undefined;
-      return { id: s._id, slug: s.slug, eligible: rankable(s), newUsers30d: s.newUsers30d, growth30dPct: s.growth30dPct, totalUsers: s.totalUsers, s24: trendingScore(i["24h"]), s7: trendingScore(i["7d"]), s30: trendingScore(i["30d"]), pub };
-    });
-    return { rows, isDone: page.isDone, continueCursor: page.continueCursor };
-  },
-});
-
-// Ranks (30-day new users) and trending scores + ranks per window for all public SaaS. Demo rows and data-under-review are never ranked.
-// Also appends the daily ranking history, materializes 7-day movement and emits rank-jump events + webhooks.
-export const rerank = internalAction({
-  args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
-    const runId = await ctx.runMutation(internal.jobs.begin, { job: "rerank leaderboard" });
+// Phase 1: one page of products projected into `rankScratch` (ids + the numbers the orderings need).
+export const rerank = internalMutation({
+  args: { cursor: v.optional(v.string()), runId: v.optional(v.id("jobRuns")), now: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const runId = args.runId ?? (await startRun(ctx, "rerank leaderboard"));
     if (runId === null) return;
     try {
-      const all: RankInput[] = [];
-      let cursor: string | null = null;
-      for (;;) {
-        const page: { rows: RankInput[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.leaderboard.rankInputs, { cursor, now });
-        all.push(...page.rows);
-        if (page.isDone) break;
-        cursor = page.continueCursor;
+      if (args.runId === undefined) for (const stale of await ctx.db.query("rankScratch").take(SCRATCH_SWEEP)) await ctx.db.delete(stale._id);
+      const page = await ctx.db.query("saas").paginate({ cursor: args.cursor ?? null, numItems: PAGE.rerank });
+      for (const s of page.page) {
+        const i = trendingInputs(s, now);
+        const pub = s.isPublic ? { verified: isVerified(s), totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, category: s.category, stacks: s.techStack, lastSyncedAt: s.lastSyncedAt } : undefined;
+        await ctx.db.insert("rankScratch", {
+          runId, saasId: s._id, slug: s.slug, eligible: rankable(s), newUsers30d: s.newUsers30d, growth30dPct: s.growth30dPct, totalUsers: s.totalUsers,
+          s24: trendingScore(i["24h"]), s7: trendingScore(i["7d"]), s30: trendingScore(i["30d"]), pub,
+        });
       }
-      const eligible = all.filter((s) => s.eligible);
-      eligible.sort((a, b) => b.newUsers30d - a.newUsers30d || b.growth30dPct - a.growth30dPct || b.totalUsers - a.totalUsers);
-      const ranks = new Map(eligible.map((s, i) => [s.id, i + 1]));
-
-      // Deterministic: score desc, then 30-day new users, then total, then slug.
-      const scoreIn = (s: RankInput, w: Window) => (w === "24h" ? s.s24 : w === "7d" ? s.s7 : s.s30);
-      const trendingRanks: Record<Window, Map<string, number>> = { "24h": new Map(), "7d": new Map(), "30d": new Map() };
-      for (const w of WINDOWS) {
-        const list = eligible.filter((s) => scoreIn(s, w) > 0).sort((a, b) => scoreIn(b, w) - scoreIn(a, w) || b.newUsers30d - a.newUsers30d || b.totalUsers - a.totalUsers || a.slug.localeCompare(b.slug));
-        list.forEach((s, i) => trendingRanks[w].set(s.id, i + 1));
-      }
-
-      const rows: RankRow[] = all.map((s) => ({ saasId: s.id, rank: ranks.get(s.id), t24: trendingRanks["24h"].get(s.id), t7: trendingRanks["7d"].get(s.id), t30: trendingRanks["30d"].get(s.id), s24: s.s24, s7: s.s7, s30: s.s30 }));
-      for (let i = 0; i < rows.length; i += PAGE.rerank) {
-        await ctx.runMutation(internal.leaderboard.applyRanks, { rows: rows.slice(i, i + PAGE.rerank), eligibleCount: eligible.length, now, runId, done: i + PAGE.rerank >= rows.length });
-      }
-      if (!rows.length) await ctx.runMutation(internal.jobs.record, { runId, items: 0, done: true });
-      await ctx.runMutation(internal.leaderboard.writePublicStats, { stats: publicStatsOf(all), now });
+      if (!page.isDone) await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, { cursor: page.continueCursor, runId, now });
+      else await ctx.scheduler.runAfter(0, internal.leaderboard.rankPlan, { runId, now });
     } catch (e) {
-      await failActionRun(ctx, runId, "rerank leaderboard", e);
-      throw e;
+      await failRun(ctx, runId, "rerank leaderboard", e);
     }
   },
 });
 
-// Phase 3: one page of patches. A single product's failure is logged and never stops the page.
+// Phase 2: the one global step. Ranks (30-day new users) and trending ranks per window for all public SaaS —
+// demo rows and data-under-review are never ranked — stamped back onto the scratch rows, plus the directory counters.
+export const rankPlan = internalMutation({
+  args: { runId: v.id("jobRuns"), now: v.number() },
+  handler: async (ctx, { runId, now }) => {
+    try {
+      const rows = await ctx.db.query("rankScratch").withIndex("by_run", (q) => q.eq("runId", runId)).take(SCRATCH_MAX);
+      const eligible = rows.filter((s) => s.eligible);
+      eligible.sort((a, b) => b.newUsers30d - a.newUsers30d || b.growth30dPct - a.growth30dPct || b.totalUsers - a.totalUsers);
+      const ranks = new Map(eligible.map((s, i) => [s.saasId, i + 1]));
+
+      // Deterministic: score desc, then 30-day new users, then total, then slug.
+      const scoreIn = (s: Doc<"rankScratch">, w: Window) => (w === "24h" ? s.s24 : w === "7d" ? s.s7 : s.s30);
+      const trendingRanks: Record<Window, Map<string, number>> = { "24h": new Map(), "7d": new Map(), "30d": new Map() };
+      for (const w of WINDOWS) {
+        const list = eligible.filter((s) => scoreIn(s, w) > 0).sort((a, b) => scoreIn(b, w) - scoreIn(a, w) || b.newUsers30d - a.newUsers30d || b.totalUsers - a.totalUsers || a.slug.localeCompare(b.slug));
+        list.forEach((s, i) => trendingRanks[w].set(s.saasId, i + 1));
+      }
+
+      for (const row of rows) {
+        await ctx.db.patch(row._id, { rank: ranks.get(row.saasId), t24: trendingRanks["24h"].get(row.saasId), t7: trendingRanks["7d"].get(row.saasId), t30: trendingRanks["30d"].get(row.saasId) });
+      }
+      await writePublicStats(ctx, publicStatsOf(rows), now);
+      await ctx.scheduler.runAfter(0, internal.leaderboard.applyRanks, { runId, now, eligibleCount: eligible.length });
+    } catch (e) {
+      await failRun(ctx, runId, "rerank leaderboard", e);
+    }
+  },
+});
+
 // Directory-wide counters, summed once from the page walk the rerank already does (convex/public.ts → stats / boardMeta).
 export function publicStatsOf(all: { pub?: PublicRow }[]) {
   const rows = all.flatMap((s) => (s.pub ? [s.pub] : []));
@@ -140,72 +141,73 @@ export function publicStatsOf(all: { pub?: PublicRow }[]) {
   };
 }
 
-const scopeCount = v.object({ slug: v.string(), count: v.number(), verifiedCount: v.number(), updatedAt: v.optional(v.number()) });
+async function writePublicStats(ctx: MutationCtx, stats: ReturnType<typeof publicStatsOf>, now: number) {
+  const row = { key: "public", ...stats, computedAt: now };
+  const existing = await ctx.db.query("publicStats").withIndex("by_key", (q) => q.eq("key", "public")).unique();
+  if (existing) await ctx.db.patch(existing._id, row);
+  else await ctx.db.insert("publicStats", row);
+}
 
-export const writePublicStats = internalMutation({
-  args: {
-    now: v.number(),
-    stats: v.object({ saasCount: v.number(), verifiedCount: v.number(), trackedUsers: v.number(), newUsers30d: v.number(), updatedAt: v.optional(v.number()), categories: v.array(scopeCount), stacks: v.array(scopeCount) }),
-  },
-  handler: async (ctx, { stats, now }) => {
-    const row = { key: "public", ...stats, computedAt: now };
-    const existing = await ctx.db.query("publicStats").withIndex("by_key", (q) => q.eq("key", "public")).unique();
-    if (existing) await ctx.db.patch(existing._id, row);
-    else await ctx.db.insert("publicStats", row);
-  },
-});
-
+// Phase 3: one page of patches, then the next page. A single product's failure is logged and never stops the page.
+// Also appends the daily ranking history, materializes 7-day movement and emits rank-jump events + webhooks.
 export const applyRanks = internalMutation({
-  args: { rows: v.array(rankRow), eligibleCount: v.number(), now: v.number(), runId: v.id("jobRuns"), done: v.boolean() },
-  handler: async (ctx, { rows, eligibleCount, now, runId, done }) => {
+  args: { runId: v.id("jobRuns"), now: v.number(), eligibleCount: v.number(), cursor: v.optional(v.string()) },
+  handler: async (ctx, { runId, now, eligibleCount, cursor }) => {
     const day = dayKey(now);
     const weekAgo = dayKey(now - 7 * DAY);
     const floor = dayKey(now - 10 * DAY);
-    let errors = 0;
-    let lastError: string | undefined;
-    for (const row of rows) {
-      try {
-        const s = await ctx.db.get(row.saasId);
-        if (!s) continue;
-        const { rank, t24, t7, t30 } = row;
-        const sc = { "24h": row.s24, "7d": row.s7, "30d": row.s30 } as const;
-        // Trending "previous" is the position at the last refresh (so a stable #1 reads "same", not "new" forever).
-        const patch: Partial<Doc<"saas">> = { growth24hPct: growth24h(s), trendingScore24h: sc["24h"], trendingScore7d: sc["7d"], trendingScore30d: sc["30d"], prevTrendingRank: s.trendingRank, trendingRank: t7, prevTrendingRank24h: s.trendingRank24h, trendingRank24h: t24, prevTrendingRank30d: s.trendingRank30d, trendingRank30d: t30 };
-        if (s.rank !== rank) { patch.prevRank = s.rank; patch.rank = rank; }
-        if (rank && (s.bestRank === undefined || rank < s.bestRank)) patch.bestRank = rank;
-        if (t7 && (s.bestTrendingRank === undefined || t7 < s.bestTrendingRank)) patch.bestTrendingRank = t7;
+    try {
+      const page = await ctx.db.query("rankScratch").withIndex("by_run", (q) => q.eq("runId", runId)).paginate({ cursor: cursor ?? null, numItems: PAGE.rerank });
+      let errors = 0;
+      let lastError: string | undefined;
+      for (const row of page.page) {
+        try {
+          const s = await ctx.db.get(row.saasId);
+          if (!s) continue;
+          const { rank, t24, t7, t30 } = row;
+          const sc = { "24h": row.s24, "7d": row.s7, "30d": row.s30 } as const;
+          // Trending "previous" is the position at the last refresh (so a stable #1 reads "same", not "new" forever).
+          const patch: Partial<Doc<"saas">> = { growth24hPct: growth24h(s), trendingScore24h: sc["24h"], trendingScore7d: sc["7d"], trendingScore30d: sc["30d"], prevTrendingRank: s.trendingRank, trendingRank: t7, prevTrendingRank24h: s.trendingRank24h, trendingRank24h: t24, prevTrendingRank30d: s.trendingRank30d, trendingRank30d: t30 };
+          if (s.rank !== rank) { patch.prevRank = s.rank; patch.rank = rank; }
+          if (rank && (s.bestRank === undefined || rank < s.bestRank)) patch.bestRank = rank;
+          if (t7 && (s.bestTrendingRank === undefined || t7 < s.bestTrendingRank)) patch.bestTrendingRank = t7;
 
-        // History + 7-day movement (stored positions only; a product without a row a week ago has no movement yet).
-        if (rank !== undefined) await upsertRankHistory(ctx, s._id, "leaderboard", "30d", day, rank, now);
-        for (const w of WINDOWS) {
-          const r = w === "24h" ? t24 : w === "7d" ? t7 : t30;
-          if (r !== undefined) await upsertRankHistory(ctx, s._id, "trending", w, day, r, now, sc[w]);
-        }
-        const rank7dAgo = rank === undefined ? undefined : await rankOn(ctx, s._id, "leaderboard", "30d", weekAgo, floor);
-        const trendingRank7dAgo = t7 === undefined ? undefined : await rankOn(ctx, s._id, "trending", "7d", weekAgo, floor);
-        patch.rank7dAgo = rank7dAgo;
-        patch.rankDelta7d = rank !== undefined && rank7dAgo !== undefined ? rank7dAgo - rank : undefined;
-        patch.trendingRank7dAgo = trendingRank7dAgo;
-        patch.trendingRankDelta7d = t7 !== undefined && trendingRank7dAgo !== undefined ? trendingRank7dAgo - t7 : undefined;
-        await ctx.db.patch(s._id, patch);
-
-        if (!s.isDemo) {
-          await addMilestones(ctx, s._id, rankMilestones(s.rank, rank, s.name, s.bestRank));
-          await addMilestones(ctx, s._id, trendingMilestones(s.trendingRank, t7, s.name));
-          await onRerank(ctx, s, s.rank, rank, eligibleCount);
-          if (rank !== undefined && isRankJump(rank7dAgo, rank)) {
-            const recent = await ctx.db.query("events").withIndex("by_saas_kind_day", (q) => q.eq("saasId", s._id).eq("kind", "rank_jump").gte("day", weekAgo)).first();
-            if (!recent) await addEvent(ctx, s._id, "rank_jump", day, now, `#${rank7dAgo} → #${rank}`, `${s.name} climbed ${rank7dAgo! - rank} places on the leaderboard in 7 days.`, rank7dAgo! - rank);
+          // History + 7-day movement (stored positions only; a product without a row a week ago has no movement yet).
+          if (rank !== undefined) await upsertRankHistory(ctx, s._id, "leaderboard", "30d", day, rank, now);
+          for (const w of WINDOWS) {
+            const r = w === "24h" ? t24 : w === "7d" ? t7 : t30;
+            if (r !== undefined) await upsertRankHistory(ctx, s._id, "trending", w, day, r, now, sc[w]);
           }
-          const fresh = { ...s, ...patch } as Doc<"saas">;
-          if (rank !== undefined && s.rank !== undefined && s.rank !== rank) await dispatchEvent(ctx, { type: "rank.changed", key: day, saas: fresh, data: { rank: { board: "leaderboard", window: "30d", from: s.rank, to: rank, best: patch.bestRank ?? s.bestRank } } });
-          if (t7 !== undefined && s.trendingRank !== undefined && s.trendingRank !== t7) await dispatchEvent(ctx, { type: "trending.rank_changed", key: day, saas: fresh, data: { rank: { board: "trending", window: "7d", from: s.trendingRank, to: t7, score: sc["7d"] } } });
+          const rank7dAgo = rank === undefined ? undefined : await rankOn(ctx, s._id, "leaderboard", "30d", weekAgo, floor);
+          const trendingRank7dAgo = t7 === undefined ? undefined : await rankOn(ctx, s._id, "trending", "7d", weekAgo, floor);
+          patch.rank7dAgo = rank7dAgo;
+          patch.rankDelta7d = rank !== undefined && rank7dAgo !== undefined ? rank7dAgo - rank : undefined;
+          patch.trendingRank7dAgo = trendingRank7dAgo;
+          patch.trendingRankDelta7d = t7 !== undefined && trendingRank7dAgo !== undefined ? trendingRank7dAgo - t7 : undefined;
+          await ctx.db.patch(s._id, patch);
+
+          if (!s.isDemo) {
+            await addMilestones(ctx, s._id, rankMilestones(s.rank, rank, s.name, s.bestRank));
+            await addMilestones(ctx, s._id, trendingMilestones(s.trendingRank, t7, s.name));
+            await onRerank(ctx, s, s.rank, rank, eligibleCount);
+            if (rank !== undefined && isRankJump(rank7dAgo, rank)) {
+              const recent = await ctx.db.query("events").withIndex("by_saas_kind_day", (q) => q.eq("saasId", s._id).eq("kind", "rank_jump").gte("day", weekAgo)).first();
+              if (!recent) await addEvent(ctx, s._id, "rank_jump", day, now, `#${rank7dAgo} → #${rank}`, `${s.name} climbed ${rank7dAgo! - rank} places on the leaderboard in 7 days.`, rank7dAgo! - rank);
+            }
+            const fresh = { ...s, ...patch } as Doc<"saas">;
+            if (rank !== undefined && s.rank !== undefined && s.rank !== rank) await dispatchEvent(ctx, { type: "rank.changed", key: day, saas: fresh, data: { rank: { board: "leaderboard", window: "30d", from: s.rank, to: rank, best: patch.bestRank ?? s.bestRank } } });
+            if (t7 !== undefined && s.trendingRank !== undefined && s.trendingRank !== t7) await dispatchEvent(ctx, { type: "trending.rank_changed", key: day, saas: fresh, data: { rank: { board: "trending", window: "7d", from: s.trendingRank, to: t7, score: sc["7d"] } } });
+          }
+        } catch (e) {
+          errors++;
+          lastError = jobError("rerank leaderboard", row.saasId, e);
         }
-      } catch (e) {
-        errors++;
-        lastError = jobError("rerank leaderboard", row.saasId, e);
+        await ctx.db.delete(row._id);
       }
+      await recordPage(ctx, runId, { items: page.page.length, errors, lastError, done: page.isDone });
+      if (!page.isDone) await ctx.scheduler.runAfter(0, internal.leaderboard.applyRanks, { runId, now, eligibleCount, cursor: page.continueCursor });
+    } catch (e) {
+      await failRun(ctx, runId, "rerank leaderboard", e);
     }
-    await recordPage(ctx, runId, { items: rows.length, errors, lastError, done });
   },
 });
