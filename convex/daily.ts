@@ -45,6 +45,7 @@ export const run = internalMutation({
     await ctx.scheduler.runAfter(15_000, internal.cohorts.rebuildAll, {});
     await ctx.scheduler.runAfter(20_000, internal.native.pruneEvents, {});
     await ctx.scheduler.runAfter(25_000, internal.webhooks.retrySweep, {});
+    await ctx.scheduler.runAfter(35_000, internal.social.refreshFollowers, {});
     // First day of the month: freeze last month's rankings for /rankings/<year>/<month> and the datasets API.
     if (new Date(now).getUTCDate() === 1) await ctx.scheduler.runAfter(40_000, internal.daily.snapshotRankings, { period: monthKey(now - DAY) });
   },

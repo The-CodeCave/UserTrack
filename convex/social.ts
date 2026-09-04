@@ -1,8 +1,8 @@
 // X account connection (OAuth 2.0 PKCE), founder social preferences and opt-in posting. Two independent pathways:
 // the founder's own connected account and the UserTrack-owned account (OAuth 1.0a env credentials). Credentials never
 // mix, tokens are never returned to clients, and nothing posts unless a founder switched it on.
-import { v } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { ConvexError, v } from "convex/values";
+import { action, internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getProfileForUser, requireProfile } from "./profiles";
@@ -11,7 +11,7 @@ import { xConnectionState } from "../src/lib/social";
 import { safeInternalPath } from "../src/lib/safe-redirect";
 import { xDraft, type DraftKind } from "../src/lib/x-drafts";
 import { botWorthy, normalizePrefs } from "./lib/shareRules";
-import { authorizeUrl, basicAuth, describeXError, needsRefresh, OAUTH_STATE_TTL_MS, oauth1Header, parseTokenResponse, refreshRequestBody, tokenRequestBody, X_ME_URL, X_REVOKE_URL, X_TOKEN_URL, X_TWEETS_URL } from "./lib/xApi";
+import { authorizeUrl, basicAuth, describeXError, FOLLOWERS_PAGE_SIZE, FOLLOWERS_REFRESH_COOLDOWN_MS, followersOf, needsRefresh, OAUTH_STATE_TTL_MS, oauth1Header, parseTokenResponse, refreshRequestBody, tokenRequestBody, X_ME_URL, X_REVOKE_URL, X_TOKEN_URL, X_TWEETS_URL, type XMe } from "./lib/xApi";
 import { DAY } from "./lib/time";
 
 export const FOUNDER_POST_COOLDOWN_MS = DAY;
@@ -42,6 +42,8 @@ export const status = query({
       handle: profile.x,
       state: xConnectionState({ handle: profile.x, connected: Boolean(c && c.status !== "revoked") }),
       connection: c ? connectionView(c) : null,
+      followers: profile.xFollowers,
+      followersAt: profile.xFollowersAt,
       prefs: normalizePrefs(profile.socialPrefs),
       recentPosts: posts.map((p) => ({ _id: p._id, account: p.account, status: p.status, text: p.text, error: p.error, createdAt: p.createdAt, postedAt: p.postedAt, providerPostId: p.providerPostId })),
     };
@@ -76,15 +78,15 @@ export const consumeState = internalMutation({
 });
 
 export const storeConnection = internalMutation({
-  args: { profileId: v.id("profiles"), providerUserId: v.string(), handle: v.string(), name: v.optional(v.string()), avatarUrl: v.optional(v.string()), accessToken: v.string(), refreshToken: v.optional(v.string()), expiresAt: v.optional(v.number()), scopes: v.array(v.string()) },
-  handler: async (ctx, a) => {
+  args: { profileId: v.id("profiles"), providerUserId: v.string(), handle: v.string(), name: v.optional(v.string()), avatarUrl: v.optional(v.string()), accessToken: v.string(), refreshToken: v.optional(v.string()), expiresAt: v.optional(v.number()), scopes: v.array(v.string()), followers: v.optional(v.number()) },
+  handler: async (ctx, { followers, ...a }) => {
     const existing = await connectionOf(ctx, a.profileId);
     const doc = { ...a, provider: "x" as const, connectedAt: Date.now(), status: "active" as const, lastError: undefined };
     if (existing) await ctx.db.patch(existing._id, doc);
     else await ctx.db.insert("socialConnections", doc);
     const profile = await ctx.db.get(a.profileId);
-    // Connecting is explicit permission to import: handle always, avatar only when the profile has none.
-    await ctx.db.patch(a.profileId, { x: a.handle, xUserId: a.providerUserId, xConnectedAt: Date.now(), ...(profile && !profile.avatarUrl && a.avatarUrl ? { avatarUrl: a.avatarUrl } : {}) });
+    // Connecting is explicit permission to import: handle always, avatar only when the profile has none, followers whenever X returned them.
+    await ctx.db.patch(a.profileId, { x: a.handle, xUserId: a.providerUserId, xConnectedAt: Date.now(), ...(profile && !profile.avatarUrl && a.avatarUrl ? { avatarUrl: a.avatarUrl } : {}), ...(followers === undefined ? {} : { xFollowers: followers, xFollowersAt: Date.now() }) });
   },
 });
 
@@ -100,7 +102,7 @@ export const completeOAuth = action({
     const token = parseTokenResponse(await tokenRes.json());
     const meRes = await fetch(X_ME_URL, { headers: { Authorization: `Bearer ${token.access_token}` } });
     if (!meRes.ok) throw new Error(describeXError(meRes.status, await meRes.text()));
-    const me = (await meRes.json()) as { data?: { id: string; username: string; name?: string; profile_image_url?: string } };
+    const me = (await meRes.json()) as XMe;
     if (!me.data?.id || !me.data.username) throw new Error("X did not return the account");
     await ctx.runMutation(internal.social.storeConnection, {
       profileId: st.profileId,
@@ -112,6 +114,7 @@ export const completeOAuth = action({
       refreshToken: token.refresh_token,
       expiresAt: token.expires_in ? Date.now() + token.expires_in * 1000 : undefined,
       scopes: token.scope?.split(" ") ?? [],
+      followers: followersOf(me),
     });
     return { handle: me.data.username, redirectTo: st.redirectTo };
   },
@@ -122,7 +125,7 @@ export const connectionForOwner = internalQuery({
   handler: async (ctx) => {
     const { profile } = await requireProfile(ctx);
     const c = await connectionOf(ctx, profile._id);
-    return c ? { _id: c._id, accessToken: c.accessToken } : null;
+    return c ? { _id: c._id, accessToken: c.accessToken, refreshToken: c.refreshToken, expiresAt: c.expiresAt, status: c.status, profileId: profile._id, followersAt: profile.xFollowersAt } : null;
   },
 });
 
@@ -133,7 +136,7 @@ export const removeConnection = internalMutation({
     const c = await ctx.db.get(id);
     if (!c || c.profileId !== profile._id) return;
     await ctx.db.delete(id);
-    await ctx.db.patch(profile._id, { xUserId: undefined, xConnectedAt: undefined });
+    await ctx.db.patch(profile._id, { xUserId: undefined, xConnectedAt: undefined, xFollowers: undefined, xFollowersAt: undefined });
   },
 });
 
@@ -153,6 +156,95 @@ export const disconnect = action({
     if (!c) return;
     await revokeXToken(c.accessToken);
     await ctx.runMutation(internal.social.removeConnection, { id: c._id });
+  },
+});
+
+// ---- Follower counts --------------------------------------------------------------------------------------------------
+// Free-tier X: only GET /2/users/me (the founder's own token) returns public_metrics. No lookup by handle ever happens.
+
+type ConnectionTokens = { _id: Id<"socialConnections">; profileId: Id<"profiles">; accessToken: string; refreshToken?: string; expiresAt?: number; status: Doc<"socialConnections">["status"] };
+
+export const connectionsPage = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { cursor }) => {
+    const page = await ctx.db.query("socialConnections").filter((q) => q.eq(q.field("status"), "active")).paginate({ numItems: FOLLOWERS_PAGE_SIZE, cursor });
+    return { rows: page.page.map((c): ConnectionTokens => ({ _id: c._id, profileId: c.profileId, accessToken: c.accessToken, refreshToken: c.refreshToken, expiresAt: c.expiresAt, status: c.status })), continueCursor: page.continueCursor, isDone: page.isDone };
+  },
+});
+
+export const setFollowers = internalMutation({
+  args: { profileId: v.id("profiles"), followers: v.number() },
+  handler: async (ctx, { profileId, followers }) => { await ctx.db.patch(profileId, { xFollowers: followers, xFollowersAt: Date.now() }); },
+});
+
+export const markConnectionError = internalMutation({
+  args: { id: v.id("socialConnections"), error: v.string(), unauthorized: v.boolean() },
+  handler: async (ctx, { id, error, unauthorized }) => { await ctx.db.patch(id, { lastError: error, ...(unauthorized ? { status: "error" as const } : {}) }); },
+});
+
+type RefreshResult = { ok: true; followers: number } | { ok: false; status: number; error: string };
+
+// Refresh the token when needed, read /users/me, store the count. A 401 (or a dead refresh token) flags the connection
+// for reconnecting exactly like the posting job does; every other failure is recorded and never thrown.
+async function readFollowers(ctx: { runMutation: ActionCtx["runMutation"] }, c: ConnectionTokens): Promise<RefreshResult> {
+  const fail = async (status: number, error: string): Promise<RefreshResult> => {
+    await ctx.runMutation(internal.social.markConnectionError, { id: c._id, error, unauthorized: status === 401 });
+    return { ok: false, status, error };
+  };
+  try {
+    let token = c.accessToken;
+    if (needsRefresh(c.expiresAt, Date.now())) {
+      const clientId = process.env.X_CLIENT_ID;
+      const clientSecret = process.env.X_CLIENT_SECRET;
+      if (!clientId || !clientSecret || !c.refreshToken) return fail(401, "X token expired and cannot be refreshed");
+      const r = await fetch(X_TOKEN_URL, { method: "POST", headers: { Authorization: basicAuth(clientId, clientSecret), "Content-Type": "application/x-www-form-urlencoded" }, body: refreshRequestBody({ refreshToken: c.refreshToken, clientId }) });
+      if (!r.ok) return fail(r.status === 400 ? 401 : r.status, describeXError(r.status, await r.text()));
+      const t = parseTokenResponse(await r.json());
+      token = t.access_token;
+      await ctx.runMutation(internal.social.updateTokens, { id: c._id, accessToken: t.access_token, refreshToken: t.refresh_token ?? c.refreshToken, expiresAt: t.expires_in ? Date.now() + t.expires_in * 1000 : undefined });
+    }
+    const res = await fetch(X_ME_URL, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return fail(res.status, describeXError(res.status, await res.text()));
+    const followers = followersOf((await res.json()) as XMe);
+    if (followers === undefined) return fail(res.status, "X did not return public metrics");
+    await ctx.runMutation(internal.social.setFollowers, { profileId: c.profileId, followers });
+    return { ok: true, followers };
+  } catch (e) {
+    return fail(0, (e as Error).message.slice(0, 200));
+  }
+}
+
+// Daily, from the sweep: pages of 50 active connections, one action per page, chained through the scheduler.
+// A 429 ends the run early (the rest is picked up tomorrow); a single failing founder never stops the others.
+export const refreshFollowers = internalAction({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }): Promise<{ refreshed: number; failed: number }> => {
+    if (!oauthEnabled()) return { refreshed: 0, failed: 0 };
+    const page = await ctx.runQuery(internal.social.connectionsPage, { cursor: cursor ?? null });
+    let refreshed = 0;
+    let failed = 0;
+    for (const c of page.rows) {
+      const r = await readFollowers(ctx, c);
+      if (r.ok) refreshed++;
+      else failed++;
+      if (!r.ok && r.status === 429) return { refreshed, failed };
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.social.refreshFollowers, { cursor: page.continueCursor });
+    return { refreshed, failed };
+  },
+});
+
+// Settings → "Refresh now": one read per minute per founder; the same path the daily job uses.
+export const refreshNow = action({
+  args: {},
+  handler: async (ctx): Promise<{ followers: number }> => {
+    const c = await ctx.runQuery(internal.social.connectionForOwner, {});
+    // ConvexError so the reason survives the action boundary (plain errors reach the client as "Server Error").
+    if (!c || c.status !== "active") throw new ConvexError("Connect your X account first");
+    if (c.followersAt !== undefined && Date.now() - c.followersAt < FOLLOWERS_REFRESH_COOLDOWN_MS) throw new ConvexError("Refreshed less than a minute ago, try again shortly");
+    const r = await readFollowers(ctx, c);
+    if (!r.ok) throw new ConvexError(r.error);
+    return { followers: r.followers };
   },
 });
 

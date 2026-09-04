@@ -408,7 +408,7 @@ const TOOLS_SHARE: Tool[] = [
   tool({
     name: "usertrack_get_profile",
     title: "Get founder profile",
-    description: "The founder's public profile (name, username, bio, links, X handle + connection state, location, visibility), founder-level aggregates across public projects (total users, new users 30d, weighted activation rate, best rank, trending count, biggest-growth project — formulas included), the public project list and the profile / card / API URLs.",
+    description: "The founder's public profile (name, username, bio, links, X handle + connection state, xFollowers from the connected X account, location, visibility), founder-level aggregates across public projects (total users, new users 30d, weighted activation rate, best rank, trending count, biggest-growth project — formulas included), the public project list and the profile / card / API URLs.",
     scope: "profile:read",
     readOnly: true,
     input: {},

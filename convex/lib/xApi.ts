@@ -4,7 +4,12 @@ export const X_SCOPES = ["tweet.read", "tweet.write", "users.read", "offline.acc
 export const X_AUTHORIZE_URL = "https://x.com/i/oauth2/authorize";
 export const X_TOKEN_URL = "https://api.x.com/2/oauth2/token";
 export const X_REVOKE_URL = "https://api.x.com/2/oauth2/revoke";
-export const X_ME_URL = "https://api.x.com/2/users/me?user.fields=profile_image_url,name,username";
+export const X_ME_URL = "https://api.x.com/2/users/me?user.fields=profile_image_url,name,username,public_metrics";
+export const FOLLOWERS_REFRESH_COOLDOWN_MS = 60_000;
+export const FOLLOWERS_PAGE_SIZE = 50;
+
+export interface XMe { data?: { id: string; username: string; name?: string; profile_image_url?: string; public_metrics?: { followers_count?: number } } }
+export const followersOf = (me: XMe) => (typeof me.data?.public_metrics?.followers_count === "number" ? me.data.public_metrics.followers_count : undefined);
 export const X_TWEETS_URL = "https://api.x.com/2/tweets";
 export const OAUTH_STATE_TTL_MS = 10 * 60_000;
 

@@ -26,6 +26,19 @@ Flow (PKCE, confidential client):
 
 Tokens: only in `socialConnections` (server-side, Convex at-rest encryption), never returned by `social.status` (which returns handle/name/avatar/timestamps/status/lastError only), never logged, never in audit rows. Refresh happens a minute before expiry inside the posting action; a 401 marks the connection `error` so the UI asks to reconnect. **Disconnect** revokes at X (best effort) and deletes the row; the typed handle stays.
 
+## Follower count — `social.refreshFollowers`, daily
+
+Free tier only exposes `public_metrics` on `GET /2/users/me` (the token owner). `X_ME_URL` therefore requests `profile_image_url,name,username,public_metrics`; `followersOf()` extracts `followers_count`.
+
+| Source | When | Writes |
+|---|---|---|
+| `completeOAuth` → `storeConnection { followers }` | Connect X | `profiles.xFollowers`, `xFollowersAt` |
+| `authProfile.applyProviderProfile` (X sign-in / link, Better Auth `account.accessToken`) | every login / link | same fields (count always replaced; handle / avatar still only fill empty fields; `profilePrefills.xFollowers` until the profile exists) |
+| `refreshFollowers` (internal action, `daily.run` +35 s) | daily | pages `socialConnections` with `status: active` in pages of 50 (`FOLLOWERS_PAGE_SIZE`), one action per page chained through the scheduler; refreshes the token when `needsRefresh`; 401 / dead refresh token → `status: error` + `lastError` (Settings asks to reconnect, same as posting); 429 → the run ends, tomorrow catches up; any other failure → `lastError`, next founder. Returns `{ refreshed, failed }`; no-op without `X_CLIENT_ID`. |
+| `refreshNow` (action, Settings → "Refresh now") | on click | same read path, once per minute per founder (`FOLLOWERS_REFRESH_COOLDOWN_MS`, checked against `xFollowersAt`) |
+
+`disconnect` clears the count with the tokens. Display: `docs/PROFILES.md` → "X follower count". Never looked up by handle (paid tier), never for cofounders, never on anonymous projects.
+
 ## Auto-posting (founder account) — `social.autoPost`, hourly
 
 Preconditions per event: `shareEvents.status = ready`, ≤ 48 h old, project public and not demo, founder has `socialPrefs.autoShare[category] = true` (default **false** for all five categories), an `active` connection, no existing `socialPosts` row for `(event, founder)`, and no founder post in the last 24 h. Then a `socialPosts` row (`queued`) is written and `deliverPost` posts once (`POST /2/tweets`, text = draft + share URL; the card image comes from the URL's OG unfurl, no media upload). Success → `posted` + `providerPostId`, event `shared`, `connection.lastPostAt`. Failure → `failed` + secret-free error, **no aggressive retry**; the card stays in the Share Center and the error is shown on the settings page. Rate limits: one automatic post per founder per day, one attempt per event per account.
@@ -38,11 +51,11 @@ Rules (`botWorthy` in `convex/lib/shareRules.ts`): verified data only; user mile
 
 ## Settings (`/app/settings/social`)
 
-X handle (state chip), Connected X account (Connect / Disconnect, last post, last error), Auto-share per category (disabled until connected, all off), UserTrack account (promote / tag), recent automatic posts with status and errors.
+X handle (state chip; typed-handle founders see "Connect X below to show your follower count"), Connected X account (Connect / Disconnect, follower count + refreshed-ago + Refresh now, last post, last error), Auto-share per category (disabled until connected, all off), UserTrack account (promote / tag), recent automatic posts with status and errors.
 
 ## Data model
 
-`profiles.x / xUserId / xConnectedAt / socialPrefs {allowTagging?, allowPromotion?, autoShare{…}}` · `socialConnections` · `socialPosts` · `oauthStates` (expired rows cleaned by the hourly job).
+`profiles.x / xUserId / xConnectedAt / xFollowers / xFollowersAt / socialPrefs {allowTagging?, allowPromotion?, autoShare{…}}` · `socialConnections` · `socialPosts` · `oauthStates` (expired rows cleaned by the hourly job).
 
 ## Security checklist
 

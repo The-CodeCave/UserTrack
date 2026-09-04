@@ -30,9 +30,9 @@ export const platformOf = (s: Pick<Doc<"saas">, "projectType">) => s.projectType
 export const NEW_RISING_RULES = { maxAgeDays: 30, minNew7d: 5 } as const;
 
 export function publicProfile(p: Doc<"profiles">) {
-  const { _id, username, displayName, avatarUrl, bio, website, x, github, linkedin, location, followerCount, _creationTime } = p;
-  // A connected X account is the only state that may be presented as more than a typed handle.
-  return { _id, username, displayName, avatarUrl, bio, website, x, xConnected: Boolean(p.xUserId), github, linkedin, location, followerCount: followerCount ?? 0, joinedAt: _creationTime };
+  const { _id, username, displayName, avatarUrl, bio, website, x, github, linkedin, location, followerCount, xFollowers, xFollowersAt, _creationTime } = p;
+  // A connected X account is the only state that may be presented as more than a typed handle; xFollowers only ever comes from the founder's own token.
+  return { _id, username, displayName, avatarUrl, bio, website, x, xConnected: Boolean(p.xUserId), xFollowers, xFollowersAt, github, linkedin, location, followerCount: followerCount ?? 0, joinedAt: _creationTime };
 }
 
 export const isProfilePublic = (p: Doc<"profiles">) => p.profilePublic !== false && p.userId !== "demo";

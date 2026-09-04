@@ -317,7 +317,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
               <div className="min-w-0">
                 <div className="text-label">Built by</div>
                 <div className="truncate font-medium">{s.owner.displayName}</div>
-                <div className="truncate font-mono text-[11px] text-muted-foreground">@{s.owner.username}{s.owner.bio ? ` · ${s.owner.bio}` : ""}</div>
+                <div className="truncate font-mono text-[11px] text-muted-foreground">@{s.owner.username}{s.owner.xFollowers !== undefined ? ` · 𝕏 ${formatCompact(s.owner.xFollowers)} followers` : ""}{s.owner.bio ? ` · ${s.owner.bio}` : ""}</div>
                 {Boolean(s.cofounders?.length) && (
                   <ul className="mt-2 space-y-0.5 border-t border-line pt-2 font-mono text-[11px] text-muted-foreground">
                     {s.cofounders!.map((c, i) => (

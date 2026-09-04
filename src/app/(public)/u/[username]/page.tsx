@@ -68,6 +68,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                   {p.xConnected && <span className="ml-1 border border-line px-1 py-px text-[9px] uppercase tracking-wider text-muted-foreground" title="Linked through X sign-in">connected</span>}
                 </a>
               )}
+              {p.xFollowers !== undefined && <span className="inline-flex items-center gap-1" title="Read from the founder's connected X account"><span className="font-semibold text-foreground">𝕏</span> {formatCompact(p.xFollowers)} followers on X</span>}
             </div>
             {p.bio && <p className="mt-3 max-w-xl text-muted-foreground">{p.bio}</p>}
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">

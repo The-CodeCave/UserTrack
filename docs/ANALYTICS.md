@@ -62,6 +62,7 @@ All props are primitives. Never emails, handles, URLs of third parties or secret
 | `backfill_triggered` | — | “Backfill last 30 days” |
 | `postgres_wizard_step` | `step` (2–4) | PostgreSQL / Supabase DB wizard advancing |
 | `x_connected` / `x_disconnected` | — | `/app/settings/social` |
+| `x_followers_refreshed` | — | `/app/settings/social` → Refresh now (success only) |
 | `follow` / `unfollow` | `targetType: saas \| profile` | `FollowButton`, `FollowChip` |
 | `token_created` | `type: api \| mcp, origin` | Developer dialogs (`dashboard`) |
 | `token_revoked` | — | Token list |

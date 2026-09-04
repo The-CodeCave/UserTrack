@@ -104,6 +104,9 @@ export default defineSchema({
     // Summary of a connected X account; tokens live in socialConnections and never here.
     xUserId: v.optional(v.string()),
     xConnectedAt: v.optional(v.number()),
+    // X follower count read from the founder's own token (Connect X or X sign-in); never looked up by handle.
+    xFollowers: v.optional(v.number()),
+    xFollowersAt: v.optional(v.number()),
     socialPrefs: v.optional(socialPrefs),
   })
     .index("by_userId", ["userId"])
@@ -111,7 +114,7 @@ export default defineSchema({
     .searchIndex("search_name", { searchField: "displayName" }),
 
   // Handle / avatar imported from a GitHub or X sign-in before the founder profile exists; consumed by profiles.upsert.
-  profilePrefills: defineTable({ userId: v.string(), github: v.optional(v.string()), x: v.optional(v.string()), avatarUrl: v.optional(v.string()) }).index("by_userId", ["userId"]),
+  profilePrefills: defineTable({ userId: v.string(), github: v.optional(v.string()), x: v.optional(v.string()), avatarUrl: v.optional(v.string()), xFollowers: v.optional(v.number()) }).index("by_userId", ["userId"]),
 
   saas: defineTable({
     ownerId: v.id("profiles"),

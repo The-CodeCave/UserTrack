@@ -58,7 +58,7 @@ export interface SaasRow {
   trendingScore7d?: number;
   foundedAt?: number;
   followerCount?: number;
-  owner?: { username: string; displayName: string } | null;
+  owner?: { username: string; displayName: string; xFollowers?: number } | null;
   markets?: string[];
   techStack?: string[];
   marketingChannels?: string[];
@@ -109,7 +109,7 @@ export function saasDto(r: SaasRow) {
     // 7dAgo / delta7d come from stored daily rank history (7 UTC days), previous* from the last rerank.
     ranks: { leaderboard: r.rank, previousLeaderboard: r.prevRank, leaderboard7dAgo: r.rank7dAgo, leaderboardDelta7d: r.rankDelta7d, trending: r.trendingRank, previousTrending: r.prevTrendingRank, trending7dAgo: r.trendingRank7dAgo, trendingDelta7d: r.trendingRankDelta7d, bestTrending: r.bestTrendingRank, trendingScore7d: r.trendingScore7d },
     followers: r.followerCount ?? 0,
-    owner: r.owner ? { username: r.owner.username, displayName: r.owner.displayName } : undefined,
+    owner: r.owner ? { username: r.owner.username, displayName: r.owner.displayName, xFollowers: r.owner.xFollowers } : undefined,
     // Anonymous mode: owner, cofounders, logo, website and store links are already absent from the row.
     anonymous: r.anonymous === true,
     cofounders: r.cofounders?.map((c) => ({ name: c.name, x: c.x, github: c.github })),
@@ -168,7 +168,7 @@ export function metricsDto(r: SaasRow) {
   };
 }
 
-export function profileDto(p: { username: string; displayName: string; avatarUrl?: string; bio?: string; website?: string; x?: string; xConnected?: boolean; github?: string; linkedin?: string; location?: string; followerCount: number; joinedAt?: number }) {
+export function profileDto(p: { username: string; displayName: string; avatarUrl?: string; bio?: string; website?: string; x?: string; xConnected?: boolean; xFollowers?: number; xFollowersAt?: number; github?: string; linkedin?: string; location?: string; followerCount: number; joinedAt?: number }) {
   return {
     username: p.username,
     displayName: p.displayName,
@@ -178,6 +178,9 @@ export function profileDto(p: { username: string; displayName: string; avatarUrl
     links: { website: p.website, x: p.x, github: p.github, linkedin: p.linkedin },
     // "connected" = the founder linked the X account through OAuth; "handle_provided" = typed in, unverified.
     xState: p.x ? (p.xConnected ? "connected_via_oauth" : "handle_provided") : "unavailable",
+    // Read from the founder's own X token (free tier /users/me); absent for typed handles and anonymous projects.
+    xFollowers: p.xFollowers,
+    xFollowersAt: iso(p.xFollowersAt),
     followers: p.followerCount,
     joinedAt: iso(p.joinedAt),
     urls: { profile: `${SITE_URL}/u/${p.username}`, card: `${SITE_URL}/u/${p.username}/card`, history: `${SITE_URL}/api/v1/users/${p.username}/history` },

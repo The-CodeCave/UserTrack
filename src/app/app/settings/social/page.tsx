@@ -4,8 +4,9 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAction, useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import { toast } from "sonner";
-import { ArrowLeft, Check, Loader2, Unplug } from "lucide-react";
+import { ArrowLeft, Check, Loader2, RefreshCw, Unplug } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
@@ -15,7 +16,8 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SHARE_CATEGORIES, SHARE_CATEGORY_META, type ShareCategory } from "@convex/lib/shareRules";
 import { X_STATE_LABEL, normalizeXHandle, xHandleError, xProfileUrl } from "@/lib/social";
-import { timeAgo } from "@/lib/format";
+import { formatCompact, timeAgo } from "@/lib/format";
+import { FOLLOWERS_REFRESH_COOLDOWN_MS } from "@convex/lib/xApi";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 
@@ -27,10 +29,14 @@ function SocialSettings() {
   const s = useQuery(api.social.status);
   const update = useMutation(api.profiles.updateSocial);
   const disconnect = useAction(api.social.disconnect);
+  const refreshFollowers = useAction(api.social.refreshNow);
   const params = useSearchParams();
   const [handle, setHandle] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  // Mirrors the server's 1/min rule so the button greys out right after a refresh; the action enforces it regardless.
+  const [cooling, setCooling] = useState(false);
   const value = handle ?? s?.handle ?? "";
   const error = xHandleError(value);
   const dirty = handle !== null && normalizeXHandle(handle) !== (s?.handle ?? "");
@@ -58,6 +64,20 @@ function SocialSettings() {
       toast.error((e as Error).message.replace(/^.*Uncaught Error: /, "").split("\n")[0]);
     } finally {
       setSaving(false);
+    }
+  }
+  async function refreshNow() {
+    setRefreshing(true);
+    try {
+      const r = await refreshFollowers({});
+      track("x_followers_refreshed");
+      toast.success(`${formatCompact(r.followers)} followers on X`);
+      setCooling(true);
+      setTimeout(() => setCooling(false), FOLLOWERS_REFRESH_COOLDOWN_MS);
+    } catch (e) {
+      toast.error(e instanceof ConvexError ? String(e.data) : "Could not refresh the follower count");
+    } finally {
+      setRefreshing(false);
     }
   }
   async function setPref(patch: { allowTagging?: boolean; allowPromotion?: boolean; autoShare?: Partial<Record<ShareCategory, boolean>> }) {
@@ -88,7 +108,7 @@ function SocialSettings() {
           {!connected && <Button onClick={saveHandle} disabled={saving || Boolean(error) || !dirty} className="h-11">{saving ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Save</Button>}
         </div>
         <p className="font-mono text-[11px] text-muted-foreground">{error ?? (value ? <>Displayed as <a className="text-foreground hover:text-pink" href={xProfileUrl(value)} target="_blank" rel="noreferrer">@{normalizeXHandle(value)}</a>. Paste @name, name or your x.com URL.</> : "Optional. Paste @name, name or your x.com URL.")}</p>
-        {!connected && value && <p className="font-mono text-[11px] text-muted-foreground">A typed handle is shown as provided by you — it is never presented as a verified X account.</p>}
+        {!connected && value && <p className="font-mono text-[11px] text-muted-foreground">A typed handle is shown as provided by you — it is never presented as a verified X account.{s.oauthEnabled ? " Connect X below to show your follower count on your profile." : ""}</p>}
       </Panel>
 
       <Panel className="space-y-3 p-5">
@@ -103,12 +123,18 @@ function SocialSettings() {
               <div className="text-sm font-medium">@{s.connection.handle}{s.connection.name ? <span className="text-muted-foreground"> · {s.connection.name}</span> : null}</div>
               <div className="font-mono text-[11px] text-muted-foreground">Connected {timeAgo(s.connection.connectedAt)}{s.connection.lastPostAt ? ` · last post ${timeAgo(s.connection.lastPostAt)}` : ""}{s.connection.status === "error" ? " · needs reconnecting" : ""}</div>
               {s.connection.lastError && <div className="mt-1 font-mono text-[11px] text-destructive">{s.connection.lastError}</div>}
+              <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-muted-foreground">
+                <span><span className="font-semibold text-foreground">𝕏</span> {s.followers !== undefined ? <><span className="tabular text-foreground">{formatCompact(s.followers)}</span> followers{s.followersAt ? ` · refreshed ${timeAgo(s.followersAt)}` : ""}</> : "Follower count not read yet"}</span>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" disabled={refreshing || cooling} title={cooling ? "Once per minute" : "Read your follower count from X now"} onClick={refreshNow}>
+                  {refreshing ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />} Refresh now
+                </Button>
+              </div>
             </div>
             <Button variant="outline" size="sm" disabled={busy} onClick={async () => { setBusy(true); try { await disconnect({}); track("x_disconnected"); toast.success("Disconnected"); } finally { setBusy(false); } }}><Unplug className="size-4" /> Disconnect</Button>
           </div>
         ) : s.oauthEnabled ? (
           <>
-            <p className="text-sm text-muted-foreground">Connect to import your handle and avatar and to let UserTrack post selected milestones from your account. Scopes: read profile, post. You can disconnect any time.</p>
+            <p className="text-sm text-muted-foreground">Connect to import your handle, avatar and follower count (shown on your profile, refreshed daily) and to let UserTrack post selected milestones from your account. Scopes: read profile, post. You can disconnect any time.</p>
             <Button className="h-10" render={<a href="/api/social/x/connect" />}><span className="font-semibold">𝕏</span> Connect X</Button>
           </>
         ) : (

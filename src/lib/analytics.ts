@@ -47,6 +47,7 @@ export type Events = {
   share_intent_opened: { network: string };
   x_connected: undefined;
   x_disconnected: undefined;
+  x_followers_refreshed: undefined;
   follow: { targetType: FollowTarget };
   unfollow: { targetType: FollowTarget };
   token_created: { type: string; origin: string };
@@ -109,6 +110,7 @@ export const EVENTS = {
   share_intent_opened: "share_intent_opened",
   x_connected: "x_connected",
   x_disconnected: "x_disconnected",
+  x_followers_refreshed: "x_followers_refreshed",
   follow: "follow",
   unfollow: "unfollow",
   token_created: "token_created",

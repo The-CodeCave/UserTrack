@@ -4,17 +4,20 @@ import { internalAction, internalMutation, type MutationCtx, type QueryCtx } fro
 import { components, internal } from "./_generated/api";
 import { fetchProviderHandle, type ProviderHandle } from "./lib/authProviders";
 
-const prefillFields = { github: v.optional(v.string()), x: v.optional(v.string()), avatarUrl: v.optional(v.string()) };
+const prefillFields = { github: v.optional(v.string()), x: v.optional(v.string()), avatarUrl: v.optional(v.string()), xFollowers: v.optional(v.number()) };
 
 // Entries of `info` that are set and still empty on `current`.
 export const fillEmpty = (current: ProviderHandle, info: ProviderHandle): ProviderHandle =>
-  Object.fromEntries(Object.entries(info).filter(([k, value]) => value && !current[k as keyof ProviderHandle]));
+  Object.fromEntries(Object.entries(info).filter(([k, value]) => k !== "xFollowers" && value && !current[k as keyof ProviderHandle]));
+
+// Followers are a live number, not a field the founder typed: every fresh read replaces the stored one.
+export const followerPatch = (info: ProviderHandle, now = Date.now()) => (info.xFollowers === undefined ? {} : { xFollowers: info.xFollowers, xFollowersAt: now });
 
 const pendingFor = (ctx: QueryCtx | MutationCtx, userId: string) => ctx.db.query("profilePrefills").withIndex("by_userId", (q) => q.eq("userId", userId)).unique();
 
 export async function prefillFor(ctx: QueryCtx | MutationCtx, userId: string): Promise<ProviderHandle | null> {
   const p = await pendingFor(ctx, userId);
-  return p ? { github: p.github, x: p.x, avatarUrl: p.avatarUrl } : null;
+  return p ? { github: p.github, x: p.x, avatarUrl: p.avatarUrl, xFollowers: p.xFollowers } : null;
 }
 
 // Consumed exactly once, when the profile is created.
@@ -22,7 +25,7 @@ export async function takePrefill(ctx: MutationCtx, userId: string): Promise<Pro
   const p = await pendingFor(ctx, userId);
   if (!p) return {};
   await ctx.db.delete(p._id);
-  return { github: p.github, x: p.x, avatarUrl: p.avatarUrl };
+  return { github: p.github, x: p.x, avatarUrl: p.avatarUrl, xFollowers: p.xFollowers };
 }
 
 // Scheduled by the account.onCreate trigger; the provider token is read back through the component adapter, not passed around.
@@ -44,11 +47,11 @@ export const applyProviderProfile = internalMutation({
   handler: async (ctx, { userId, ...info }) => {
     const profile = await ctx.db.query("profiles").withIndex("by_userId", (q) => q.eq("userId", userId)).unique();
     if (profile) {
-      await ctx.db.patch(profile._id, fillEmpty(profile, info));
+      await ctx.db.patch(profile._id, { ...fillEmpty(profile, info), ...followerPatch(info) });
       return;
     }
     const pending = await pendingFor(ctx, userId);
-    if (pending) await ctx.db.patch(pending._id, fillEmpty(pending, info));
+    if (pending) await ctx.db.patch(pending._id, { ...fillEmpty(pending, info), xFollowers: info.xFollowers ?? pending.xFollowers });
     else await ctx.db.insert("profilePrefills", { userId, ...info });
   },
 });

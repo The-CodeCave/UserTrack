@@ -154,7 +154,7 @@ curl https://usertrack.dev/api/v1/saas/acme
     },
     "ranks": { "leaderboard": 4, "previousLeaderboard": 6, "trending": 9, "trendingScore7d": 412.5 },
     "followers": 23,
-    "owner": { "username": "jane", "displayName": "Jane Doe" },
+    "owner": { "username": "jane", "displayName": "Jane Doe", "xFollowers": 12400 },
     "timestamps": { "firstSnapshotAt": "2026-03-01T00:00:00.000Z", "lastSyncedAt": "2026-09-02T08:00:00.000Z" },
     "urls": { "page": "https://usertrack.dev/s/acme", "badge": "https://usertrack.dev/api/badge/acme.svg" },
     "milestones": [
@@ -741,7 +741,7 @@ curl "https://usertrack.dev/api/v1/compare?s=acme,globex&days=90"
 
 Public founder profile, founder-level aggregates (`metrics`) and their public SaaS projects (full SaaS objects, without milestones). Usernames are case-insensitive. Hidden profiles (`profilePublic = false`) are `404`.
 
-`metrics` (aggregates over **public** projects only, after per-metric visibility — `docs/PROFILES.md`): `projects`, `verifiedProjects`, `totalUsers`, `newUsers7d`, `newUsers30d`, `growth30dPct` (new ÷ users at the start of the window), `changeVsPrev30dPct?` (only when every project has a previous window), `activation? { activatedUsers, ratePct, projects, method: "weighted" }` (Σ activated ÷ Σ users of projects with an activation source — never a mean of rates), `convertedUsers?` (published counts only), `bestRank?`, `trendingProjects`, `biggestGrowth? { slug, name, newUsers30d }`. Profile fields added in v0.8: `location?`, `xState` (`connected_via_oauth` · `handle_provided` · `unavailable` — a typed handle is never presented as verified), `joinedAt`, `urls.card`, `urls.history`.
+`metrics` (aggregates over **public** projects only, after per-metric visibility — `docs/PROFILES.md`): `projects`, `verifiedProjects`, `totalUsers`, `newUsers7d`, `newUsers30d`, `growth30dPct` (new ÷ users at the start of the window), `changeVsPrev30dPct?` (only when every project has a previous window), `activation? { activatedUsers, ratePct, projects, method: "weighted" }` (Σ activated ÷ Σ users of projects with an activation source — never a mean of rates), `convertedUsers?` (published counts only), `bestRank?`, `trendingProjects`, `biggestGrowth? { slug, name, newUsers30d }`. Profile fields added in v0.8: `location?`, `xState` (`connected_via_oauth` · `handle_provided` · `unavailable` — a typed handle is never presented as verified), `joinedAt`, `urls.card`, `urls.history`. v1.0: `xFollowers?` / `xFollowersAt?` — the X follower count read from the founder's **own** connected X account (`/2/users/me` `public_metrics`, refreshed daily); absent for typed handles, and `owner.xFollowers?` on project rows (absent for anonymous projects, which have no `owner`). `followers` remains the UserTrack follower count.
 
 ```bash
 curl https://usertrack.dev/api/v1/users/jane
@@ -756,7 +756,9 @@ curl https://usertrack.dev/api/v1/users/jane
     "bio": "Building Acme. Previously at Stripe.",
     "location": "Berlin, DE",
     "links": { "website": "https://jane.dev", "x": "janedoe", "github": "janedoe" },
-    "xState": "handle_provided",
+    "xState": "connected_via_oauth",
+    "xFollowers": 12400,
+    "xFollowersAt": "2026-09-04T03:30:00.000Z",
     "followers": 118,
     "joinedAt": "2026-06-01T09:00:00.000Z",
     "urls": { "profile": "https://usertrack.dev/u/jane", "card": "https://usertrack.dev/u/jane/card", "history": "https://usertrack.dev/api/v1/users/jane/history" },

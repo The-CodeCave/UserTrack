@@ -45,7 +45,7 @@ export interface SaasRow {
   trialToConvertedPct?: number;
   trendingScore7d?: number;
   spark: number[];
-  owner?: { username: string; displayName: string } | null;
+  owner?: { username: string; displayName: string; xFollowers?: number } | null;
   movement?: Movement;
   explain?: string;
 }
@@ -94,7 +94,7 @@ export function LeaderboardRow({ s, position, board = "most-new", window = "30d"
             <SaasLogo name={s.name} logoUrl={s.logoUrl} size={36} />
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2 font-medium"><span className="truncate">{s.name}</span><TrustBadge trust={s.trust} label={s.trustLabel} className="hidden shrink-0 sm:inline-flex" />{s.isDemo && <DemoTag />}</div>
-              <div className="truncate font-mono text-[11px] text-muted-foreground">{s.category ? `${categoryLabel(s.category)} · ` : ""}{s.owner ? `@${s.owner.username} · ` : ""}{s.description}</div>
+              <div className="truncate font-mono text-[11px] text-muted-foreground">{s.category ? `${categoryLabel(s.category)} · ` : ""}{s.owner ? `@${s.owner.username}${s.owner.xFollowers !== undefined ? ` · 𝕏 ${formatCompact(s.owner.xFollowers)}` : ""} · ` : ""}{s.description}</div>
             </div>
           </div>
           <Sparkline values={s.spark} className="hidden text-foreground sm:block" />

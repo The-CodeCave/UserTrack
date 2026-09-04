@@ -1,6 +1,6 @@
 // Social sign-in providers for Better Auth. A provider is only registered when its credentials exist, so a deployment
 // without GitHub or X keys keeps Google / email working and the UI disables the missing buttons.
-import { X_ME_URL } from "./xApi";
+import { followersOf, X_ME_URL, type XMe } from "./xApi";
 
 type Env = Record<string, string | undefined>;
 
@@ -32,7 +32,6 @@ export function socialProviderConfig(env: Env) {
   };
 }
 
-type XMe = { data?: { id: string; name?: string; username: string; profile_image_url?: string; confirmed_email?: string } };
 const xAvatar = (url?: string) => url?.replace("_normal", "_400x400");
 
 // Better Auth 1.6's X provider falls back to the username when X shares no email, which would create users whose
@@ -45,11 +44,11 @@ export async function xUserInfo(token: { accessToken?: string }, fetchFn: typeof
   if (!data?.id) return null;
   // Separate request: X rejects the whole call when the app lacks the email permission.
   const emailRes = await fetchFn("https://api.x.com/2/users/me?user.fields=confirmed_email", { headers });
-  const email = emailRes.ok ? ((await emailRes.json()) as XMe).data?.confirmed_email : undefined;
+  const email = emailRes.ok ? ((await emailRes.json()) as { data?: { confirmed_email?: string } }).data?.confirmed_email : undefined;
   return { user: { id: data.id, name: data.name || data.username, email: email ?? null, image: xAvatar(data.profile_image_url), emailVerified: Boolean(email) }, data };
 }
 
-export type ProviderHandle = { github?: string; x?: string; avatarUrl?: string };
+export type ProviderHandle = { github?: string; x?: string; avatarUrl?: string; xFollowers?: number };
 
 // Handle + avatar of a freshly linked account, fetched once with the provider token (the token itself stays in Better Auth).
 export async function fetchProviderHandle(providerId: "github" | "twitter", accessToken: string, fetchFn: typeof fetch = fetch): Promise<ProviderHandle | null> {
@@ -62,6 +61,6 @@ export async function fetchProviderHandle(providerId: "github" | "twitter", acce
   }
   const res = await fetchFn(X_ME_URL, { headers });
   if (!res.ok) return null;
-  const { data } = (await res.json()) as XMe;
-  return data?.username ? { x: data.username, avatarUrl: xAvatar(data.profile_image_url) } : null;
+  const me = (await res.json()) as XMe;
+  return me.data?.username ? { x: me.data.username, avatarUrl: xAvatar(me.data.profile_image_url), xFollowers: followersOf(me) } : null;
 }

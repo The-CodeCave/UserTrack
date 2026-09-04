@@ -64,7 +64,7 @@ describe("catalog", () => {
   it("names match their keys and never collide with server events", () => {
     for (const [k, v] of Object.entries(EVENTS)) expect(v).toBe(k);
     for (const s of SERVER_EVENTS) expect(k(s)).toBe(false);
-    expect(Object.keys(EVENTS).length).toBe(43);
+    expect(Object.keys(EVENTS).length).toBe(44);
   });
 
   it("skips machine endpoints and masks token URLs", () => {

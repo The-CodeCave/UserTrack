@@ -17,7 +17,7 @@ Usernames are case-insensitive (`/u/Ada` resolves `ada`). `profiles.profilePubli
 
 ## Profile fields
 
-`profiles`: `username`, `displayName`, `avatarUrl?`, `bio?` (≤160), `website?`, `x?` (canonical handle, no `@`), `github?`, `linkedin?`, `location?` (≤60), `profilePublic?` (default true), `xUserId?` / `xConnectedAt?` (set only by X OAuth), `socialPrefs?`, `followerCount?`, `_creationTime` → "Joined".
+`profiles`: `username`, `displayName`, `avatarUrl?`, `bio?` (≤160), `website?`, `x?` (canonical handle, no `@`), `github?`, `linkedin?`, `location?` (≤60), `profilePublic?` (default true), `xUserId?` / `xConnectedAt?` (set only by X OAuth), `xFollowers?` / `xFollowersAt?` (X follower count read from the founder's own token — Connect X or X sign-in — refreshed daily, see `docs/SOCIAL.md`), `socialPrefs?`, `followerCount?` (UserTrack followers), `_creationTime` → "Joined".
 
 Only `username` and `displayName` are required. Onboarding asks for name, handle, optional avatar URL and optional X handle.
 
@@ -28,6 +28,10 @@ Only `username` and `displayName` are required. Onboarding asks for name, handle
 | `unavailable` | no handle | nothing shown |
 | `handle_provided` | typed by the founder (`@name`, `name` or an x.com URL → canonical `name`) | `𝕏 @name` link, never a "verified" claim |
 | `connected_via_oauth` | linked through X sign-in (`xUserId` set) | `𝕏 @name` + small `connected` chip |
+
+### X follower count
+
+`xFollowers` exists only when the founder proved ownership of the account (Connect X or X sign-in): it is read from `GET /2/users/me?user.fields=public_metrics` with the founder's own token — never looked up by handle. Shown as `𝕏 12.4k followers on X` in the header, `𝕏 12.4k` on the owner chip of leaderboard rows and the "Built by" block of `/s/<slug>`, and as `@name · 12.4k followers` on the founder OG image / share card. A typed handle shows nothing (Settings nudges "Connect X to show your follower count"). Anonymous projects drop the owner altogether, hidden profiles 404, so the count never leaks through them. API: `Profile.xFollowers?` / `xFollowersAt?`, `Saas.owner.xFollowers?`.
 
 ## Aggregates (`convex/lib/founder.ts`)
 

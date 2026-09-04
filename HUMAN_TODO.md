@@ -4,6 +4,8 @@ Everything the agent could not complete autonomously because it needs an externa
 
 Last updated: 2026-09-04 (v1.0 launch hardening: IMPORT-1 TrustMRR operator key task, PROFILE-1 no action, ANALYTICS-1 Rybbit dashboard task; v0.9: discovery v3, follow + watchlists, ranking / trending / benchmark history, benchmarks v2, public datasets + SEO pages, webhooks — see the v0.9 section; v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
 
+**v1.0 launch hardening (SOCIAL-1).** No new task: follower counts use the same X app and the `users.read` scope that "Connect X" / X sign-in already request, and `public_metrics` is available on the free tier. After the X app exists, connect once on `/app/settings/social` and check that the count appears (then "Refresh now" once) — see step 5 of *Create X Developer App*.
+
 **v1.0 launch hardening (IMPORT-1).** One task, **required for the feature**: create a TrustMRR API key and set `TRUSTMRR_API_KEY` on Convex prod (and dev), then run one real import and paste the observed JSON into `convex/lib/trustmrr.fixtures.ts` — see *TrustMRR operator API key (IMPORT-1)* below. Until then the "Import from TrustMRR" button shows "Not configured" and the MCP tool answers `not_configured`; nothing else breaks.
 
 **v1.0 launch hardening (PROFILE-1).** Nothing to create. The product profile fields are optional schema additions (no migration), the logo upload uses the built-in Convex file storage of the existing deployment (no bucket, no variable) and stack icons load from `https://cdn.simpleicons.org` (public CDN, no account). One optional check after the prod deploy: open `/stacks/nextjs` and one product's `/s/<slug>` and confirm the icons render; if the CDN is ever blocked, the chips degrade to text.
@@ -117,7 +119,7 @@ X Developer Portal → https://developer.x.com/en/portal/dashboard (log in with 
 5. Test: `https://usertrack.dev/app/settings/social` → **Connect X** → authorize → back on the page with "Connected" and your handle. Then switch one auto-share category on and (optionally) trigger `npx convex run --prod social:autoPost` once a share event is ready.
 
 **Required scopes**
-`tweet.read`, `tweet.write`, `users.read`, `offline.access` (requested by the app; the portal permission level must allow write).
+`tweet.read`, `tweet.write`, `users.read`, `offline.access` (requested by the app; the portal permission level must allow write). `users.read` also covers the follower count (SOCIAL-1, `public_metrics` on `/2/users/me`, free tier) — nothing extra to enable. Verify after connecting: the settings page shows `𝕏 <count> followers · refreshed just now`, `/u/<username>` shows "followers on X", and `npx convex run --prod social:refreshFollowers` returns `{ refreshed: ≥1, failed: 0 }`.
 
 **Callback URL**
 `https://usertrack.dev/api/social/x/callback`

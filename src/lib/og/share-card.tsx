@@ -125,7 +125,7 @@ export async function renderFounderCard(username: string, cfg: CardConfig = DEFA
       chart={points.length >= 2 ? <OgRangeChart values={points.map((x) => x.total)} dates={cfg.dates ? [points[0].t, points[points.length - 1].t] : undefined} width={dim.width} height={square ? 380 : 250} fade labels={cfg.dates} color={cfg.style === "aurora" ? "#ffffff" : PINK} /> : null}
       footerLeft={`${HOST}/u/${username}`}
       footerRight={footerRight}
-      chips={cfg.founder && p?.x ? <OgChip>{`@${p.x}`}</OgChip> : null}
+      chips={cfg.founder && p?.x ? <OgChip>{`@${p.x}${p.xFollowers !== undefined ? ` · ${formatCompact(p.xFollowers)} followers` : ""}`}</OgChip> : null}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
         <OgLogo name={name} src={avatar} size={square ? 110 : 92} radius={square ? 55 : 46} />

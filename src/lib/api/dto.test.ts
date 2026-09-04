@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { benchmarkHistoryDto, cohortsDto, compareDto, conversionDto, engagementDto, feedItemDto, funnelDto, historyDto, historySeriesDto, milestoneDto, rankHistoryDto, saasDto, type SaasRow } from "./dto";
+import { benchmarkHistoryDto, cohortsDto, compareDto, conversionDto, engagementDto, feedItemDto, funnelDto, historyDto, historySeriesDto, milestoneDto, profileDto, rankHistoryDto, saasDto, type SaasRow } from "./dto";
 
 const FORBIDDEN = ["ownerId", "trustState", "trustScore", "config", "flags", "fraudFlags", "isPublic", "showTraffic", "showRevenue", "_id", "_creationTime", "spark", "sources", "visibility", "secret"];
 
@@ -203,5 +203,23 @@ describe("saasDto — product profile", () => {
     expect(d.cofounders).toBeUndefined();
     expect(d.name).toBe("Acme");
     expect(d.metrics.totalUsers).toBe(12481);
+  });
+});
+
+describe("profileDto — X followers", () => {
+  const p = { username: "ada", displayName: "Ada", x: "ada", xConnected: true, followerCount: 3, joinedAt: 0 };
+  it("exposes the count read from the founder's own token and omits it for typed handles", () => {
+    const withCount = profileDto({ ...p, xFollowers: 12400, xFollowersAt: Date.UTC(2026, 8, 4) });
+    expect(withCount.xFollowers).toBe(12400);
+    expect(withCount.xFollowersAt).toBe("2026-09-04T00:00:00.000Z");
+    expect(withCount.followers).toBe(3);
+    const typed = profileDto({ ...p, xConnected: false });
+    expect(typed.xState).toBe("handle_provided");
+    expect(typed.xFollowers).toBeUndefined();
+    expect(typed.xFollowersAt).toBeUndefined();
+  });
+  it("keeps the owner's count on project rows only when the owner is present", () => {
+    expect(saasDto({ ...base, owner: { username: "ada", displayName: "Ada", xFollowers: 900 } }).owner).toEqual({ username: "ada", displayName: "Ada", xFollowers: 900 });
+    expect(saasDto({ ...base, owner: null }).owner).toBeUndefined();
   });
 });
