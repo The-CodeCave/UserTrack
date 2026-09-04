@@ -1,5 +1,7 @@
-// End-to-end smoke: sign up → onboarding (profile, SaaS, platform, stack, manual source, skip activation + conversion, publish) → public page. Screenshots to /tmp/ut-shots.
+// End-to-end smoke: sign up → verify → onboarding (profile, SaaS, platform, stack, manual source, skip activation + conversion, publish) → public page. Screenshots to /tmp/ut-shots.
+// The Convex deployment's SITE_URL must match the port `base` points at, or Better Auth rejects the sign-up as an untrusted origin (A208).
 import { chromium } from "playwright-core";
+import { execSync } from "node:child_process";
 
 const base = process.argv[2] ?? "http://localhost:3000";
 const mobile = process.argv[3] === "mobile";
@@ -17,7 +19,17 @@ await step("01-signup", async () => {
   await page.fill("#email", email);
   await page.fill("#password", "supersecret123");
 });
+await step("02a-check-inbox", async () => {
+  await page.click("button[type=submit]");
+  await page.waitForSelector("[data-testid=check-inbox]", { timeout: 30000 });
+});
 await step("02-onboarding-profile", async () => {
+  // SEC-1 requires a verified address before sign-in; the token only reaches the inbox, so flip the flag through the component adapter.
+  const where = JSON.stringify({ input: { model: "user", where: [{ field: "email", operator: "eq", value: email }], update: { emailVerified: true } } });
+  execSync(`npx convex run --component betterAuth adapter:updateOne '${where}'`, { stdio: "inherit" });
+  await page.goto(`${base}/sign-in`);
+  await page.fill("#email", email);
+  await page.fill("#password", "supersecret123");
   await page.click("button[type=submit]");
   await page.waitForURL("**/app/onboarding", { timeout: 30000 });
   await page.waitForSelector("#displayName", { timeout: 30000 });

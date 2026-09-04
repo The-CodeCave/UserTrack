@@ -81,12 +81,21 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 - **Webhooks**: signed (HMAC-SHA256) async deliveries with retries and a delivery log, SSRF policy + DoH re-resolution, 7 event types, `/app/developer/webhooks`, `/developers/webhooks`, MCP webhook tools. `docs/WEBHOOKS.md`.
 - Platform: 50 MCP tools (4 new scopes), OpenAPI 3.1 updated.
 
+### v1.0 — Launch hardening
+No new product surface; everything here makes v0.9 safe to show to strangers. Release notes: `docs/RELEASE-v1.0.md`.
+- **Security**: gateway secret fails closed (constant-time, rejected when missing on either side), honest credential wording, `safeInternalPath` for every redirect, security headers + CSP, email verification with a publish gate (SEC-1); real rate limiting through the `@convex-dev/rate-limiter` component with a named catalog, an in-memory first line and a trusted client IP (SEC-2); shared SSRF policy for every founder-supplied host — validate-time checks, a DoH guard before every provider fetch, `redirect: "manual"` + timeouts, a `dns.lookup` guard before every Postgres connection (SEC-3).
+- **Legal + GDPR**: `/impressum`, `/privacy`, `/terms`, footer everywhere, `src/lib/legal.ts` (LEGAL-1); self-service export (`/api/account/export`, MCP) and a paged hard account delete across all 32 user-owned tables plus the Better Auth rows (LEGAL-2).
+- **Analytics**: self-hosted cookieless Rybbit, a typed 44-event catalog wired at its call sites, pseudonymous identify, server-side events from route handlers and Convex (ANALYTICS-1). `docs/ANALYTICS.md`.
+- **Accounts + profiles**: GitHub + X sign-in, account linking, connected accounts, provider profile import (AUTH-1); rich product profiles — markets, tech stack, marketing channels, cofounders, company + product texts, logo upload, anonymous mode, hide from Google, `/stacks/<slug>` boards (PROFILE-1); "Import from TrustMRR" in the forms and MCP (IMPORT-1); X follower counts from the founder's own token (SOCIAL-1).
+- **Operations**: every cron pages its table and writes a `jobRuns` row (OPS-1); ISR + cache headers on every public page and indexed, bounded board reads with materialized directory counters (OPS-2); retention sweep, Sentry behind a DSN, error boundaries + degraded public pages, `/api/health`, CI without secrets (OPS-3).
+- **Consolidation**: full clean verification, launch screenshot pass (`docs/screenshots/v1/ship/`), doc reconciliation, `HUMAN_TODO.md` launch checklist, `docs/RELEASE-v1.0.md` (SHIP-1). 52 MCP tools, OpenAPI 3.1 with 22 paths.
+
 ## Next opportunities
 0. **Real-world adapter runs** — the Prisma / Drizzle / Convex / Auth.js adapters are tested against fakes and rendered SQL; one live founder integration per adapter (see `packages/node/HUMAN_TODO.md`) would confirm the count semantics end to end, then publish the three packages.
 1. **Verified retention cohorts** — providers with per-user `last_active_at` (Clerk list API, Auth0 logs) could yield true cohort retention instead of the estimate; also weekly cohort curves.
 2. **Domain verification** (DNS TXT / meta tag) so endpoints on other hosts can become verified, and to strengthen the trust score.
-3. **Envelope encryption** of `integrations.config` with a KMS-style key in env (Convex already encrypts at rest).
-4. **Materialized board table** once the public set exceeds a few thousand products (today boards sort the public set in one query).
+3. **Envelope encryption** of `integrations.config` with a KMS-style key in env (Convex encrypts its storage, but v1.0 adds no application-level encryption — A120, `docs/RELEASE-v1.0.md` → Residual risks).
+4. **Materialized board table** once the public set exceeds ~5,000 products (OPS-2 moved every board except `most-activated` onto its own index with an early-exit walk, and caps `publicSet` / the sitemap at 5,000 rows).
 5. **Owner-added annotations** (launches, Product Hunt day) on the chart; annotation clustering when > 8.
 6a. **Better Auth follow-ups**: publish `@usertrack/better-auth` to npm (see `packages/better-auth/HUMAN_TODO.md`), community-plugin listing, `waitUntil`-aware event delivery on serverless hosts, optional active-users (session scan) capability, `@usertrack/protocol` extraction when a second native plugin (Auth.js, Lucia, Clerk webhooks) arrives.
 6. **More sources**: Umami, Fathom (traffic); Amplitude, Mixpanel, Firebase Analytics via BigQuery (activation, today through the endpoint); RevenueCat identities (customers API or webhooks) and per-day trial flows; StoreKit / Google Play Billing directly; more databases (MySQL, MongoDB) behind the same Node-runtime pattern.
@@ -118,4 +127,8 @@ Auth, profiles, SaaS pages, Clerk/Supabase/endpoint/manual sources, 4-hour snaps
 - MCP auth is bearer tokens only (no OAuth yet); the MCP server is stateless, so clients that require SSE notifications are not supported.
 - Milestones for `best_day` / `best_week` need ≥3 / ≥14 closed days of daily data; Trending Score reaches full weight only after 14 tracked days.
 - Demo listings remain in production until `seed:clear` is run (see `HUMAN_TODO.md`).
+- Provider credentials in `integrations.config` are stored without application-level encryption (A120); nothing returns them, but deployment access can read them.
+- Better Auth sign-in / sign-up is not rate limited — it runs inside the Convex HTTP router where the Next.js `limit()` helper cannot reach it (deferred from SEC-2, `docs/BACKLOG.md`).
+- The TrustMRR mapper is written against the published example response, not a live key (A173); unknown fields land in `unmapped[]`.
+- Public pages may be up to 5 minutes stale (`revalidate = 300`, A192); the dashboard stays live.
 - The provider adapters (including the v0.4 PostgreSQL, Supabase database mode and Firebase scan paths) are unit-tested against documented API shapes and SQL builders but have not yet been exercised against live third-party accounts or databases.

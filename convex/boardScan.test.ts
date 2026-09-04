@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import { BOARDS, growth24h, sortBoard, type Board, type BoardWindow } from "./lib/boardRules";
 import { publicStatsOf } from "./leaderboard";
 

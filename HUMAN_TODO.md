@@ -1,36 +1,158 @@
 # UserTrack Human To-Do
 
-Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and deployed.
+Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and documented.
 
-Last updated: 2026-09-04 (v1.0 launch hardening: OPS-3 Sentry project + optional Convex log stream, IMPORT-1 TrustMRR operator key task, PROFILE-1 no action, ANALYTICS-1 Rybbit dashboard task; v0.9: discovery v3, follow + watchlists, ranking / trending / benchmark history, benchmarks v2, public datasets + SEO pages, webhooks — see the v0.9 section; v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
+Last updated: 2026-09-04 · code state: **v1.0 launch hardening complete** (SEC-1..3, LEGAL-1..2, ANALYTICS-1, AUTH-1, PROFILE-1, IMPORT-1, SOCIAL-1, OPS-1..3, SHIP-1 — see `docs/RELEASE-v1.0.md`). Nothing is deployed: the v1.0 commits are on `main` locally and have **not** been pushed or shipped.
 
-**v1.0 launch hardening (OPS-3).** One recommended task and one optional one, both below under *Recommended*: create a **Sentry EU project and set the DSN** (until then the SDK is not initialised, not downloaded and nothing is reported — everything else works), and optionally switch on the **Convex → Sentry log stream** so backend function errors land in the same project. Nothing is required: retention, the error boundaries, the degraded public pages and `/api/health` need no credential. **GitHub Actions needs no secrets** — `.github/workflows/ci.yml` builds with placeholder Convex URLs and `convex/_generated` is committed, so the workflow starts working the moment the repository is pushed to GitHub. One thing to know: Railway's health check moved from `/leaderboard` to `/api/health` in `railway.toml`; if the service was created with the path set in the dashboard instead, update it there too (Railway → service → Settings → Deploy → Health check path).
+**TL;DR** — the code is launch-ready; 13 human steps stand between it and production. Do the *Required* list below **in order** — each one is a link to the detailed section further down, which has the exact commands and values. Everything under *Recommended* can wait until after launch. A separate branch `waitlist` (worktree `../UserTrack-waitlist`) holds an interim standalone waitlist app under `apps/waitlist/`, deployed as its own Railway service; it is not merged into `main` and is not part of this release.
 
-**v1.0 launch hardening (SOCIAL-1).** No new task: follower counts use the same X app and the `users.read` scope that "Connect X" / X sign-in already request, and `public_metrics` is available on the free tier. After the X app exists, connect once on `/app/settings/social` and check that the count appears (then "Refresh now" once) — see step 5 of *Create X Developer App*.
+---
 
-**v1.0 launch hardening (IMPORT-1).** One task, **required for the feature**: create a TrustMRR API key and set `TRUSTMRR_API_KEY` on Convex prod (and dev), then run one real import and paste the observed JSON into `convex/lib/trustmrr.fixtures.ts` — see *TrustMRR operator API key (IMPORT-1)* below. Until then the "Import from TrustMRR" button shows "Not configured" and the MCP tool answers `not_configured`; nothing else breaks.
+## Launch checklist
 
-**v1.0 launch hardening (PROFILE-1).** Nothing to create. The product profile fields are optional schema additions (no migration), the logo upload uses the built-in Convex file storage of the existing deployment (no bucket, no variable) and stack icons load from `https://cdn.simpleicons.org` (public CDN, no account). One optional check after the prod deploy: open `/stacks/nextjs` and one product's `/s/<slug>` and confirm the icons render; if the CDN is ever blocked, the chips degrade to text.
+### Required — in this order
 
-**v1.0 launch hardening (AUTH-1).** Two provider tasks, both under *GitHub sign-in + X sign-in callback (AUTH-1)* below: create a GitHub OAuth App (`GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` on Convex prod) and add the callback `https://usertrack.dev/api/auth/callback/twitter` + the "Request email from users" permission to the existing X app (no new variable). Until then the two buttons render disabled ("not enabled on this deployment"); Google and email keep working.
+| # | Step | Why it is here | Where the details are |
+|---|---|---|---|
+| 1 | **Confirm `UT_GATEWAY_SECRET` on both sides** | Since SEC-1 the gateway **fails closed**: if the value is missing or different on either side, every API key, MCP call, badge, embed and native event is rejected. It was set in v0.6 — this is a verification, not a new secret. | below, *1. Gateway secret* |
+| 2 | **`RESEND_API_KEY` on Convex prod** | Since SEC-1 email+password accounts must verify their address before they can sign in. Without the key every new password sign-up is stuck at "Check your inbox". Google/GitHub/X sign-in is unaffected. | *Resend — verify `mail.usertrack.dev` and add the API key* |
+| 3 | **`GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`** | "Continue with GitHub" renders disabled until the OAuth App exists. | *GitHub sign-in + X sign-in callback (AUTH-1)* |
+| 4 | **X callback + email permission on the existing X app** | Adds "Continue with X" (Better Auth `twitter`) to the existing Connect X app; no new variable. Without the email permission X sign-in fails with a clear `email_not_found`. | *GitHub sign-in + X sign-in callback (AUTH-1)* |
+| 5 | **`TRUSTMRR_API_KEY` on Convex prod** | "Import from TrustMRR" shows "Not configured" and the MCP tool answers `not_configured` without it. Also: run one real import and paste the JSON into the fixtures (the mapper is written against the published example, not a live response). | *TrustMRR operator API key (IMPORT-1)* |
+| 6 | **Rybbit goals + funnels (incl. `waitlist_join`)** | Rybbit has no API for goals/funnels. Without them every funnel in the dashboard stays empty — including the waitlist phase. | *Rybbit — site settings, goals, funnels and API key (ANALYTICS-1)* |
+| 7 | **Google OAuth consent screen with `/privacy` + `/terms`** | Both pages exist since LEGAL-1. Google needs them before the app can leave "Testing" (100 manually added users). | *Google sign-in — create the OAuth client*, step 2 |
+| 8 | **Lawyer review of the legal texts** | `/impressum`, `/privacy`, `/terms` were written by an agent from the code. They are accurate about the software; they are not legal advice. | *Legal pages — lawyer review + effective date (LEGAL-1)* |
+| 9 | **`npx convex deploy --yes`** | Backend first: new tables (`profilePrefills`, `publicStats`, `jobRuns`), 29 new indexes, the `@convex-dev/rate-limiter` component, the new crons and functions. | *9. Deploy Convex* |
+| 10 | **`npx convex run --prod migrations:nativeV1`** | The one migration that may still be pending from v0.7. Idempotent and paged — safe to run again. | *10. Run the pending migration* |
+| 11 | **`railway up --service usertrack --ci`** | Then the app. Also: set the Railway health-check path to `/api/health` (OPS-3 changed it in `railway.toml`; a service created with the path in the dashboard needs it there too). | *11. Deploy the app* |
+| 12 | **Domain / DNS** | `usertrack.dev` has Cloudflare nameservers but **no A/CNAME record**, so nothing resolves. During the interim phase point it at the **waitlist** service, then switch the record to the main app. | *12. Domain / DNS (interim waitlist → main app)* |
+| 13 | **Post-deploy checks** | Health, headers, one real sign-up, one real import, one real X connect. | *13. Post-deploy checks* |
 
-**v1.0 launch hardening (ANALYTICS-1).** One dashboard task: configure the Rybbit site (settings toggles, 9 goals, 2 funnels) and create an API key — see *Rybbit — site settings, goals, funnels and API key* below. Optional env: `RYBBIT_API_KEY` on Railway, `RYBBIT_SITE_ID` (+ `RYBBIT_API_KEY`) on Convex prod for the two Convex-side events.
+### Recommended — after launch
 
-**v1.0 launch hardening (LEGAL-2).** Nothing to create. Self-service deletion and export are live at `/app/settings#data-privacy` and need no new variable: the confirmation email goes through the existing `RESEND_API_KEY`, the X token revocation uses the existing `X_CLIENT_ID` / `X_CLIENT_SECRET` (skipped when absent), and the Better Auth rows are removed through the component adapter. One check after the prod deploy: delete a throwaway account in production and confirm in the Convex dashboard that `profiles` / `saas` no longer list it and the `betterAuth` component's `user` table has no row for that email.
+| Step | Why | Where |
+|---|---|---|
+| **Sentry EU project + `NEXT_PUBLIC_SENTRY_DSN`** | Without a DSN the SDK is never initialised or downloaded — crashes render the branded error boundary but nobody is notified. | *Sentry — create the EU project and set the DSN (OPS-3)* |
+| **Convex → Sentry log stream** | Backend function errors land in the same project. | *Optional: Convex → Sentry log stream (OPS-3)* |
+| **Cloudflare cache rules** | OPS-2 already sends `Cache-Control: public, s-maxage=300` on every public route; a "Cache Everything" rule makes Cloudflare honour it. | *Cloudflare "Cache Everything" for `/api/v1/*` and `/s/*` (OPS-2, optional)* |
+| **npm publishes** (`@usertrack/protocol` → `@usertrack/node` → `@usertrack/better-auth`) | Until then founders install the SDK from a `pnpm pack` tarball. Order matters: the plugin depends on the other two. | `packages/node/HUMAN_TODO.md`, `packages/better-auth/HUMAN_TODO.md` |
+| **Search Console + directory submissions** | Only worth doing once the domain resolves. | *Search Console: submit the new public pages*, *Submit the UserTrack MCP server to agent directories* |
+| **Decide on the demo listings** | The 5 `demo-*` products stay in production until `npx convex run --prod seed:clear`. | *Decide what to do with the demo listings* |
 
-**v1.0 launch hardening (SEC-3).** Nothing to create. One optional dev knob: `UT_ALLOW_PRIVATE_DB=1` on a *dev* Convex deployment (`npx convex env set UT_ALLOW_PRIVATE_DB 1`) lets the Postgres / Supabase-database providers connect to `localhost` / private hosts for local smoke tests; never set it on prod (`npx convex env list --prod` must not show it). Production needs no new variable — the own-host block reads the existing `SITE_URL` / `CONVEX_SITE_URL` / `CONVEX_CLOUD_URL`.
+---
 
-**v1.0 launch hardening (SEC-1).** Two things to know, nothing new to create: (1) `UT_GATEWAY_SECRET` is now **required on both Convex prod and Railway** and the gateway fails closed without it — it is already set on both per the v0.6 note, so no action; if it is ever rotated, rotate it on both sides in the same minute (`npx convex env set --prod UT_GATEWAY_SECRET <value>` and the Railway variable). (2) `RESEND_API_KEY` moved from "for email" to **Required**: email+password accounts must verify their address before they can sign in, and the verification mail goes through Resend — until the key exists on Convex prod, every new password sign-up is locked out at "Check your inbox" (Google sign-in is unaffected). The Resend item below is therefore the first thing to do.
+### 1. Gateway secret
 
-**v0.9 needs no new human action for production.** The schema additions are all new tables / optional fields (no migration), the crons (`webhook retry sweep`, monthly ranking snapshot inside the daily sweep) and every page, API route and MCP tool are deployed and smoke-tested by the agent. Three things only a human can do are listed under **v0.9** below: submit the new public pages once the domain is live (Search Console is part of the domain task), optionally register UserTrack webhooks with Zapier / Make, and optionally point a real endpoint at a test delivery to see the signed payload end to end. History-based features fill up on their own: the first Biggest Movers appear ~7 days after the deploy (stored daily positions), the first `/rankings` archive on the 1st of the next month, benchmark cards once a cohort has 10 verified products.
+**Why** — `convex/lib/gateway.ts` compares `UT_GATEWAY_SECRET` in constant time and rejects the call when it is missing on either side (SEC-1, fail closed). Symptom of a mismatch: the public API and MCP answer `502` / `internal`, `/api/health?deep=1` reports `"convex":"down"`, badges and embeds stop rendering.
 
-**v0.7 (native SDK) needs three human actions, in this order.** (1) **Deploy + migrate**: `npx convex deploy` (schema adds the `native` provider literal and the new event types; nothing is removed), then `npx convex run --prod migrations:nativeV1` (idempotent, paged; rewrites the existing `better_auth` integration(s) to `native` + `source: "better-auth"` and their snapshot / sync-run provenance — until it ran, rows are normalised on read and keep working), then the Railway deploy (`git push` → Railway builds `pnpm railway:build`, which runs `convex deploy` again — harmless). Check afterwards: `/developers/integrations/native` renders, `/mcp` lists 30 tools, the dashboard shows the existing Better Auth source as "Better Auth" under "My app (SDK)", and `/api/integrations/better-auth/events` still answers 405 on GET (the 0.1.x plugin path). (2) **Publish the packages, in this order**: `@usertrack/protocol@0.1.0` → `@usertrack/node@0.1.0` → `@usertrack/better-auth@0.2.0` — the plugin now depends on the other two (`workspace:^` becomes `^0.1.0` at pack time), so `0.2.0` cannot be installed before they exist; all steps (scope, first publish per package, trusted publishing / `NPM_TOKEN`, tags `protocol-v*` / `node-v*` / `better-auth-v*` for `.github/workflows/release-packages.yml`) are in **`packages/better-auth/HUMAN_TODO.md`** (scope, tokens, ownership — shared by all three) and **`packages/node/HUMAN_TODO.md`** (publish order + first publish of protocol and node). Until then founders can install from a `pnpm pack` tarball. (3) **Verify one real founder integration after the deploy**: create a test project, pick "My app (SDK)" → Prisma (or Custom), mount the handler from the wizard in any app you own (a throwaway Next.js + Prisma app on Neon, or `packages/node/e2e/serve.mjs` behind a tunnel), click Verify, then check the Sync log, the auto-attached activation / conversion rows and the "Live events" line after one signup. The Prisma / Drizzle / Convex / Auth.js adapters are tested against in-memory fakes and rendered SQL, not live databases — a Postgres (Neon free tier) and a Convex starter deployment are the only third-party accounts needed for that; nothing else is required from you. No new UserTrack-side environment variable.
+```bash
+npx convex env get --prod UT_GATEWAY_SECRET     # must print a value
+railway variables --service usertrack | grep UT_GATEWAY_SECRET
+```
+Both must be **byte-identical**. If it was never set, or you rotate it, set both within the same minute:
+```bash
+SECRET=$(openssl rand -hex 32)
+npx convex env set --prod UT_GATEWAY_SECRET "$SECRET"
+railway variables --service usertrack --set "UT_GATEWAY_SECRET=$SECRET"
+railway up --service usertrack --ci
+```
 
-**v0.6 (Better Auth) needs no new human action for production** beyond what v0.7 lists above (the package is now `0.2.0` and depends on `@usertrack/protocol` + `@usertrack/node`, so those must be published first; the release workflow file was renamed to `release-packages.yml`). The provider, credentials, verification, sync, events route, dashboard wizard, MCP tools and docs are deployed and smoke-tested; no new UserTrack-side environment variable is required (`UT_GATEWAY_SECRET` was already set). What *does* need a human is **publishing the npm packages** — until they are on npm, `npm install @usertrack/better-auth` / `@usertrack/node` fails for founders (both work from a `pnpm pack` tarball or the repository). Every publish step is listed in **`packages/better-auth/HUMAN_TODO.md`** (claim the `@usertrack` npm scope, first manual publish, trusted publishing / `NPM_TOKEN` for the tag-driven workflow, Better Auth community-plugin PR) and **`packages/node/HUMAN_TODO.md`**. Cross-reference only — those items are not repeated here.
+**Status** — * [ ] Verify (already set in v0.6; nothing to create)
 
-**v0.5 needs no new human action for production.** Everything in this phase is configured and deployed by the agent: the Convex schema migration (`migrations:lifecycleV1`, ran to `done` on production on 2026-09-02), `IDENTITY_SALT` on both Convex deployments, the demo seed refresh (the 5 demo products now carry labelled, never-synced demo sources for users / activation / conversion so the public funnel, cohorts and conversion boards are demonstrable), rerank and daily sweep. Production was verified after the Railway deploy: `/s/demo-northwind`, `/best-conversion`, `/api/v1/saas/{slug}/funnel|conversion|engagement|cohorts`, `/api/openapi.json` (15 paths) and `/mcp` (27 tools) all respond. Payment-provider credentials (Stripe restricted keys, RevenueCat v2 keys, Paddle / Lemon Squeezy / Chargebee API keys) are entered **by each founder** for their own product in the dashboard or via MCP — they are not operator secrets and nothing is required from you. The only optional item is a sandbox key for a live end-to-end test of the Stripe adapter (see "Optional / Future").
+---
 
-**v0.4 needed no new human action.** Everything in this phase (PostgreSQL / Supabase / Clerk / Firebase providers, activation + funnel, Trending Score v2, discovery feed, share cards + embeds, benchmarks, compare, API + MCP) is configured and deployed. The items below are unchanged from earlier phases; the domain item is now the most important one because every share card, embed snippet and MCP config snippet renders the Railway URL until `usertrack.dev` points at production.
+### 9. Deploy Convex
+
+**Why** — the app calls functions that do not exist on the current production deployment (`public.boardRows`, `public.stats`, `jobs.health`, `retention.sweep`, `trustmrr.*`, `social.refreshNow`, `account.*`, `rateLimits.check`). Deploy the **backend first**, then the app — the other order produces 404s on those functions until the app deploy finishes.
+
+```bash
+npx convex env list --prod           # UT_GATEWAY_SECRET + RESEND_API_KEY present (steps 1 and 2)
+npx convex deploy --yes
+```
+Adds three tables (`profilePrefills`, `publicStats`, `jobRuns`), 29 indexes, the `@convex-dev/rate-limiter` component tables and optional fields on `saas` / `profiles`. **Nothing is removed or renamed**, so the currently deployed app keeps working while this runs. Rollback: `npx convex deploy --yes` from the previous commit (`docs/RELEASE-v1.0.md` → Rollback).
+
+**Status** — * [ ] Pending
+
+---
+
+### 10. Run the pending migration
+
+**Why** — `migrations:nativeV1` rewrites v0.6-era `better_auth` integrations to `native` + `source: "better-auth"` including their snapshot / sync-run provenance. Rows are normalised on read until it runs, so this is not urgent — but it should not stay pending forever. It is idempotent and paged.
+
+```bash
+npx convex run --prod migrations:nativeV1
+# → {"status":"done", ...}; run it again if it reports a cursor
+```
+
+**Status** — * [ ] Pending (skip if it already reports `done`)
+
+---
+
+### 11. Deploy the app
+
+```bash
+railway up --service usertrack --ci
+```
+Then, **once**: Railway → project `usertrack` → service `usertrack` → Settings → Deploy → **Health check path = `/api/health`** (OPS-3 moved it from `/leaderboard`; `railway.toml` already says so, but a dashboard-set path overrides the file). `/api/health` answers without reading Convex, so a Convex blip no longer restarts the service.
+
+**Status** — * [ ] Pending
+
+---
+
+### 12. Domain / DNS (interim waitlist → main app)
+
+**Why** — `usertrack.dev` uses Cloudflare nameservers but has **no A or CNAME record**, so the name does not resolve at all. Two phases:
+
+**Phase A — interim waitlist** (do this now)
+1. Railway → service **`usertrack-waitlist`** → Settings → Networking → Custom Domain → add `usertrack.dev` (+ `www.usertrack.dev`). Railway prints a CNAME target.
+2. Cloudflare → `usertrack.dev` → DNS → add
+   `CNAME  @    usertrack-waitlist-production.up.railway.app`  (or the exact target Railway prints)
+   `CNAME  www  usertrack-waitlist-production.up.railway.app`
+   Proxy status **DNS only** until Railway issues the certificate (`.dev` is HSTS-preloaded, HTTPS is mandatory); switch to proxied afterwards with SSL mode **Full (strict)**.
+3. Leave the main app on `usertrack-production.up.railway.app`.
+
+**Phase B — switch to the main app** (when you launch)
+1. Remove the custom domain from `usertrack-waitlist`, add it to service `usertrack`.
+2. Repoint both CNAMEs at the target Railway prints for `usertrack`.
+3. ```bash
+   railway variables --service usertrack --set "NEXT_PUBLIC_SITE_URL=https://usertrack.dev"
+   npx convex env set --prod SITE_URL https://usertrack.dev
+   railway up --service usertrack --ci     # the public URL is baked into the client bundle
+   ```
+4. Update the exact-match callbacks that contain the host: Google (`https://usertrack.dev/api/auth/callback/google`), GitHub (`/api/auth/callback/github`), X (`/api/auth/callback/twitter` **and** `/api/social/x/callback`).
+5. Google Search Console → add property `usertrack.dev` → submit `https://usertrack.dev/sitemap.xml`.
+
+Everything else (OG images, badges, embed snippets, MCP config snippets, email links, the OpenAPI server URL) renders `NEXT_PUBLIC_SITE_URL` / `SITE_URL` and becomes correct automatically.
+
+**Status** — * [ ] Phase A pending · * [ ] Phase B pending
+
+---
+
+### 13. Post-deploy checks
+
+```bash
+# health + headers
+curl -s https://usertrack.dev/api/health                       # {"ok":true,"version":"<sha>","uptime":N}
+curl -s "https://usertrack.dev/api/health?deep=1"              # + "convex":"ok" and a jobs array
+curl -sI https://usertrack.dev/leaderboard                     # HSTS · CSP · X-Frame-Options: DENY · Cache-Control: public, s-maxage=300
+curl -sI https://usertrack.dev/api/v1/leaderboard              # x-ratelimit-limit / -remaining / -window
+curl -sI https://usertrack.dev/api/badge/demo-northwind.svg    # frame-ancestors * (badges must stay embeddable)
+```
+Then, in the browser:
+1. **Sign-up e2e**: create a real account with email+password → the verification mail arrives (Resend → Emails shows *Delivered*) → the link signs you in → onboarding → publish → `/s/<slug>` renders with an `og:image`.
+2. **One real import**: project settings → *Import from TrustMRR* → paste a real startup URL → Apply. Then paste the observed JSON into `convex/lib/trustmrr.fixtures.ts` and re-run `pnpm test` (step 5).
+3. **One real X connect**: `/app/settings/social` → Connect X → the handle and the follower count appear → *Refresh now* once.
+4. Convex dashboard → Data → `jobRuns`: after the next 03:30 UTC daily sweep there is one row per job with `finishedAt` and `errors: 0`, including `retention sweep`.
+5. Convex dashboard → Data → `publicStats`: one row, written by the next `rerank leaderboard` (every 4 h). Until then the directory counters render zero.
+
+**Status** — * [ ] Pending
+
+---
+
+## Detailed sections
+
+The tables above link into these. They also carry the earlier phases' items; anything already done is marked as such.
+
 
 
 ## v0.9 — Discovery, datasets, webhooks
@@ -38,13 +160,13 @@ Last updated: 2026-09-04 (v1.0 launch hardening: OPS-3 Sentry project + optional
 ### Search Console: submit the new public pages (after the domain is live)
 
 **Why**
-v0.9 adds high-intent pages (`/hidden-gems`, `/biggest-movers`, `/fastest-growing-developer-tools`, `/fastest-growing-mobile-apps`, `/best-activation-rate-saas`, `/best-converting-mobile-apps`, `/rankings/*`, `/developers/webhooks`) and dataset endpoints. They are in the sitemap and have canonicals, metadata, JSON-LD and methodology sections, but until `usertrack.dev` points at Railway (task "Point usertrack.dev at production") every canonical renders the Railway hostname and nothing is worth submitting.
+v0.9 adds high-intent pages (`/hidden-gems`, `/biggest-movers`, `/fastest-growing-developer-tools`, `/fastest-growing-mobile-apps`, `/best-activation-rate-saas`, `/best-converting-mobile-apps`, `/rankings/*`, `/developers/webhooks`) and dataset endpoints. They are in the sitemap and have canonicals, metadata, JSON-LD and methodology sections, but until `usertrack.dev` points at the main app (Launch checklist step 12, phase B) every canonical renders the Railway hostname and nothing is worth submitting.
 
 **Where**
-Google Search Console → property `usertrack.dev` (created in the domain task) · Bing Webmaster Tools (optional)
+Google Search Console → property `usertrack.dev` (created in Launch checklist step 12) · Bing Webmaster Tools (optional)
 
 **Steps**
-1. Finish "Point usertrack.dev at production (Cloudflare)" below (sets `NEXT_PUBLIC_SITE_URL` / `SITE_URL`, redeploys).
+1. Finish Launch checklist step 12 phase B (sets `NEXT_PUBLIC_SITE_URL` / `SITE_URL`, redeploys).
 2. Search Console → Sitemaps → submit `https://usertrack.dev/sitemap.xml` (it already lists the new pages and, from the first month on, the `/rankings/<year>/<month>/<category>` archives).
 3. URL inspection → request indexing for `/discover`, `/hidden-gems`, `/biggest-movers`, `/fastest-growing-mobile-apps`, `/developers/webhooks`.
 4. After a week, check Coverage for "Duplicate, Google chose different canonical" — every board page uses its bare path as canonical on purpose; filter combinations (`?window=`, `?size=`, `?platform=`) are not separate canonicals.
@@ -52,7 +174,7 @@ Google Search Console → property `usertrack.dev` (created in the domain task) 
 **Required values** — none. **Where to enter them** — Search Console UI.
 
 **Status**
-* [ ] Pending (blocked by the domain task)
+* [ ] Pending (blocked by Launch checklist step 12, phase B)
 
 ---
 
@@ -273,7 +395,7 @@ Google Cloud Console → https://console.cloud.google.com
    npx convex env set --prod GOOGLE_CLIENT_ID     "xxx.apps.googleusercontent.com"
    npx convex env set --prod GOOGLE_CLIENT_SECRET "GOCSPX-xxx"
    ```
-5. Make sure `SITE_URL` on Convex prod is exactly `https://usertrack.dev` (the redirect URI is derived from it and must match Google byte for byte). See the domain item below.
+5. Make sure `SITE_URL` on Convex prod is exactly `https://usertrack.dev` (the redirect URI is derived from it and must match Google byte for byte). See Launch checklist step 12.
 6. Test: `https://usertrack.dev/sign-in` → Continue with Google → `/app/onboarding` (new user) or `/app` (existing).
 
 **Values**
@@ -365,28 +487,10 @@ GitHub → Settings → Developer settings → OAuth Apps → New OAuth App (htt
 
 ### Point usertrack.dev at production (Cloudflare)
 
-**Why this is needed**
-Public pages, OG images, badges, the API, the Google OAuth redirect URI and **every link inside every email** (`SITE_URL`) depend on the final domain. Until this is done the app — and all email CTAs — live on `usertrack-production.up.railway.app`. Emails already send from `mail.usertrack.dev` independently of this step.
-
-**Where**
-Railway → project `usertrack` → service `usertrack` → Settings → Networking → Custom Domain · Cloudflare → usertrack.dev → DNS
-
-
-> **Also depends on this:** the MCP endpoint (`https://usertrack.dev/mcp`, printed in every agent config snippet), `/api/v1`, `/api/openapi.json` and `/developers`. As of 2026-09-02 `usertrack.dev` has no DNS records at all, so everything — including the new API and MCP — is only reachable on `usertrack-production.up.railway.app`. All docs and discovery documents render `NEXT_PUBLIC_SITE_URL`, so they become correct automatically once the variables are changed. Afterwards re-run: `curl https://usertrack.dev/api/v1/leaderboard?limit=1`, `curl https://usertrack.dev/mcp`, open `https://usertrack.dev/developers`.
-
-**Steps**
-1. Railway dashboard → service `usertrack` → Settings → Networking → Custom Domain → add `usertrack.dev` (and `www.usertrack.dev` if you want the redirect). Railway shows a CNAME target. (The agent tried `railway domain usertrack.dev --service usertrack` on 2026-09-02; the CLI answered `Unauthorized` although `railway whoami` / `railway up` work, so this has to be done in the dashboard.)
-2. Cloudflare → DNS → add `CNAME` `@` → `<target>.up.railway.app` and `CNAME` `www` → same target. Proxy status: **DNS only** first until the Railway certificate is issued (`.dev` is HSTS-preloaded, HTTPS is mandatory); you can switch to proxied afterwards, with SSL mode **Full (strict)**.
-3. Railway variables: `NEXT_PUBLIC_SITE_URL=https://usertrack.dev`.
-4. Convex prod: `npx convex env set --prod SITE_URL https://usertrack.dev` (Better Auth base URL, trusted origin, OAuth redirect, all email links).
-5. Redeploy so the URL is baked into the client bundle: `railway up --service usertrack --ci`.
-6. Google Search Console → add property `usertrack.dev` → submit `https://usertrack.dev/sitemap.xml`.
-
-**Values**
-Nothing — just perform the steps.
-
-**Status**
-* [ ] Pending
+**Moved** — this is now step **12. Domain / DNS (interim waitlist → main app)** in the *Launch checklist* at the top, which
+covers both phases: point `usertrack.dev` at the interim waitlist service first, then switch the record to the main app and
+update `NEXT_PUBLIC_SITE_URL` / `SITE_URL` and the exact-match OAuth callbacks. State as of 2026-09-04: Cloudflare
+nameservers exist, **no A or CNAME record does**, so the name does not resolve.
 
 ---
 
@@ -423,6 +527,9 @@ The tracker, the event catalog (`docs/ANALYTICS.md`) and the server-side events 
    | Visited sign-up | Page | `/sign-up` |
    | Reached onboarding | Page | `/app/onboarding` |
    | Viewed a growth page | Page | `/s/*` |
+   | Joined the waitlist | Custom event | `waitlist_join` |
+
+   `waitlist_join` comes from the interim waitlist app on the `waitlist` branch (own Railway service, same Rybbit site), so the interim phase and the launched app are measured in one place. Create the goal even before the waitlist is live — an unused goal costs nothing.
 4. **Funnels → Create funnel**:
    | Funnel | Steps |
    |---|---|

@@ -103,7 +103,7 @@ export function openapi() {
             markets: { type: "array", items: { type: "string" } }, techStack: { type: "array", items: { type: "string" }, description: "Slugs from the curated catalog (src/lib/tech-stack.ts) plus free-text entries" }, marketingChannels: { type: "array", items: { type: "string" } },
             company: { type: "object", properties: { country: { type: "string", description: "ISO 3166-1 alpha-2" }, funding: { type: "string", enum: ["bootstrapped", "vc"] }, teamSize: { type: "string", enum: ["1", "2-5", "6-10", "11-50", "50+"] } } },
             about: { type: "object", description: "Descriptive text only — never revenue", properties: { valueProposition: { type: "string" }, problemSolved: { type: "string" }, audience: { type: "string" }, pricingSummary: { type: "string" }, additionalInfo: { type: "string" } } },
-            owner: { type: "object", properties: { username: { type: "string" }, displayName: { type: "string" } } },
+            owner: { type: "object", description: "Absent in anonymous mode", properties: { username: { type: "string" }, displayName: { type: "string" }, xFollowers: { type: "integer", nullable: true, description: "X follower count of the founder's connected account" } } },
             foundedAt: { type: "string", format: "date-time", description: "Founding month entered by the founder, when present" },
             timestamps: { type: "object", properties: { firstSnapshotAt: { type: "string", format: "date-time" }, lastSyncedAt: { type: "string", format: "date-time" } } },
             urls: { type: "object", properties: { page: { type: "string" }, badge: { type: "string" } } },

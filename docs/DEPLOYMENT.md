@@ -42,8 +42,10 @@ Convex actions ──► Resend API (mail.usertrack.dev) · Resend webhooks ─�
 Local dev uses `.env.local` (created by `npx convex dev`) plus the dev deployment's env (`npx convex env set …` without `--prod`).
 
 ## Ship a release
+For the **v1.0 launch** specifically, follow `HUMAN_TODO.md` → *Launch checklist* (13 ordered steps incl. the pending
+`migrations:nativeV1` and the domain phases) and `docs/RELEASE-v1.0.md` (schema delta, rollback). The generic loop is:
 ```bash
-pnpm lint && pnpm typecheck && pnpm test && pnpm build   # VERIFY
+pnpm lint && pnpm typecheck && pnpm test && pnpm packages:build && pnpm packages:test && pnpm build   # VERIFY
 npx convex deploy --yes                                   # backend first (schema, functions, crons)
 railway up --service usertrack --ci                       # then the app
 ```

@@ -5,9 +5,9 @@ Next.js 16 on Railway renders public pages, share images, badges, the JSON API a
 
 ```
 Browser ──► Next.js (Railway)
-              ├─ RSC pages ─ fetchQuery(api.public.*) ──────────► Convex queries
+              ├─ RSC pages ─ publicQuery / cachedQuery(api.public.*) ─────► Convex queries (ISR 300 s)
               ├─ /api/v1/* (DTO + rate limit) · /api/badge/*.svg (SVG, per-IP limit) ─► rateLimits.check (durable) + Convex queries
-              ├─ /mcp (Streamable HTTP, stateless) ─ 51 tools ─► Convex gateway (token hash + UT_GATEWAY_SECRET)
+              ├─ /mcp (Streamable HTTP, stateless) ─ 52 tools ─► Convex gateway (token hash + UT_GATEWAY_SECRET)
               ├─ /api/auth/[...all] ─────────────────────────────► Convex HTTP (Better Auth)
               ├─ opengraph-image · /s/[slug]/share/[kind]/card[?style&size&range&…] · /u/[username]/card · /compare/og ─► next/og (vendored Geist; presets Blueprint / Aurora / Minimal, labelled range chart)
               ├─ /api/social/x/connect · /callback (OAuth 2.0 PKCE, session-bound) ─► Convex social.beginOAuth / completeOAuth
@@ -280,7 +280,7 @@ Events: `milestone.reached`, `rank.changed`, `trending.rank_changed`, `growth.sp
      session (Better Auth)  │        convex/gateway.ts (token hash + gateway secret)
      saas.ts / integrations │                  │                          │
                             │        ┌─────────┴──────────┐    ┌──────────┴──────────┐
-                     Dashboard      REST API /api/v1        MCP /mcp (51 tools)
+                     Dashboard      REST API /api/v1        MCP /mcp (52 tools)
                      /app/*         src/lib/api/*           src/lib/mcp/*
 ```
 
@@ -308,7 +308,7 @@ Multi-role: the data model stays one integration per role. When a native `users`
 - **Widgets** (`public/widget.js`, `/embed/[slug]`, `/api/embed/[slug].json`, `src/lib/embed.ts`, `src/lib/widget.ts`): the loader (`<script async data-slug data-type data-theme data-window>`) inserts an iframe after itself and resizes it from the widget's `postMessage`; the iframe document is a self-contained HTML page (theme CSS with `prefers-color-scheme` for `auto`, inlined `public.widget` data, one inline renderer for first paint + refresh, count-up, sparkline) served `no-store` / `noindex` so each load can be attributed. `public.widget` returns only the public numbers (visibility applied). The route reads the `Referer`, drops own host / `localhost`, throttles to one write per host and project per minute (`take("embed-site:<slug>:<host>", …, 1)`) and calls `embeds.record` in `after()` (gateway secret) → `embedSites` (host, loads, first/last seen) + materialized `saas.embedSiteCount` (written only for a new host). Widget snippets (`widgetSnippets`) are the single source for the configurator and MCP `usertrack_get_embed_code { format: "widget" }`; links carry `ref=embed` + UTM.
 - **Compare**: `/compare?s=a,b,c,d&days=7|30|90|365|all` → `public.compare` (≤ 4 public products, daily rows since the window start) → `CompareChart` (Total / Indexed = 100 at each product's first day) + metric table + share buttons; OG image at `/compare/og?s=&days=` (plain route because `opengraph-image` files cannot read search params), cached 1 h. `GET /api/v1/compare` and MCP `usertrack_compare_projects` return the same series with an `index` per point.
 - **API**: `src/lib/api/dto.ts` maps rows field-by-field (never spreads), so internal fields (`ownerId`, `trustState`, flags, config) cannot leak; v0.4 added `funnelDto`, `feedItemDto`, `compareDto`; v0.9 adds `/saas/{slug}/rank-history`, `/saas/{slug}/benchmark-history`, `/following` (API key required, owner's own watchlist), the `/datasets/*` family (JSON + CSV, cursor, `platform`, methodology links) and the new boards / `platform` filter on `/leaderboard`. Anonymous: 60/min/IP; with an API key: 1,000/day + 120/min burst. OpenAPI at `/api/openapi.json`. See `docs/API.md`, `docs/DATASETS.md`.
-- **MCP**: `/mcp`, bearer `ut_mcp_` tokens, 51 tools scoped to the token owner (discovery, datasets, compare and trending read public data; follows and webhooks use the `follows:*` / `webhooks:*` scopes). See `docs/MCP.md`.
+- **MCP**: `/mcp`, bearer `ut_mcp_` tokens, 52 tools scoped to the token owner (discovery, datasets, compare and trending read public data; follows and webhooks use the `follows:*` / `webhooks:*` scopes). See `docs/MCP.md`.
 - **SEO**: canonical URLs, OG/Twitter metadata, JSON-LD (`SoftwareApplication` on product pages, `ItemList` on boards, `Person` on founder pages), methodology panels and "last updated" stamps on every ranking page, monthly archives under `/rankings/*`, `sitemap.ts` (products, profiles, categories, boards, frozen rankings), `robots.ts` (disallows `/app`, auth, email pages). Redirects `/trending-saas` → `/trending`, `/new-and-rising` → `/new-saas`.
 
 ## Public caching (v1.0, OPS-2)

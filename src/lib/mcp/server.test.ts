@@ -48,7 +48,7 @@ describe("handleMcpRequest", () => {
     expect(msg.result.capabilities.prompts).toBeDefined();
   });
 
-  it("lists all 51 tools with input schemas", async () => {
+  it("lists all 52 tools with input schemas", async () => {
     const msg = await rpc("tools/list");
     const tools = msg.result.tools as { name: string; inputSchema: unknown; description: string; annotations: { readOnlyHint: boolean } }[];
     expect(tools.map((t) => t.name).sort()).toEqual(TOOLS.map((t) => t.name).sort());

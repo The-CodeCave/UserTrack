@@ -1,0 +1,73 @@
+SHIP-1 launch pass — API + header checks (production build on http://localhost:3100)
+generated 2026-09-04T09:43:09Z
+
+### GET /api/health
+HTTP/1.1 200 OK
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://rybbit.internal.thecodecave.de; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://rybbit.internal.thecodecave.de https://*.ingest.de.sentry.io; frame-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'
+X-Frame-Options: DENY
+vary: rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch
+cache-control: no-store
+content-type: application/json
+Date: Fri, 04 Sep 2026 09:43:09 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+### GET /api/health?deep=1
+{"ok":true,"version":"dev","uptime":189,"convex":"ok","jobs":[{"errors":0,"finishedAt":1788514909702,"items":40,"job":"rerank leaderboard","startedAt":1788514909631},{"errors":0,"finishedAt":1788513810404,"items":27,"job":"sync all integrations","startedAt":1788513810311},{"errors":0,"finishedAt":1788512950746,"items":0,"job":"retention sweep","startedAt":1788512944444}]}
+
+### GET /api/v1/leaderboard?limit=1 — rate-limit headers
+HTTP/1.1 200 OK
+access-control-allow-origin: *
+cache-control: public, s-maxage=300, stale-while-revalidate=600
+x-ratelimit-limit: 60
+x-ratelimit-remaining: 59
+x-ratelimit-window: minute
+
+### GET /api/badge/demo-northwind.svg — frameable
+HTTP/1.1 200 OK
+X-Content-Type-Options: nosniff
+cache-control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400
+content-type: image/svg+xml; charset=utf-8
+frame-ancestors *
+
+### GET /leaderboard — security headers + cache (two requests)
+-- request 1
+HTTP/1.1 200 OK
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+X-Frame-Options: DENY
+Cache-Control: public, s-maxage=300, stale-while-revalidate=1800
+-- request 2
+HTTP/1.1 200 OK
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+X-Frame-Options: DENY
+Cache-Control: public, s-maxage=300, stale-while-revalidate=1800
+
+### scripts/cache-check.mjs
+ok   / → HIT/HIT · public, s-maxage=300, stale-while-revalidate=1800
+ok   /categories → HIT/HIT · public, s-maxage=300, stale-while-revalidate=1800
+ok   /rankings → HIT/HIT · public, s-maxage=300, stale-while-revalidate=1800
+ok   /sitemap.xml → HIT/HIT · public, s-maxage=300, stale-while-revalidate=1800
+ok   /s/demo-northwind → HIT/HIT · public, s-maxage=300, stale-while-revalidate=1800
+ok   /u/demo → MISS/HIT · public, s-maxage=300, stale-while-revalidate=1800
+ok   /leaderboard → public, s-maxage=300, stale-while-revalidate=1800
+ok   /leaderboard?board=trending&window=24h → public, s-maxage=300, stale-while-revalidate=1800
+ok   /trending → public, s-maxage=300, stale-while-revalidate=1800
+ok   /discover → public, s-maxage=300, stale-while-revalidate=1800
+ok   /hidden-gems → public, s-maxage=300, stale-while-revalidate=1800
+ok   /stacks/nextjs → public, s-maxage=300, stale-while-revalidate=1800
+ok   /categories/ai → public, s-maxage=300, stale-while-revalidate=1800
+ok   /sign-in → s-maxage=31536000
+ok   /api/account/export → private, no-store
+
+all routes cached as expected

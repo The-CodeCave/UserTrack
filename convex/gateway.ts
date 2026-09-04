@@ -42,7 +42,6 @@ import { MIN_SAMPLE } from "./lib/benchmarks";
 import { benchmarkCards, benchmarkHistoryFor, isBenchmarkEligible } from "./domain/benchmarks";
 import { TrustmrrError, prefillPatch, type TrustmrrImport } from "./lib/trustmrr";
 import { importForProfile } from "./trustmrr";
-import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { explainTrending, trendingFactors } from "./lib/trending";
 import { trendingInputs } from "./leaderboard";
 import { CATEGORIES } from "../src/lib/categories";

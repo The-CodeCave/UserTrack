@@ -41,4 +41,21 @@ describe("openapi()", () => {
     expect(doc.components.schemas.History.properties).toHaveProperty("resolution");
     expect(doc.components.schemas.History.properties).toHaveProperty("gaps");
   });
+
+  it("describes the v1.0 surface", () => {
+    const saas = doc.components.schemas.Saas.properties as Record<string, { properties?: Record<string, unknown> }>;
+    for (const f of ["anonymous", "cofounders", "markets", "techStack", "marketingChannels", "company", "about", "foundedAt"]) expect(saas, f).toHaveProperty(f);
+    expect(saas.about.properties).toEqual(expect.objectContaining({ valueProposition: expect.anything(), problemSolved: expect.anything(), audience: expect.anything(), pricingSummary: expect.anything() }));
+    expect(saas.owner.properties).toHaveProperty("xFollowers");
+    const profile = doc.components.schemas.Profile.properties as Record<string, unknown>;
+    expect(profile).toHaveProperty("xFollowers");
+    expect(profile).toHaveProperty("xFollowersAt");
+    // The product invariant: no monetary property anywhere in the public contract.
+    const names = [...JSON.stringify(doc).matchAll(/"([A-Za-z]\w*)":\s*\{"type"/g)].map((m) => m[1]);
+    expect(names.filter((n) => /^(mrr|arr|profit|price|amount)$/i.test(n))).toEqual([]);
+    // The single legacy `revenue` key is the deprecated alias of the amount-free conversion counts.
+    const metrics = doc.components.schemas.Saas.properties.metrics as { properties: Record<string, { deprecated?: boolean; description?: string }> };
+    expect(metrics.properties.revenue.deprecated).toBe(true);
+    expect(metrics.properties.revenue.description).toMatch(/no amounts/);
+  });
 });
