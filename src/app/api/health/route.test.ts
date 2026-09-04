@@ -21,8 +21,11 @@ describe("GET /api/health", () => {
     expect(fetchQuery).not.toHaveBeenCalled();
   });
 
-  it("reports convex: ok and the last job runs on ?deep=1", async () => {
-    const jobs = [{ job: "daily sweep", startedAt: 1, finishedAt: 2, items: 10, errors: 0 }];
+  it("reports convex: ok and the last job runs on ?deep=1, with the lock state per job", async () => {
+    const jobs = [
+      { job: "daily sweep", startedAt: 1, finishedAt: 2, items: 10, errors: 0, running: false, stale: false },
+      { job: "weekly digest", startedAt: 3, items: 4, errors: 0, running: true, stale: true },
+    ];
     fetchQuery.mockResolvedValueOnce({ saasCount: 3 }).mockResolvedValueOnce(jobs);
     const body = await (await call("http://localhost/api/health?deep=1")).json();
     expect(body).toMatchObject({ ok: true, convex: "ok", jobs });

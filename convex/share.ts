@@ -2,7 +2,7 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { PAGE, jobError, recordPage, startRun } from "./jobs";
+import { PAGE, failRun, jobError, recordPage, startRun } from "./jobs";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getProfileForUser, requireProfile } from "./profiles";
 import type { Milestone } from "./lib/milestones";
@@ -61,33 +61,38 @@ export const benchmarkSweep = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const runId = args.runId ?? (await startRun(ctx, "benchmark share sweep"));
-    const page = await ctx.db.query("saas").paginate({ cursor: args.cursor ?? null, numItems: PAGE.share });
-    let errors = 0;
-    let lastError: string | undefined;
-    for (const s of page.page) {
-      if (!rankable(s)) continue;
-      try {
-        for (const metric of BENCHMARK_SHARE_METRICS) {
-          const value = s[metric];
-          if (value === undefined) continue;
-          const groups = [...(s.category ? [{ key: `cat:${s.category}`, label: `${CATEGORIES.find((c) => c.slug === s.category)?.label ?? s.category} SaaS` }] : []), { key: "all", label: "all SaaS on UserTrack" }];
-          for (const g of groups) {
-            const agg = await ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", g.key).eq("metric", metric)).unique();
-            if (!agg) continue;
-            const percentile = percentileOf(value, agg.deciles);
-            if (percentile === null || percentile < BENCHMARK_SHARE_PERCENTILE) continue;
-            const label = BENCHMARK_METRIC_LABEL[metric];
-            await recordShareEvent(ctx, s, { key: benchmarkShareKey(metric, now), kind: "benchmark", title: `Top ${100 - percentile}% ${label.toLowerCase()}`, detail: `${s.name} is in the top ${100 - percentile}% of ${g.label} for ${label.toLowerCase()}.`, metric, value: percentile, percentile, timeframe: "30d", cardKind: "benchmark" });
-            break;
+    if (runId === null) return;
+    try {
+      const page = await ctx.db.query("saas").paginate({ cursor: args.cursor ?? null, numItems: PAGE.share });
+      let errors = 0;
+      let lastError: string | undefined;
+      for (const s of page.page) {
+        if (!rankable(s)) continue;
+        try {
+          for (const metric of BENCHMARK_SHARE_METRICS) {
+            const value = s[metric];
+            if (value === undefined) continue;
+            const groups = [...(s.category ? [{ key: `cat:${s.category}`, label: `${CATEGORIES.find((c) => c.slug === s.category)?.label ?? s.category} SaaS` }] : []), { key: "all", label: "all SaaS on UserTrack" }];
+            for (const g of groups) {
+              const agg = await ctx.db.query("benchmarkAggregates").withIndex("by_group_metric", (q) => q.eq("groupKey", g.key).eq("metric", metric)).unique();
+              if (!agg) continue;
+              const percentile = percentileOf(value, agg.deciles);
+              if (percentile === null || percentile < BENCHMARK_SHARE_PERCENTILE) continue;
+              const label = BENCHMARK_METRIC_LABEL[metric];
+              await recordShareEvent(ctx, s, { key: benchmarkShareKey(metric, now), kind: "benchmark", title: `Top ${100 - percentile}% ${label.toLowerCase()}`, detail: `${s.name} is in the top ${100 - percentile}% of ${g.label} for ${label.toLowerCase()}.`, metric, value: percentile, percentile, timeframe: "30d", cardKind: "benchmark" });
+              break;
+            }
           }
+        } catch (e) {
+          errors++;
+          lastError = jobError("benchmark share sweep", s._id, e);
         }
-      } catch (e) {
-        errors++;
-        lastError = jobError("benchmark share sweep", s._id, e);
       }
+      await recordPage(ctx, runId, { items: page.page.length, errors, lastError, done: page.isDone });
+      if (!page.isDone) await ctx.scheduler.runAfter(0, internal.share.benchmarkSweep, { cursor: page.continueCursor, runId });
+    } catch (e) {
+      await failRun(ctx, runId, "benchmark share sweep", e);
     }
-    await recordPage(ctx, runId, { items: page.page.length, errors, lastError, done: page.isDone });
-    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.share.benchmarkSweep, { cursor: page.continueCursor, runId });
   },
 });
 

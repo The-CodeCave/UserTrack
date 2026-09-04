@@ -192,10 +192,33 @@ growing product count can never break rankings, milestones, trust or sync for ev
 | `sync all integrations` (`sync.runAll`) | action | **500** integrations | ids only; scheduling in chunks of 100, same 10-min stagger |
 | `weekly digest` (`digest.generate`) · `monthly growth report` | mutation | **50** profiles | owner projects + bounded standings reads |
 | `retention sweep` (`retention.sweep`) | mutation | **200** rows / **10** projects | one table per step, `take(200)` deletes or one page of products while thinning |
+| `follower refresh` (`social.refreshFollowers`) | action | **50** connections | one X followers read per connected founder; a 429 ends the run early |
 
 Page sizes live in `PAGE` (`convex/jobs.ts`). A single project's failure is caught, logged and counted — it never stops its
 page or the rest of the job. Each driver writes one `jobRuns` row (`job`, `startedAt`, `finishedAt`, `pages`, `items`,
 `errors`, `lastError`); operators read it in the Convex dashboard (table `jobRuns`, index `by_job_time`).
+
+**The running lock.** A cron fires on a clock, not on the previous chain finishing, so every entry point (cursor *and*
+`runId` undefined) calls `startRun` as an *acquire*: it reads the latest `jobRuns` row of that job (`by_job_time`, desc) and
+returns `null` when that row is still open and younger than the job's TTL. `null` means **do nothing** — no row is inserted,
+no page is read, nothing is re-scheduled, and one `console.warn` says `job <name> still running, skipped`. Without it a
+second `leaderboard.rerank` would apply `prevRank` / `prevTrendingRank` twice and a second `digest.generate` /
+`generateMonthly` would re-walk profiles the first chain had not reached yet. Continuation pages carry their `runId` and
+never re-acquire. `recordPage(… done: true)` releases the lock.
+
+A run that is still open past its TTL is treated as abandoned: it is closed with `lastError: "abandoned (lock expired)"` and
+the new trigger proceeds. The TTL is the backstop for a chain that died between pages, not the primary path — every driver
+body is wrapped so an unexpected throw closes its run (`failRun` / `failActionRun`: `errors + 1`, `lastError`, `finishedAt`)
+before the next trigger arrives. TTLs live in `LOCK_TTL_MS` / `DEFAULT_LOCK_TTL_MS` (`convex/jobs.ts`):
+
+| TTL | Jobs |
+|---|---|
+| **30 min** | `rerank leaderboard` (runs every 4 h, finishes in seconds) |
+| **3 h** | `sync all integrations` (10-min stagger + provider retries) |
+| **6 h** (default) | `daily sweep` · `trust review` · `benchmarks` · `benchmark standings` · `benchmark share sweep` · `ranking snapshots` · `cohort rebuild` · `retention sweep` · `follower refresh` · `quiet product check` |
+| **12 h** | `weekly digest` · `monthly growth report` — the two jobs whose double run would mean double email |
+
+`/api/health?deep=1` reports `running` and `stale` (open past its TTL) per job next to the counters.
 
 **Ceilings.** The two-phase accumulators live in the action's memory (~100 bytes per project for rerank / benchmarks, one id
 per integration for the sync fan-out), which is comfortable to ~50k projects; `daily.snapshotRankings` keeps the public

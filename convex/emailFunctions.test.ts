@@ -287,6 +287,27 @@ describe("monthly report", () => {
   });
 });
 
+describe("weekly digest lock", () => {
+  it("skips a second trigger while the first chain is still paging, so nobody is mailed twice", async () => {
+    const tx = t();
+    // 60 opted-in profiles → the first page is 50 and the run stays open; the first five have something to report.
+    for (let i = 0; i < 60; i++) {
+      const owner = await seedOwner(tx, `d${i}`);
+      await tx.run((ctx) => ctx.db.insert("emailPreferences", { userId: `d${i}`, productNudges: true, growthMilestones: true, rankingMilestones: true, growthAlerts: true, monthlyReport: true, weeklyDigest: true, followedSaasUpdates: false, updatedAt: 0 }));
+      if (i < 5) await seedSaas(tx, owner, { slug: `d${i}`, newUsers7d: 5 });
+    }
+    const runs = () => tx.run((ctx) => ctx.db.query("jobRuns").withIndex("by_job_time", (q) => q.eq("job", "weekly digest")).collect());
+    const digestMails = async () => (await events(tx)).filter((e) => e.emailType === "weekly-digest");
+    await tx.mutation(internal.digest.generate, {});
+    expect((await runs())[0].finishedAt).toBeUndefined();
+    expect(await digestMails()).toHaveLength(5);
+    await tx.mutation(internal.digest.generate, {});
+    expect(await runs()).toHaveLength(1);
+    expect((await runs())[0].pages).toBe(1);
+    expect(await digestMails()).toHaveLength(5);
+  });
+});
+
 describe("webhook + preferences", () => {
   it("records delivery state and suppresses hard bounces and complaints", async () => {
     const tx = t();

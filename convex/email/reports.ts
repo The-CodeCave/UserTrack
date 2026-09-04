@@ -7,7 +7,7 @@ import { enqueue } from "./send";
 import { getPreferences } from "./prefs";
 import { monthRange, monthlySummary, nextLocalHour, previousMonthKey, projectReport, type MonthlyPayload } from "../lib/emailRules";
 import { visibilityOf } from "../domain/visibility";
-import { recordPage, startRun } from "../jobs";
+import { failRun, recordPage, startRun } from "../jobs";
 
 async function buildReport(ctx: MutationCtx, profile: Doc<"profiles">, period: string, now: number): Promise<MonthlyPayload | null> {
   const { firstDay, lastDayExclusive, start, end } = monthRange(period);
@@ -33,23 +33,28 @@ export const generateMonthly = internalMutation({
     const now = Date.now();
     const period = args.period ?? previousMonthKey(now);
     const runId = args.runId ?? (await startRun(ctx, "monthly growth report"));
-    const page = await ctx.db.query("profiles").paginate({ cursor: args.cursor ?? null, numItems: 50 });
-    let created = 0;
-    for (const p of page.page) {
-      if (p.userId === "demo") continue;
-      const exists = await ctx.db.query("monthlyReports").withIndex("by_profile_period", (q) => q.eq("profileId", p._id).eq("period", period)).unique();
-      if (exists) continue;
-      const payload = await buildReport(ctx, p, period, now);
-      if (!payload) continue;
-      const prefs = await getPreferences(ctx, p.userId);
-      const deliverAt = nextLocalHour(now, prefs.timezone);
-      const reportId = await ctx.db.insert("monthlyReports", { profileId: p._id, userId: p.userId, period, payload, deliverAt, createdAt: now });
-      await ctx.scheduler.runAt(deliverAt, internal.email.reports.sendMonthly, { reportId });
-      created++;
+    if (runId === null) return;
+    try {
+      const page = await ctx.db.query("profiles").paginate({ cursor: args.cursor ?? null, numItems: 50 });
+      let created = 0;
+      for (const p of page.page) {
+        if (p.userId === "demo") continue;
+        const exists = await ctx.db.query("monthlyReports").withIndex("by_profile_period", (q) => q.eq("profileId", p._id).eq("period", period)).unique();
+        if (exists) continue;
+        const payload = await buildReport(ctx, p, period, now);
+        if (!payload) continue;
+        const prefs = await getPreferences(ctx, p.userId);
+        const deliverAt = nextLocalHour(now, prefs.timezone);
+        const reportId = await ctx.db.insert("monthlyReports", { profileId: p._id, userId: p.userId, period, payload, deliverAt, createdAt: now });
+        await ctx.scheduler.runAt(deliverAt, internal.email.reports.sendMonthly, { reportId });
+        created++;
+      }
+      await recordPage(ctx, runId, { items: page.page.length, done: page.isDone });
+      if (!page.isDone) await ctx.scheduler.runAfter(0, internal.email.reports.generateMonthly, { cursor: page.continueCursor, period, runId });
+      else console.log(`monthly report ${period}: batch done, ${created} created in this page`);
+    } catch (e) {
+      await failRun(ctx, runId, "monthly growth report", e);
     }
-    await recordPage(ctx, runId, { items: page.page.length, done: page.isDone });
-    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.email.reports.generateMonthly, { cursor: page.continueCursor, period, runId });
-    else console.log(`monthly report ${period}: batch done, ${created} created in this page`);
   },
 });
 

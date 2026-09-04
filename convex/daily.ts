@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { PAGE, jobError, recordPage, startRun } from "./jobs";
+import { PAGE, failActionRun, failRun, jobError, recordPage, startRun } from "./jobs";
 import { dailyMilestones, streakDays } from "./lib/milestones";
 import { BENCHMARK_METRICS, BENCHMARK_METRIC_LABEL, MIN_SAMPLE, MIN_SAMPLE_CONVERSION, benchmarkValue, cohortsFor, deciles, isConversionBenchmark, percentileOf, type BenchmarkMetric } from "./lib/benchmarks";
 import { rankable } from "./leaderboard";
@@ -26,45 +26,50 @@ export const run = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const runId = args.runId ?? (await startRun(ctx, "daily sweep"));
-    const page = await ctx.db.query("saas").paginate({ cursor: args.cursor ?? null, numItems: PAGE.daily });
-    let errors = 0;
-    let lastError: string | undefined;
-    for (const s of page.page) {
-      if (s.isDemo) continue;
-      try {
-        const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id)).order("desc").take(400);
-        rows.reverse();
-        const existing = new Set((await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).collect()).map((m) => m.key));
-        await addMilestones(ctx, s._id, dailyMilestones(rows, s.name, s.growth30dPct, existing));
-        const streak = streakDays(rows);
-        if (streak !== (s.streakDays ?? 0)) await ctx.db.patch(s._id, { streakDays: streak });
-        // Rank at the end of the last closed day, for monthly rank deltas.
-        const yesterday = rows.find((r) => r.day === dayKey(now - DAY));
-        if (yesterday && s.rank !== undefined && yesterday.rank !== s.rank) await ctx.db.patch(yesterday._id, { rank: s.rank });
-        if (rankable(s) && s.firstSnapshotAt !== undefined && now - s.firstSnapshotAt <= TRACTION_RULES.maxAgeDays * DAY && s.newUsers7d >= TRACTION_RULES.minNew7d) {
-          await addOnceEvent(ctx, s._id, "traction", now, "Early traction", `${s.name} gained ${new Intl.NumberFormat("en").format(s.newUsers7d)} users this week, within its first month on UserTrack.`, s.newUsers7d);
+    if (runId === null) return;
+    try {
+      const page = await ctx.db.query("saas").paginate({ cursor: args.cursor ?? null, numItems: PAGE.daily });
+      let errors = 0;
+      let lastError: string | undefined;
+      for (const s of page.page) {
+        if (s.isDemo) continue;
+        try {
+          const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id)).order("desc").take(400);
+          rows.reverse();
+          const existing = new Set((await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).collect()).map((m) => m.key));
+          await addMilestones(ctx, s._id, dailyMilestones(rows, s.name, s.growth30dPct, existing));
+          const streak = streakDays(rows);
+          if (streak !== (s.streakDays ?? 0)) await ctx.db.patch(s._id, { streakDays: streak });
+          // Rank at the end of the last closed day, for monthly rank deltas.
+          const yesterday = rows.find((r) => r.day === dayKey(now - DAY));
+          if (yesterday && s.rank !== undefined && yesterday.rank !== s.rank) await ctx.db.patch(yesterday._id, { rank: s.rank });
+          if (rankable(s) && s.firstSnapshotAt !== undefined && now - s.firstSnapshotAt <= TRACTION_RULES.maxAgeDays * DAY && s.newUsers7d >= TRACTION_RULES.minNew7d) {
+            await addOnceEvent(ctx, s._id, "traction", now, "Early traction", `${s.name} gained ${new Intl.NumberFormat("en").format(s.newUsers7d)} users this week, within its first month on UserTrack.`, s.newUsers7d);
+          }
+        } catch (e) {
+          errors++;
+          lastError = jobError("daily sweep", s._id, e);
         }
-      } catch (e) {
-        errors++;
-        lastError = jobError("daily sweep", s._id, e);
       }
+      await recordPage(ctx, runId, { items: page.page.length, errors, lastError, done: page.isDone });
+      if (!page.isDone) {
+        await ctx.scheduler.runAfter(0, internal.daily.run, { cursor: page.continueCursor, runId });
+        return;
+      }
+      await ctx.scheduler.runAfter(0, internal.daily.benchmarks, {});
+      await ctx.scheduler.runAfter(5_000, internal.trust.dailyReview, {});
+      await ctx.scheduler.runAfter(30_000, internal.share.benchmarkSweep, {});
+      await ctx.scheduler.runAfter(10_000, internal.email.lifecycle.noGrowthSweep, {});
+      await ctx.scheduler.runAfter(15_000, internal.cohorts.rebuildAll, {});
+      await ctx.scheduler.runAfter(20_000, internal.native.pruneEvents, {});
+      await ctx.scheduler.runAfter(25_000, internal.webhooks.retrySweep, {});
+      await ctx.scheduler.runAfter(35_000, internal.social.refreshFollowers, {});
+      await ctx.scheduler.runAfter(45_000, internal.retention.sweep, {});
+      // First day of the month: freeze last month's rankings for /rankings/<year>/<month> and the datasets API.
+      if (new Date(now).getUTCDate() === 1) await ctx.scheduler.runAfter(40_000, internal.daily.snapshotRankings, { period: monthKey(now - DAY) });
+    } catch (e) {
+      await failRun(ctx, runId, "daily sweep", e);
     }
-    await recordPage(ctx, runId, { items: page.page.length, errors, lastError, done: page.isDone });
-    if (!page.isDone) {
-      await ctx.scheduler.runAfter(0, internal.daily.run, { cursor: page.continueCursor, runId });
-      return;
-    }
-    await ctx.scheduler.runAfter(0, internal.daily.benchmarks, {});
-    await ctx.scheduler.runAfter(5_000, internal.trust.dailyReview, {});
-    await ctx.scheduler.runAfter(30_000, internal.share.benchmarkSweep, {});
-    await ctx.scheduler.runAfter(10_000, internal.email.lifecycle.noGrowthSweep, {});
-    await ctx.scheduler.runAfter(15_000, internal.cohorts.rebuildAll, {});
-    await ctx.scheduler.runAfter(20_000, internal.native.pruneEvents, {});
-    await ctx.scheduler.runAfter(25_000, internal.webhooks.retrySweep, {});
-    await ctx.scheduler.runAfter(35_000, internal.social.refreshFollowers, {});
-    await ctx.scheduler.runAfter(45_000, internal.retention.sweep, {});
-    // First day of the month: freeze last month's rankings for /rankings/<year>/<month> and the datasets API.
-    if (new Date(now).getUTCDate() === 1) await ctx.scheduler.runAfter(40_000, internal.daily.snapshotRankings, { period: monthKey(now - DAY) });
   },
 });
 
@@ -93,42 +98,53 @@ export const benchmarks = internalAction({
   handler: async (ctx) => {
     const now = Date.now();
     const runId = await ctx.runMutation(internal.jobs.begin, { job: "benchmarks" });
+    if (runId === null) return;
     const standingsRun = await ctx.runMutation(internal.jobs.begin, { job: "benchmark standings" });
-    const values = new Map<string, number[]>();
-    let cursor: string | null = null;
-    let items = 0;
-    for (;;) {
-      const page: { rows: BenchmarkInput[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.daily.benchmarkInputs, { cursor, now });
-      for (const row of page.rows) {
-        items++;
-        for (const key of row.cohorts) {
-          for (const [i, metric] of BENCHMARK_METRICS.entries()) {
-            const value = row.values[i];
-            if (value === null) continue;
-            const k = `${key}:${metric}`;
-            const bucket = values.get(k);
-            if (bucket) bucket.push(value);
-            else values.set(k, [value]);
+    if (standingsRun === null) {
+      await ctx.runMutation(internal.jobs.record, { runId, items: 0, done: true });
+      return;
+    }
+    try {
+      const values = new Map<string, number[]>();
+      let cursor: string | null = null;
+      let items = 0;
+      for (;;) {
+        const page: { rows: BenchmarkInput[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.daily.benchmarkInputs, { cursor, now });
+        for (const row of page.rows) {
+          items++;
+          for (const key of row.cohorts) {
+            for (const [i, metric] of BENCHMARK_METRICS.entries()) {
+              const value = row.values[i];
+              if (value === null) continue;
+              const k = `${key}:${metric}`;
+              const bucket = values.get(k);
+              if (bucket) bucket.push(value);
+              else values.set(k, [value]);
+            }
           }
         }
+        if (page.isDone) break;
+        cursor = page.continueCursor;
       }
-      if (page.isDone) break;
-      cursor = page.continueCursor;
-    }
-    // Every (cohort, metric) that has members now is either rewritten or deleted; cohorts nobody is in are left alone.
-    const groups = [...new Set([...values.keys()].map((k) => k.slice(0, k.lastIndexOf(":"))))];
-    const writes = groups.flatMap((groupKey) => BENCHMARK_METRICS.map((metric) => {
-      const vs = values.get(`${groupKey}:${metric}`) ?? [];
-      const enough = vs.length >= (isConversionBenchmark(metric) ? MIN_SAMPLE_CONVERSION : MIN_SAMPLE);
-      return { groupKey, metric, sampleSize: vs.length, deciles: enough ? deciles(vs) : [] };
-    }));
-    for (let i = 0; i < writes.length; i += 100) await ctx.runMutation(internal.daily.writeAggregates, { rows: writes.slice(i, i + 100), now });
-    await ctx.runMutation(internal.jobs.record, { runId, items, done: true });
-    let next: string | undefined;
-    for (;;) {
-      const res: { isDone: boolean; cursor: string } = await ctx.runMutation(internal.daily.standings, { now, cursor: next, runId: standingsRun });
-      if (res.isDone) break;
-      next = res.cursor;
+      // Every (cohort, metric) that has members now is either rewritten or deleted; cohorts nobody is in are left alone.
+      const groups = [...new Set([...values.keys()].map((k) => k.slice(0, k.lastIndexOf(":"))))];
+      const writes = groups.flatMap((groupKey) => BENCHMARK_METRICS.map((metric) => {
+        const vs = values.get(`${groupKey}:${metric}`) ?? [];
+        const enough = vs.length >= (isConversionBenchmark(metric) ? MIN_SAMPLE_CONVERSION : MIN_SAMPLE);
+        return { groupKey, metric, sampleSize: vs.length, deciles: enough ? deciles(vs) : [] };
+      }));
+      for (let i = 0; i < writes.length; i += 100) await ctx.runMutation(internal.daily.writeAggregates, { rows: writes.slice(i, i + 100), now });
+      await ctx.runMutation(internal.jobs.record, { runId, items, done: true });
+      let next: string | undefined;
+      for (;;) {
+        const res: { isDone: boolean; cursor: string } = await ctx.runMutation(internal.daily.standings, { now, cursor: next, runId: standingsRun });
+        if (res.isDone) break;
+        next = res.cursor;
+      }
+    } catch (e) {
+      await failActionRun(ctx, runId, "benchmarks", e);
+      await failActionRun(ctx, standingsRun, "benchmark standings", e);
+      throw e;
     }
   },
 });
@@ -221,28 +237,34 @@ export const snapshotRankings = internalAction({
     if (!/^\d{4}-\d{2}$/.test(period)) throw new Error("period must be YYYY-MM");
     const now = Date.now();
     const runId = await ctx.runMutation(internal.jobs.begin, { job: "ranking snapshots" });
-    const all: Doc<"saas">[] = [];
-    let cursor: string | null = null;
-    for (;;) {
-      const page: { rows: Doc<"saas">[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.daily.snapshotInputs, { cursor });
-      all.push(...page.rows);
-      if (page.isDone) break;
-      cursor = page.continueCursor;
-    }
-    const cats: (string | undefined)[] = [undefined, ...CATEGORIES.map((c) => c.slug)];
-    let written = 0;
-    for (const board of SNAPSHOT_BOARDS) {
-      for (const category of cats) {
-        const rows = sortBoard(all, { board, window: board === "trending" ? "30d" : "30d", verifiedOnly: true, category, limit: 100 });
-        if (rows.length < MIN_SNAPSHOT_ROWS) continue;
-        written += await ctx.runMutation(internal.daily.writeSnapshot, {
-          period, board, category, force, now, sampleSize: rows.length,
-          rows: rows.map((s, i) => ({ slug: s.slug, name: s.name, logoUrl: publicLogo(s), category: s.category, rank: i + 1, value: snapshotValue(s, board), totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, growth30dPct: s.growth30dPct, trust: s.trust })),
-        });
+    if (runId === null) return { period, written: 0 };
+    try {
+      const all: Doc<"saas">[] = [];
+      let cursor: string | null = null;
+      for (;;) {
+        const page: { rows: Doc<"saas">[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.daily.snapshotInputs, { cursor });
+        all.push(...page.rows);
+        if (page.isDone) break;
+        cursor = page.continueCursor;
       }
+      const cats: (string | undefined)[] = [undefined, ...CATEGORIES.map((c) => c.slug)];
+      let written = 0;
+      for (const board of SNAPSHOT_BOARDS) {
+        for (const category of cats) {
+          const rows = sortBoard(all, { board, window: board === "trending" ? "30d" : "30d", verifiedOnly: true, category, limit: 100 });
+          if (rows.length < MIN_SNAPSHOT_ROWS) continue;
+          written += await ctx.runMutation(internal.daily.writeSnapshot, {
+            period, board, category, force, now, sampleSize: rows.length,
+            rows: rows.map((s, i) => ({ slug: s.slug, name: s.name, logoUrl: publicLogo(s), category: s.category, rank: i + 1, value: snapshotValue(s, board), totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, growth30dPct: s.growth30dPct, trust: s.trust })),
+          });
+        }
+      }
+      await ctx.runMutation(internal.jobs.record, { runId, items: written, done: true });
+      return { period, written };
+    } catch (e) {
+      await failActionRun(ctx, runId, "ranking snapshots", e);
+      throw e;
     }
-    await ctx.runMutation(internal.jobs.record, { runId, items: written, done: true });
-    return { period, written };
   },
 });
 

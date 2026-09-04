@@ -8,7 +8,7 @@ import { providerLabel } from "../providers";
 import { DAY } from "../lib/time";
 import { evaluateNoGrowth, isUnhealthy, NO_GROWTH } from "../lib/emailRules";
 import { dispatchEvent } from "../webhooks";
-import { recordPage, startRun } from "../jobs";
+import { failRun, recordPage, startRun } from "../jobs";
 
 export const REMINDER_DELAY_MS = 24 * 60 * 60_000;
 
@@ -83,21 +83,26 @@ export const noGrowthSweep = internalMutation({
   args: { cursor: v.optional(v.string()), runId: v.optional(v.id("jobRuns")) },
   handler: async (ctx, { cursor, runId: prevRun }) => {
     const runId = prevRun ?? (await startRun(ctx, "quiet product check"));
-    const page = await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).paginate({ cursor: cursor ?? null, numItems: 100 });
-    const since = new Date(Date.now() - 40 * DAY).toISOString().slice(0, 10);
-    const today = new Date().toISOString().slice(0, 10);
-    for (const s of page.page) {
-      if (s.isDemo || s.newUsers7d !== 0 || s.totalUsers < NO_GROWTH.minTotalUsers) continue;
-      const users = (await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", s._id)).collect()).find((i) => (i.role ?? "users") === "users");
-      const healthy = Boolean(users && users.status === "ok" && users.healthState !== "unhealthy");
-      const rows = (await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).gte("day", since).lt("day", today)).collect()).map((r) => ({ day: r.day, newUsers: r.newUsers }));
-      const quiet = evaluateNoGrowth({ totalUsers: s.totalUsers, newUsers7d: s.newUsers7d, newUsers30d: s.newUsers30d, sourceHealthy: healthy, isPublic: s.isPublic, daily: rows });
-      if (!quiet) continue;
-      const owner = await ctx.db.get(s.ownerId);
-      if (!owner) continue;
-      await enqueue(ctx, { userId: owner.userId, type: "no-growth", dedupeKey: `no-growth:${s._id}:${quiet.periodStart}`, saasId: s._id, data: { saasName: s.name, slug: s.slug, saasId: s._id, totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, days: NO_GROWTH.days } });
+    if (runId === null) return;
+    try {
+      const page = await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).paginate({ cursor: cursor ?? null, numItems: 100 });
+      const since = new Date(Date.now() - 40 * DAY).toISOString().slice(0, 10);
+      const today = new Date().toISOString().slice(0, 10);
+      for (const s of page.page) {
+        if (s.isDemo || s.newUsers7d !== 0 || s.totalUsers < NO_GROWTH.minTotalUsers) continue;
+        const users = (await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", s._id)).collect()).find((i) => (i.role ?? "users") === "users");
+        const healthy = Boolean(users && users.status === "ok" && users.healthState !== "unhealthy");
+        const rows = (await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).gte("day", since).lt("day", today)).collect()).map((r) => ({ day: r.day, newUsers: r.newUsers }));
+        const quiet = evaluateNoGrowth({ totalUsers: s.totalUsers, newUsers7d: s.newUsers7d, newUsers30d: s.newUsers30d, sourceHealthy: healthy, isPublic: s.isPublic, daily: rows });
+        if (!quiet) continue;
+        const owner = await ctx.db.get(s.ownerId);
+        if (!owner) continue;
+        await enqueue(ctx, { userId: owner.userId, type: "no-growth", dedupeKey: `no-growth:${s._id}:${quiet.periodStart}`, saasId: s._id, data: { saasName: s.name, slug: s.slug, saasId: s._id, totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, days: NO_GROWTH.days } });
+      }
+      await recordPage(ctx, runId, { items: page.page.length, done: page.isDone });
+      if (!page.isDone) await ctx.scheduler.runAfter(0, internal.email.lifecycle.noGrowthSweep, { cursor: page.continueCursor, runId });
+    } catch (e) {
+      await failRun(ctx, runId, "quiet product check", e);
     }
-    await recordPage(ctx, runId, { items: page.page.length, done: page.isDone });
-    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.email.lifecycle.noGrowthSweep, { cursor: page.continueCursor, runId });
   },
 });

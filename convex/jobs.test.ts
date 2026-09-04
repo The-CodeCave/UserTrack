@@ -5,7 +5,7 @@ import { convexTest } from "convex-test";
 import schema from "./schema";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { PAGE } from "./jobs";
+import { DEFAULT_LOCK_TTL_MS, PAGE, lockTtlMs } from "./jobs";
 import { deciles } from "./lib/benchmarks";
 
 vi.mock("./email/users", () => ({ findAuthUser: async () => null }));
@@ -119,7 +119,7 @@ describe("paged jobs — 250 projects", () => {
 describe("jobRuns bookkeeping", () => {
   it("never un-finishes a run that a later page reports as not done", async () => {
     const tx = t();
-    const runId = await tx.mutation(internal.jobs.begin, { job: "manual" });
+    const runId = (await tx.mutation(internal.jobs.begin, { job: "manual" }))!;
     await tx.mutation(internal.jobs.record, { runId, items: 1, done: true });
     const finishedAt = await tx.run(async (ctx) => (await ctx.db.get(runId))!.finishedAt);
     expect(finishedAt).toBeDefined();
@@ -150,5 +150,73 @@ describe("paged jobs — failure isolation", () => {
     // The ten healthy products still got their card.
     const events = await tx.run((ctx) => ctx.db.query("shareEvents").collect());
     expect(events).toHaveLength(10);
+  });
+});
+
+describe("jobRuns running lock", () => {
+  it("holds the lock while a run is open and releases it on completion", async () => {
+    const tx = t();
+    const first = await tx.mutation(internal.jobs.begin, { job: "manual" });
+    expect(first).not.toBeNull();
+    expect(await tx.mutation(internal.jobs.begin, { job: "manual" })).toBeNull();
+    expect(await runsFor(tx, "manual")).toHaveLength(1);
+    await tx.mutation(internal.jobs.record, { runId: first!, items: 1, done: true });
+    expect(await tx.mutation(internal.jobs.begin, { job: "manual" })).not.toBeNull();
+    expect(await runsFor(tx, "manual")).toHaveLength(2);
+  });
+
+  it("abandons a run whose lock expired and starts a new one", async () => {
+    const tx = t();
+    const stale = (await tx.mutation(internal.jobs.begin, { job: "manual" }))!;
+    await tx.run((ctx) => ctx.db.patch(stale, { startedAt: Date.now() - DEFAULT_LOCK_TTL_MS - 1 }));
+    expect(await tx.mutation(internal.jobs.begin, { job: "manual" })).not.toBeNull();
+    const abandoned = await tx.run((ctx) => ctx.db.get(stale));
+    expect(abandoned).toMatchObject({ lastError: "abandoned (lock expired)" });
+    expect(abandoned!.finishedAt).toBeDefined();
+  });
+
+  it("gives every driver a TTL, shortest for rerank and longest for the mailers", () => {
+    expect(lockTtlMs("rerank leaderboard")).toBe(30 * 60_000);
+    expect(lockTtlMs("sync all integrations")).toBe(3 * 3_600_000);
+    expect(lockTtlMs("weekly digest")).toBe(12 * 3_600_000);
+    expect(lockTtlMs("monthly growth report")).toBe(12 * 3_600_000);
+    expect(lockTtlMs("daily sweep")).toBe(DEFAULT_LOCK_TTL_MS);
+    expect(lockTtlMs("follower refresh")).toBe(6 * 3_600_000);
+  });
+
+  it("skips a cron trigger while the previous mutation chain is still paging", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    await seedProjects(tx, owner, 25);
+    await tx.mutation(internal.daily.run, {});
+    await tx.mutation(internal.daily.run, {});
+    const runs = await runsFor(tx, "daily sweep");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ pages: 1, items: PAGE.daily });
+    expect(runs[0].finishedAt).toBeUndefined();
+  });
+
+  it("skips a rerank while the previous one is open, so no rank is applied twice", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    await seedProjects(tx, owner, 5);
+    await tx.mutation(internal.jobs.begin, { job: "rerank leaderboard" });
+    await tx.action(internal.leaderboard.rerank, {});
+    const runs = await runsFor(tx, "rerank leaderboard");
+    expect(runs).toHaveLength(1);
+    expect(runs[0].pages).toBe(0);
+    expect(await tx.run((ctx) => ctx.db.query("saas").collect())).toSatisfy((rows: { rank?: number }[]) => rows.every((s) => s.rank === undefined));
+  });
+
+  it("closes the run of a page that throws instead of holding the lock until the TTL", async () => {
+    const tx = t();
+    const runId = (await tx.mutation(internal.jobs.begin, { job: "daily sweep" }))!;
+    await tx.mutation(internal.daily.run, { cursor: "not-a-cursor", runId });
+    const runs = await runsFor(tx, "daily sweep");
+    expect(runs).toHaveLength(1);
+    expect(runs[0].errors).toBe(1);
+    expect(runs[0].finishedAt).toBeDefined();
+    expect(runs[0].lastError).toContain("page:");
+    expect(await tx.mutation(internal.jobs.begin, { job: "daily sweep" })).not.toBeNull();
   });
 });

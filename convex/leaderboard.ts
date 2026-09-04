@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { PAGE, jobError, recordPage } from "./jobs";
+import { PAGE, failActionRun, jobError, recordPage } from "./jobs";
 import type { Doc, Id } from "./_generated/dataModel";
 import { trendingScore } from "./lib/trending";
 import { growth24h, isVerified } from "./lib/boardRules";
@@ -75,32 +75,38 @@ export const rerank = internalAction({
   handler: async (ctx) => {
     const now = Date.now();
     const runId = await ctx.runMutation(internal.jobs.begin, { job: "rerank leaderboard" });
-    const all: RankInput[] = [];
-    let cursor: string | null = null;
-    for (;;) {
-      const page: { rows: RankInput[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.leaderboard.rankInputs, { cursor, now });
-      all.push(...page.rows);
-      if (page.isDone) break;
-      cursor = page.continueCursor;
-    }
-    const eligible = all.filter((s) => s.eligible);
-    eligible.sort((a, b) => b.newUsers30d - a.newUsers30d || b.growth30dPct - a.growth30dPct || b.totalUsers - a.totalUsers);
-    const ranks = new Map(eligible.map((s, i) => [s.id, i + 1]));
+    if (runId === null) return;
+    try {
+      const all: RankInput[] = [];
+      let cursor: string | null = null;
+      for (;;) {
+        const page: { rows: RankInput[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.leaderboard.rankInputs, { cursor, now });
+        all.push(...page.rows);
+        if (page.isDone) break;
+        cursor = page.continueCursor;
+      }
+      const eligible = all.filter((s) => s.eligible);
+      eligible.sort((a, b) => b.newUsers30d - a.newUsers30d || b.growth30dPct - a.growth30dPct || b.totalUsers - a.totalUsers);
+      const ranks = new Map(eligible.map((s, i) => [s.id, i + 1]));
 
-    // Deterministic: score desc, then 30-day new users, then total, then slug.
-    const scoreIn = (s: RankInput, w: Window) => (w === "24h" ? s.s24 : w === "7d" ? s.s7 : s.s30);
-    const trendingRanks: Record<Window, Map<string, number>> = { "24h": new Map(), "7d": new Map(), "30d": new Map() };
-    for (const w of WINDOWS) {
-      const list = eligible.filter((s) => scoreIn(s, w) > 0).sort((a, b) => scoreIn(b, w) - scoreIn(a, w) || b.newUsers30d - a.newUsers30d || b.totalUsers - a.totalUsers || a.slug.localeCompare(b.slug));
-      list.forEach((s, i) => trendingRanks[w].set(s.id, i + 1));
-    }
+      // Deterministic: score desc, then 30-day new users, then total, then slug.
+      const scoreIn = (s: RankInput, w: Window) => (w === "24h" ? s.s24 : w === "7d" ? s.s7 : s.s30);
+      const trendingRanks: Record<Window, Map<string, number>> = { "24h": new Map(), "7d": new Map(), "30d": new Map() };
+      for (const w of WINDOWS) {
+        const list = eligible.filter((s) => scoreIn(s, w) > 0).sort((a, b) => scoreIn(b, w) - scoreIn(a, w) || b.newUsers30d - a.newUsers30d || b.totalUsers - a.totalUsers || a.slug.localeCompare(b.slug));
+        list.forEach((s, i) => trendingRanks[w].set(s.id, i + 1));
+      }
 
-    const rows: RankRow[] = all.map((s) => ({ saasId: s.id, rank: ranks.get(s.id), t24: trendingRanks["24h"].get(s.id), t7: trendingRanks["7d"].get(s.id), t30: trendingRanks["30d"].get(s.id), s24: s.s24, s7: s.s7, s30: s.s30 }));
-    for (let i = 0; i < rows.length; i += PAGE.rerank) {
-      await ctx.runMutation(internal.leaderboard.applyRanks, { rows: rows.slice(i, i + PAGE.rerank), eligibleCount: eligible.length, now, runId, done: i + PAGE.rerank >= rows.length });
+      const rows: RankRow[] = all.map((s) => ({ saasId: s.id, rank: ranks.get(s.id), t24: trendingRanks["24h"].get(s.id), t7: trendingRanks["7d"].get(s.id), t30: trendingRanks["30d"].get(s.id), s24: s.s24, s7: s.s7, s30: s.s30 }));
+      for (let i = 0; i < rows.length; i += PAGE.rerank) {
+        await ctx.runMutation(internal.leaderboard.applyRanks, { rows: rows.slice(i, i + PAGE.rerank), eligibleCount: eligible.length, now, runId, done: i + PAGE.rerank >= rows.length });
+      }
+      if (!rows.length) await ctx.runMutation(internal.jobs.record, { runId, items: 0, done: true });
+      await ctx.runMutation(internal.leaderboard.writePublicStats, { stats: publicStatsOf(all), now });
+    } catch (e) {
+      await failActionRun(ctx, runId, "rerank leaderboard", e);
+      throw e;
     }
-    if (!rows.length) await ctx.runMutation(internal.jobs.record, { runId, items: 0, done: true });
-    await ctx.runMutation(internal.leaderboard.writePublicStats, { stats: publicStatsOf(all), now });
   },
 });
 

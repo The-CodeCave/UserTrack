@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { PAGE, recordPage, startRun } from "./jobs";
+import { PAGE, failRun, recordPage, startRun } from "./jobs";
 import { DAY, dayKey } from "./lib/time";
 import { RETENTION_DAYS } from "../src/lib/legal";
 
@@ -97,16 +97,21 @@ export const sweep = internalMutation({
   args: { step: v.optional(v.number()), cursor: v.optional(v.string()), runId: v.optional(v.id("jobRuns")) },
   handler: async (ctx, args) => {
     const runId = args.runId ?? (await startRun(ctx, "retention sweep"));
-    const index = args.step ?? 0;
-    const step = RETENTION_STEPS[index];
-    if (!step) {
-      await recordPage(ctx, runId, { items: 0, done: true });
-      return;
+    if (runId === null) return;
+    try {
+      const index = args.step ?? 0;
+      const step = RETENTION_STEPS[index];
+      if (!step) {
+        await recordPage(ctx, runId, { items: 0, done: true });
+        return;
+      }
+      const cutoff = Date.now() - RETENTION_POLICY[step] * DAY;
+      const res = step === "snapshots" || step === "stageSnapshots" ? await thin(ctx, step, cutoff, args.cursor) : await purge(ctx, step, cutoff);
+      await recordPage(ctx, runId, { items: res.items });
+      const next = res.more ? { step: index, cursor: res.cursor, runId } : { step: index + 1, runId };
+      await ctx.scheduler.runAfter(res.more ? 1000 : 0, internal.retention.sweep, next);
+    } catch (e) {
+      await failRun(ctx, runId, "retention sweep", e);
     }
-    const cutoff = Date.now() - RETENTION_POLICY[step] * DAY;
-    const res = step === "snapshots" || step === "stageSnapshots" ? await thin(ctx, step, cutoff, args.cursor) : await purge(ctx, step, cutoff);
-    await recordPage(ctx, runId, { items: res.items });
-    const next = res.more ? { step: index, cursor: res.cursor, runId } : { step: index + 1, runId };
-    await ctx.scheduler.runAfter(res.more ? 1000 : 0, internal.retention.sweep, next);
   },
 });

@@ -13,6 +13,7 @@ import { xDraft, type DraftKind } from "../src/lib/x-drafts";
 import { botWorthy, normalizePrefs } from "./lib/shareRules";
 import { authorizeUrl, basicAuth, describeXError, FOLLOWERS_PAGE_SIZE, FOLLOWERS_REFRESH_COOLDOWN_MS, followersOf, needsRefresh, OAUTH_STATE_TTL_MS, oauth1Header, parseTokenResponse, refreshRequestBody, tokenRequestBody, X_ME_URL, X_REVOKE_URL, X_TOKEN_URL, X_TWEETS_URL, type XMe } from "./lib/xApi";
 import { DAY } from "./lib/time";
+import { failActionRun } from "./jobs";
 
 export const FOUNDER_POST_COOLDOWN_MS = DAY;
 export const BOT_DAILY_CAP = 3;
@@ -217,20 +218,30 @@ async function readFollowers(ctx: { runMutation: ActionCtx["runMutation"] }, c: 
 // Daily, from the sweep: pages of 50 active connections, one action per page, chained through the scheduler.
 // A 429 ends the run early (the rest is picked up tomorrow); a single failing founder never stops the others.
 export const refreshFollowers = internalAction({
-  args: { cursor: v.optional(v.string()) },
-  handler: async (ctx, { cursor }): Promise<{ refreshed: number; failed: number }> => {
+  args: { cursor: v.optional(v.string()), runId: v.optional(v.id("jobRuns")) },
+  handler: async (ctx, { cursor, runId: prevRun }): Promise<{ refreshed: number; failed: number }> => {
     if (!oauthEnabled()) return { refreshed: 0, failed: 0 };
-    const page = await ctx.runQuery(internal.social.connectionsPage, { cursor: cursor ?? null });
-    let refreshed = 0;
-    let failed = 0;
-    for (const c of page.rows) {
-      const r = await readFollowers(ctx, c);
-      if (r.ok) refreshed++;
-      else failed++;
-      if (!r.ok && r.status === 429) return { refreshed, failed };
+    const runId = prevRun ?? (await ctx.runMutation(internal.jobs.begin, { job: "follower refresh" }));
+    if (runId === null) return { refreshed: 0, failed: 0 };
+    try {
+      const page = await ctx.runQuery(internal.social.connectionsPage, { cursor: cursor ?? null });
+      let refreshed = 0;
+      let failed = 0;
+      let throttled = false;
+      for (const c of page.rows) {
+        const r = await readFollowers(ctx, c);
+        if (r.ok) refreshed++;
+        else failed++;
+        if (!r.ok && r.status === 429) { throttled = true; break; }
+      }
+      const done = throttled || page.isDone;
+      await ctx.runMutation(internal.jobs.record, { runId, items: refreshed + failed, errors: failed, done });
+      if (!done) await ctx.scheduler.runAfter(0, internal.social.refreshFollowers, { cursor: page.continueCursor, runId });
+      return { refreshed, failed };
+    } catch (e) {
+      await failActionRun(ctx, runId, "follower refresh", e);
+      throw e;
     }
-    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.social.refreshFollowers, { cursor: page.continueCursor });
-    return { refreshed, failed };
   },
 });
 

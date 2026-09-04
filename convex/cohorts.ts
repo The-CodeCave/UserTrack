@@ -9,7 +9,7 @@ import { buildCohorts, identityQualityOf, IDENTITY_QUALITY_META, type IdentityQu
 import { DAY, dayKey } from "./lib/time";
 import { requireOwnedSaas } from "./saas";
 import { visibilityOf } from "./domain/visibility";
-import { PAGE } from "./jobs";
+import { PAGE, failActionRun } from "./jobs";
 
 const LINK_PAGE = 2_000;
 const MAX_SUBJECTS = 100_000;
@@ -61,15 +61,21 @@ export const rebuildAll = internalAction({
   args: {},
   handler: async (ctx) => {
     const runId = await ctx.runMutation(internal.jobs.begin, { job: "cohort rebuild" });
-    let cursor: string | null = null;
-    let i = 0;
-    for (;;) {
-      const page: { ids: Id<"saas">[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.cohorts.projectsWithLinks, { cursor });
-      for (const saasId of page.ids) await ctx.scheduler.runAfter(i++ * 2_000, internal.cohorts.rebuild, { saasId });
-      if (page.isDone) break;
-      cursor = page.continueCursor;
+    if (runId === null) return;
+    try {
+      let cursor: string | null = null;
+      let i = 0;
+      for (;;) {
+        const page: { ids: Id<"saas">[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(internal.cohorts.projectsWithLinks, { cursor });
+        for (const saasId of page.ids) await ctx.scheduler.runAfter(i++ * 2_000, internal.cohorts.rebuild, { saasId });
+        if (page.isDone) break;
+        cursor = page.continueCursor;
+      }
+      await ctx.runMutation(internal.jobs.record, { runId, items: i, done: true });
+    } catch (e) {
+      await failActionRun(ctx, runId, "cohort rebuild", e);
+      throw e;
     }
-    await ctx.runMutation(internal.jobs.record, { runId, items: i, done: true });
   },
 });
 
