@@ -334,7 +334,9 @@ export default defineSchema({
     integrationId: v.optional(v.id("integrations")),
     trust: trustLevel,
     mode: v.optional(conversionMode),
-  }).index("by_saas_stage_time", ["saasId", "stage", "capturedAt"]),
+  })
+    .index("by_saas_stage_time", ["saasId", "stage", "capturedAt"])
+    .index("by_saas_captured", ["saasId", "capturedAt"]),
 
   // Pseudonymous identity map: one row per (project, stage, subject). `subject` is a salted SHA-256 of the provider's
   // stable id — never an email, name or raw id. Enables cohort-verified funnels; never rendered individually.
@@ -399,7 +401,9 @@ export default defineSchema({
     status: syncStatus,
     totalUsers: v.optional(v.number()),
     error: v.optional(v.string()),
-  }).index("by_saas_time", ["saasId", "startedAt"]),
+  })
+    .index("by_saas_time", ["saasId", "startedAt"])
+    .index("by_time", ["startedAt"]),
 
   // Persisted achievements. `key` is unique per SaaS so a milestone is never re-created.
   milestones: defineTable({
@@ -531,7 +535,9 @@ export default defineSchema({
     codeVerifier: v.string(),
     redirectTo: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_state", ["state"]),
+  })
+    .index("by_state", ["state"])
+    .index("by_created", ["createdAt"]),
 
   // Share usage counters per UTC day, card kind and action (generated · downloaded · copied · x). No user or IP data.
   shareStats: defineTable({
@@ -648,7 +654,8 @@ export default defineSchema({
     finishedAt: v.optional(v.number()),
   })
     .index("by_saas_time", ["saasId", "startedAt"])
-    .index("by_integration_time", ["integrationId", "startedAt"]),
+    .index("by_integration_time", ["integrationId", "startedAt"])
+    .index("by_time", ["startedAt"]),
 
   // Outbound webhook endpoints. `secret` is only ever read by the delivery action and returned once on create / rotate.
   webhookEndpoints: defineTable({
@@ -691,7 +698,8 @@ export default defineSchema({
     .index("by_endpoint_time", ["endpointId", "createdAt"])
     .index("by_endpoint_event", ["endpointId", "eventId"])
     .index("by_profile_time", ["profileId", "createdAt"])
-    .index("by_status_next", ["status", "nextAttemptAt"]),
+    .index("by_status_next", ["status", "nextAttemptAt"])
+    .index("by_status_created", ["status", "createdAt"]),
 
   // Deciles per (group, metric), recomputed daily. Individual values are never stored.
   benchmarkAggregates: defineTable({
@@ -737,7 +745,9 @@ export default defineSchema({
     category: v.string(),
     count: v.number(),
     updatedAt: v.number(),
-  }).index("by_token_day", ["tokenId", "day"]),
+  })
+    .index("by_token_day", ["tokenId", "day"])
+    .index("by_day", ["day"]),
 
   // Audit trail for token-authenticated writes and onboarding funnel events. Never contains secrets or configs.
   auditLogs: defineTable({
@@ -750,7 +760,8 @@ export default defineSchema({
     at: v.number(),
   })
     .index("by_token_time", ["tokenId", "at"])
-    .index("by_profile_time", ["profileId", "at"]),
+    .index("by_profile_time", ["profileId", "at"])
+    .index("by_time", ["at"]),
   // Per-user email preferences (Better Auth userId, so users without a profile are covered). Missing row = defaults.
   emailPreferences: defineTable({
     userId: v.string(),
@@ -793,7 +804,8 @@ export default defineSchema({
     .index("by_user_time", ["userId", "createdAt"])
     .index("by_saas_type_time", ["saasId", "emailType", "createdAt"])
     .index("by_provider_message", ["providerMessageId"])
-    .index("by_status_time", ["status", "createdAt"]),
+    .index("by_status_time", ["status", "createdAt"])
+    .index("by_created", ["createdAt"]),
 
   // Recipient health from Resend webhooks. Hard bounces / complaints suppress non-essential mail.
   emailRecipients: defineTable({
@@ -826,5 +838,7 @@ export default defineSchema({
     items: v.number(),
     errors: v.number(),
     lastError: v.optional(v.string()),
-  }).index("by_job_time", ["job", "startedAt"]),
+  })
+    .index("by_job_time", ["job", "startedAt"])
+    .index("by_time", ["startedAt"]),
 });

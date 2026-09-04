@@ -112,12 +112,14 @@ export default function PrivacyPage() {
       <Section id="retention" title="6. Retention">
         <ul>
           <li><strong>Account, profile, products, connected-source configuration, growth aggregates, follows, tokens:</strong> until you delete them or your account.</li>
-          <li><strong>Raw 4-hour snapshots:</strong> aggregated into daily rows after {R.snapshotsRawBeforeAggregation} days; daily rows are kept as the product’s history.</li>
+          <li><strong>Raw 4-hour snapshots:</strong> thinned to one sample per day after {R.snapshotsRawBeforeAggregation} days (per stage for activation / conversion samples); the daily rows are kept as the product’s history.</li>
           <li><strong>Sync runs:</strong> {R.syncRuns} days.</li>
-          <li><strong>Webhook deliveries:</strong> {R.webhookDeliveries} days.</li>
+          <li><strong>Webhook deliveries:</strong> {R.webhookDeliveries} days, once a delivery has succeeded or exhausted its retries.</li>
           <li><strong>API usage counters:</strong> {R.apiUsage} days.</li>
           <li><strong>Email delivery log:</strong> {R.emailLog} days; bounce and complaint suppression until you ask us to lift it.</li>
           <li><strong>Audit log:</strong> {R.auditLogs} days.</li>
+          <li><strong>History-import log:</strong> {R.backfills} days. <strong>Background-job log:</strong> {R.jobRuns} days (no personal data).</li>
+          <li><strong>Sign-in state</strong> for connecting X (CSRF / PKCE): {R.oauthStates} day.</li>
           <li><strong>Server request logs:</strong> a few days at the hosting provider.</li>
           <li><strong>After account deletion:</strong> personal data is removed immediately; frozen monthly rankings keep only the product name and position as historical record, and pseudonymous identity hashes become unlinkable because the project key is gone.</li>
         </ul>

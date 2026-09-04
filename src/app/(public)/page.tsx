@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { publicQuery } from "@/lib/convex-public";
+import { publicQuery, publicData } from "@/lib/convex-public";
 import { ArrowRight, Plug, LineChart, Share2, ShieldCheck, Lock, Clock } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { CtaLink } from "@/components/analytics/analytics";
@@ -9,16 +9,18 @@ import { SectionLabel } from "@/components/blueprint/section-label";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { DemoChart } from "@/components/public/demo-chart";
 import { LeaderboardRow, MiniSaasCard } from "@/components/public/saas-card";
+import { DegradedNotice } from "@/components/site/degraded";
 import { formatCompact } from "@/lib/format";
 
 export const revalidate = 300;
 
 export default async function LandingPage() {
-  const [top, trending, stats] = await Promise.all([
+  const data = await publicData(() => Promise.all([
     publicQuery(api.public.leaderboard, { verifiedOnly: false, limit: 5 }),
     publicQuery(api.public.board, { board: "trending", window: "7d", verifiedOnly: false, limit: 3 }),
     publicQuery(api.public.stats, {}),
-  ]);
+  ]));
+  const [top, trending, stats] = data ?? [[], [], undefined];
 
   return (
     <div>
@@ -38,8 +40,8 @@ export default async function LandingPage() {
               <Button size="lg" variant="outline" className="h-12 px-6" render={<Link href="/leaderboard" />}>See the leaderboard</Button>
             </div>
             <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-              <span>{formatCompact(stats.trackedUsers)} users tracked</span>
-              <span>{stats.saasCount} SaaS listed</span>
+              {stats && <span>{formatCompact(stats.trackedUsers)} users tracked</span>}
+              {stats && <span>{stats.saasCount} SaaS listed</span>}
               <span>Synced every 4h</span>
             </div>
           </div>
@@ -121,7 +123,8 @@ export default async function LandingPage() {
             <Button variant="ghost" render={<Link href="/leaderboard" />}>Full board <ArrowRight className="size-4" /></Button>
           </div>
           <div className="mt-6 space-y-2">
-            {top.length === 0 && <Panel className="p-6 text-sm text-muted-foreground">The board is empty — your SaaS could be #1 today.</Panel>}
+            {!data && <DegradedNotice />}
+            {data && top.length === 0 && <Panel className="p-6 text-sm text-muted-foreground">The board is empty — your SaaS could be #1 today.</Panel>}
             {top.map((s, i) => <LeaderboardRow key={s._id} s={s} position={i + 1} />)}
           </div>
         </div>

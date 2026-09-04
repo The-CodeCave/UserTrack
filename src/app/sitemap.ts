@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { publicQuery } from "@/lib/convex-public";
+import { publicData, publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { SITE_URL } from "@/lib/site";
 import { rankingPath } from "@/lib/boards";
@@ -8,7 +8,7 @@ import { EFFECTIVE_DATE, LEGAL_PAGES } from "@/lib/legal";
 export const revalidate = 300;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const data = await publicQuery(api.public.sitemap, {});
+  const data = (await publicData(() => publicQuery(api.public.sitemap, {}))) ?? { categories: [], stacks: [], saas: [], profiles: [], rankings: [], hasMore: false };
   const now = new Date();
   const fixed = ["", "/leaderboard", "/trending", "/discover", "/fastest-growing-saas", "/fastest-growing-ai-saas", "/new-saas", "/most-new-users", "/best-conversion", "/hidden-gems", "/biggest-movers", "/fastest-growing-developer-tools", "/fastest-growing-mobile-apps", "/best-activation-rate-saas", "/best-converting-mobile-apps", "/rankings", "/categories", "/compare", "/developers", "/developers/webhooks"];
   return [

@@ -18,13 +18,16 @@ export const OPERATOR = {
 // Confirm before launch (HUMAN_TODO.md → Legal pages).
 export const EFFECTIVE_DATE = "2026-09-04";
 
-// Retention periods in days, the source of truth for the privacy policy and the retention sweep.
+// Retention periods in days, the source of truth for the privacy policy and the retention sweep (convex/retention.ts).
 export const RETENTION_DAYS = {
   syncRuns: 30,
   webhookDeliveries: 30,
   emailLog: 180,
   apiUsage: 90,
   auditLogs: 365,
+  oauthStates: 1,
+  backfills: 90,
+  jobRuns: 90,
   snapshotsRawBeforeAggregation: 180,
 } as const;
 

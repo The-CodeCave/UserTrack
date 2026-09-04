@@ -1,4 +1,4 @@
-import { publicQuery } from "@/lib/convex-public";
+import { EMPTY_STATS, publicData, publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { OgFrame, OgChart, OgEyebrow, OgChip, OgStat, OgCheck, ogImage, ogWordmark, OG_SIZE, PINK, MUTED } from "@/lib/og/frame";
 import { formatCompact } from "@/lib/format";
@@ -10,7 +10,8 @@ export const revalidate = 300;
 
 // Default card for the whole public site; every board / detail page overrides it with its own.
 export default async function Image() {
-  const [stats, top] = await Promise.all([publicQuery(api.public.stats, {}), publicQuery(api.public.leaderboard, { verifiedOnly: false, limit: 1 })]);
+  const data = await publicData(() => Promise.all([publicQuery(api.public.stats, {}), publicQuery(api.public.leaderboard, { verifiedOnly: false, limit: 1 })]));
+  const [stats, top] = data ?? [EMPTY_STATS, []];
 
   return ogImage(
     <OgFrame

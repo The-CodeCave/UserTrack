@@ -99,6 +99,7 @@ import type * as providers_supabase from "../providers/supabase.js";
 import type * as providers_types from "../providers/types.js";
 import type * as public_ from "../public.js";
 import type * as rateLimits from "../rateLimits.js";
+import type * as retention from "../retention.js";
 import type * as saas from "../saas.js";
 import type * as seed from "../seed.js";
 import type * as share from "../share.js";
@@ -207,6 +208,7 @@ declare const fullApi: ApiFromModules<{
   "providers/types": typeof providers_types;
   public: typeof public_;
   rateLimits: typeof rateLimits;
+  retention: typeof retention;
   saas: typeof saas;
   seed: typeof seed;
   share: typeof share;

@@ -1,8 +1,9 @@
 // Paged background jobs. Every scheduled job walks its driving table with `paginate` so no single transaction
 // reads or writes more than one page, and records what happened in `jobRuns` (docs/ARCHITECTURE.md → Jobs).
 import { v } from "convex/values";
-import { internalMutation, type MutationCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import { internalMutation, query, type MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { requireGateway } from "./lib/gateway";
 
 // Page sizes: projects per transaction, chosen so the heaviest page stays far below Convex's 8k-document /
 // 1 MiB read limit. `daily` reads up to 400 dailyMetrics + all milestones per project, so it pages smallest.
@@ -14,6 +15,8 @@ export const PAGE = {
   share: 100,
   snapshot: 200,
   cohorts: 200,
+  // Reads up to THIN_SCAN snapshots per product while thinning (convex/retention.ts).
+  retention: 10,
   integrations: 500,
 } as const;
 
@@ -49,4 +52,16 @@ export const begin = internalMutation({
 export const record = internalMutation({
   args: { runId: v.id("jobRuns"), items: v.number(), errors: v.optional(v.number()), lastError: v.optional(v.string()), done: v.optional(v.boolean()) },
   handler: async (ctx, { runId, ...page }) => recordPage(ctx, runId, page),
+});
+
+// Operator summary for /api/health?deep=1: the latest run of each job, from a bounded window of recent runs.
+export const health = query({
+  args: { gateway: v.optional(v.string()) },
+  handler: async (ctx, { gateway }) => {
+    requireGateway(gateway);
+    const recent = await ctx.db.query("jobRuns").withIndex("by_time").order("desc").take(50);
+    const latest = new Map<string, Doc<"jobRuns">>();
+    for (const run of recent) if (!latest.has(run.job)) latest.set(run.job, run);
+    return [...latest.values()].map((r) => ({ job: r.job, startedAt: r.startedAt, finishedAt: r.finishedAt, items: r.items, errors: r.errors }));
+  },
 });

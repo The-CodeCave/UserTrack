@@ -4,6 +4,6 @@ buildCommand = "pnpm railway:build"
 
 [deploy]
 startCommand = "pnpm start"
-healthcheckPath = "/leaderboard"
+healthcheckPath = "/api/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

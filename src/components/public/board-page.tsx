@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { cachedQuery } from "@/lib/convex-public";
+import { cachedQuery, publicData } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { LeaderboardRow, type BoardKind, type Window } from "@/components/public/saas-card";
 import { BoardFilters, type BoardState } from "@/components/public/board-filters";
+import { DegradedPage } from "@/components/site/degraded";
 import { BOARD_KEYS, BOARD_META, defaultWindow } from "@/lib/boards";
 import { Button } from "@/components/ui/button";
 import { CATEGORIES, categoryLabel } from "@/lib/categories";
@@ -37,11 +38,13 @@ export async function BoardPage({
   state: BoardState; base: string; title: string; intro: string; lockCategory?: boolean; lockBoard?: boolean; lockPlatform?: boolean; eyebrow?: string; children?: React.ReactNode; related?: { href: string; label: string }[];
   methodology?: { title: string; body: React.ReactNode };
 }) {
-  const [rows, stats, meta] = await Promise.all([
+  const data = await publicData(() => Promise.all([
     cachedQuery(api.public.board, { board: state.board as BoardKind, window: state.window, verifiedOnly: state.verified, category: state.category, size: state.size as never, platform: state.platform as never, stack: state.stack, limit: 100 }),
     cachedQuery(api.public.stats, {}),
     cachedQuery(api.public.boardMeta, { category: state.category, stack: state.stack }),
-  ]);
+  ]));
+  if (!data) return <DegradedPage title={title} intro={intro} eyebrow={eyebrow ?? BOARD_META[state.board].label} />;
+  const [rows, stats, meta] = data;
   const board = BOARD_META[state.board];
   const jsonLd = {
     "@context": "https://schema.org",

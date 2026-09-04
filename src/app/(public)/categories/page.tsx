@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { publicQuery } from "@/lib/convex-public";
+import { EMPTY_STATS, publicData, publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
@@ -11,7 +11,7 @@ export const revalidate = 300;
 export const metadata: Metadata = { title: "SaaS categories", description: "Browse SaaS user-growth leaderboards by category.", alternates: { canonical: `${SITE_URL}/categories` } };
 
 export default async function CategoriesPage() {
-  const stats = await publicQuery(api.public.stats, {});
+  const stats = (await publicData(() => publicQuery(api.public.stats, {}))) ?? EMPTY_STATS;
   const counts = new Map(stats.categories.map((c) => [c.slug, c.count]));
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:py-12">

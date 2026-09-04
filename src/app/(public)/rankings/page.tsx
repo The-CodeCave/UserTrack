@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { publicQuery } from "@/lib/convex-public";
+import { publicData, publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 export default async function RankingsPage() {
-  const periods = await publicQuery(api.public.rankingPeriods, {});
+  const periods = (await publicData(() => publicQuery(api.public.rankingPeriods, {}))) ?? [];
   // Group by period, then one row per category with its available boards.
   const byPeriod = new Map<string, Map<string | null, typeof periods>>();
   for (const r of periods) {

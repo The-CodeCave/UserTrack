@@ -2,7 +2,9 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and deployed.
 
-Last updated: 2026-09-04 (v1.0 launch hardening: IMPORT-1 TrustMRR operator key task, PROFILE-1 no action, ANALYTICS-1 Rybbit dashboard task; v0.9: discovery v3, follow + watchlists, ranking / trending / benchmark history, benchmarks v2, public datasets + SEO pages, webhooks — see the v0.9 section; v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
+Last updated: 2026-09-04 (v1.0 launch hardening: OPS-3 Sentry project + optional Convex log stream, IMPORT-1 TrustMRR operator key task, PROFILE-1 no action, ANALYTICS-1 Rybbit dashboard task; v0.9: discovery v3, follow + watchlists, ranking / trending / benchmark history, benchmarks v2, public datasets + SEO pages, webhooks — see the v0.9 section; v0.8: founder profiles, Share Card Studio, share engine, X handles / intents / drafts, flagged X OAuth + auto-posting + bot pathway — see the v0.8 section; v0.7: native SDK integrations — `@usertrack/protocol`, `@usertrack/node`, `@usertrack/better-auth` 0.2.0, provider `native`; v0.6: Better Auth native integration + `@usertrack/better-auth`; v0.5: lifecycle model Growth → Activation → Conversion, conversion providers Stripe / RevenueCat / Paddle / Lemon Squeezy / Chargebee, identity + cohorts, visibility model, mobile projects, API/MCP extensions).
+
+**v1.0 launch hardening (OPS-3).** One recommended task and one optional one, both below under *Recommended*: create a **Sentry EU project and set the DSN** (until then the SDK is not initialised, not downloaded and nothing is reported — everything else works), and optionally switch on the **Convex → Sentry log stream** so backend function errors land in the same project. Nothing is required: retention, the error boundaries, the degraded public pages and `/api/health` need no credential. **GitHub Actions needs no secrets** — `.github/workflows/ci.yml` builds with placeholder Convex URLs and `convex/_generated` is committed, so the workflow starts working the moment the repository is pushed to GitHub. One thing to know: Railway's health check moved from `/leaderboard` to `/api/health` in `railway.toml`; if the service was created with the path set in the dashboard instead, update it there too (Railway → service → Settings → Deploy → Health check path).
 
 **v1.0 launch hardening (SOCIAL-1).** No new task: follower counts use the same X app and the `users.read` scope that "Connect X" / X sign-in already request, and `public_metrics` is available on the free tier. After the X app exists, connect once on `/app/settings/social` and check that the count appears (then "Refresh now" once) — see step 5 of *Create X Developer App*.
 
@@ -446,6 +448,53 @@ The tracker, the event catalog (`docs/ANALYTICS.md`) and the server-side events 
 ---
 
 ## Recommended
+
+### Sentry — create the EU project and set the DSN (OPS-3)
+
+**Why**
+Errors in production are currently only visible in Railway's log stream. `@sentry/nextjs` is wired for the browser, the Node server and the edge runtime, but it is feature-flagged on the DSN: **without `NEXT_PUBLIC_SENTRY_DSN` the SDK is never initialised and never even downloaded**, so nothing is reported until a human creates the project. Only a human can create a Sentry account.
+
+**Where**
+https://sentry.io → sign up / log in with the **EU data region** (`https://<org>.sentry.io`, ingest host `*.ingest.de.sentry.io` — the CSP allows exactly that host) → Projects → Create project → platform **Next.js** → name `usertrack`.
+
+**Steps**
+1. Create the organisation in the **EU** region (the region cannot be changed later) and the `usertrack` project.
+2. Copy the DSN (Project → Settings → Client Keys (DSN)).
+3. Railway → service `usertrack` → Variables:
+   ```bash
+   railway variables --service usertrack --set NEXT_PUBLIC_SENTRY_DSN="https://<key>@o<org>.ingest.de.sentry.io/<project>"
+   ```
+   That single variable covers the browser, the server and the edge runtime. Redeploy (a `NEXT_PUBLIC_*` value is baked into the build).
+4. Optional, source maps: Sentry → Settings → Auth Tokens → create a token with `project:releases` + `org:read`, then add `SENTRY_ORG`, `SENTRY_PROJECT` and `SENTRY_AUTH_TOKEN` **to the build environment only** (Railway variables, or GitHub Actions secrets if the build ever moves there). Without the token the build never talks to Sentry.
+5. Verify: open any page, run `throw new Error("sentry smoke test")` in the browser console, and check the issue appears. Then confirm the scrubbing: the issue must have no request body, no cookies and no `Authorization` header, and any `?token=…` in the URL must read `token=[redacted]`.
+6. Set `NEXT_PUBLIC_APP_VERSION` (optional) if the release name should be something nicer than the commit sha.
+
+**Required values** — Sentry EU DSN (and optionally org / project / auth token). **Where to enter them** — Railway variables.
+
+**Status**
+* [ ] Pending (recommended before launch)
+
+---
+
+### Optional: Convex → Sentry log stream (OPS-3)
+
+**Why**
+Sentry above covers the Next.js side. Errors thrown inside Convex functions (crons, actions, mutations) are logged in the Convex dashboard; streaming them into the same Sentry project puts backend and frontend errors in one place. It is a dashboard-only setting — no code, no new UserTrack variable.
+
+**Where**
+Convex dashboard → your production deployment → **Settings → Integrations → Sentry** → paste the **same EU DSN** as above (optionally a separate `usertrack-convex` project, still EU) → save.
+
+**Steps**
+1. Convex dashboard → Production deployment → Settings → Integrations → Sentry → *Add integration* → paste the DSN → Save.
+2. Trigger one failure (for example `npx convex run --prod jobs:health '{}'` without the gateway secret) and confirm the event arrives.
+3. Optional: repeat for the dev deployment if backend errors during development are worth collecting.
+
+**Required values** — the Sentry EU DSN. **Where to enter them** — Convex dashboard (not an env var).
+
+**Status**
+* [ ] Optional
+
+---
 
 ### Submit the UserTrack MCP server to agent directories
 

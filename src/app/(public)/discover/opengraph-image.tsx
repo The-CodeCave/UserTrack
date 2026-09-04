@@ -1,4 +1,4 @@
-import { publicQuery } from "@/lib/convex-public";
+import { EMPTY_STATS, publicData, publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { OgFrame, OgEyebrow, OgChip, OgLogo, ogImage, ogWordmark, remoteImage, truncate, OG_SIZE, LINE, PINK, MUTED, DIM, HOST } from "@/lib/og/frame";
 import { formatDelta } from "@/lib/format";
@@ -11,7 +11,8 @@ export const revalidate = 300;
 const SECTIONS = ["Trending now", "Fastest today", "New & rising", "Hidden gems", "Recently verified"];
 
 export default async function Image() {
-  const [stats, trending] = await Promise.all([publicQuery(api.public.stats, {}), publicQuery(api.public.board, { board: "trending", window: "7d", verifiedOnly: false, limit: 3 })]);
+  const data = await publicData(() => Promise.all([publicQuery(api.public.stats, {}), publicQuery(api.public.board, { board: "trending", window: "7d", verifiedOnly: false, limit: 3 })]));
+  const [stats, trending] = data ?? [EMPTY_STATS, []];
   const logos = await Promise.all(trending.map((s) => remoteImage(s.logoUrl)));
 
   return ogImage(

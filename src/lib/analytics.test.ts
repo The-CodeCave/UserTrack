@@ -69,6 +69,8 @@ describe("catalog", () => {
 
   it("skips machine endpoints and masks token URLs", () => {
     expect(SKIP_PATTERNS).toEqual(["/api/**", "/embed/**", "/mcp"]);
+    // Railway polls /api/health every few seconds — it is covered by the /api/** pattern, like every machine endpoint.
+    expect(SKIP_PATTERNS.some((p) => p.endsWith("/**") && "/api/health".startsWith(p.slice(0, -2)))).toBe(true);
     expect(MASK_PATTERNS).toEqual(["/email/preferences*", "/reset-password*"]);
   });
 });

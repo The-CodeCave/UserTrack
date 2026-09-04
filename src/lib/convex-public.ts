@@ -26,3 +26,17 @@ export function cachedQuery<Q extends FunctionReference<"query", "public">>(quer
   }
   return read(stableArgs(args)) as Promise<Q["_returnType"]>;
 }
+
+// Neutral counters for a page or card rendered while Convex is unreachable.
+export const EMPTY_STATS = { saasCount: 0, verifiedCount: 0, trackedUsers: 0, newUsers30d: 0, categories: [] as { slug: string; count: number; verifiedCount: number; label: string }[] };
+
+// Public pages call this instead of awaiting the read directly: when Convex is unreachable the page renders a
+// degraded state (`DegradedNotice`) instead of throwing the whole route into the error boundary.
+export async function publicData<T>(load: () => Promise<T>): Promise<T | null> {
+  try {
+    return await load();
+  } catch (error) {
+    console.error("convex unavailable:", (error as Error).message);
+    return null;
+  }
+}

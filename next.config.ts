@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 import { CACHEABLE_PUBLIC, PUBLIC_CACHE_CONTROL } from "./src/lib/public-cache";
+import { SENTRY_ENABLED, SENTRY_INGEST_ORIGIN } from "./src/lib/sentry";
 
 const RYBBIT = process.env.NEXT_PUBLIC_RYBBIT_HOST || "https://rybbit.internal.thecodecave.de";
 const csp = (frameAncestors: string) =>
@@ -9,7 +11,7 @@ const csp = (frameAncestors: string) =>
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    `connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site ${RYBBIT}`,
+    `connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site ${RYBBIT} ${SENTRY_INGEST_ORIGIN}`,
     "frame-src 'self'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -48,4 +50,15 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Only wrapped when a DSN is configured; source maps are uploaded only where an auth token exists (CI).
+export default SENTRY_ENABLED
+  ? withSentryConfig(nextConfig, {
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN },
+      telemetry: false,
+      disableLogger: true,
+      silent: !process.env.CI,
+    })
+  : nextConfig;

@@ -191,6 +191,7 @@ growing product count can never break rankings, milestones, trust or sync for ev
 | `cohort rebuild` (`cohorts.rebuildAll`) | action | **200** | 1 `identityLinks` probe per project |
 | `sync all integrations` (`sync.runAll`) | action | **500** integrations | ids only; scheduling in chunks of 100, same 10-min stagger |
 | `weekly digest` (`digest.generate`) · `monthly growth report` | mutation | **50** profiles | owner projects + bounded standings reads |
+| `retention sweep` (`retention.sweep`) | mutation | **200** rows / **10** projects | one table per step, `take(200)` deletes or one page of products while thinning |
 
 Page sizes live in `PAGE` (`convex/jobs.ts`). A single project's failure is caught, logged and counted — it never stops its
 page or the rest of the job. Each driver writes one `jobRuns` row (`job`, `startedAt`, `finishedAt`, `pages`, `items`,
@@ -201,6 +202,27 @@ per integration for the sync fan-out), which is comfortable to ~50k projects; `d
 rankable rows themselves and is the first to feel a large table. Beyond that the accumulator has to move to a scratch table.
 The weekly digest reads bounded windows instead of the whole public table: trending from `by_public_trending`, movers from
 the top **200** of `by_public_rank`, and at most **500** follows per profile.
+
+### Retention (v1.0, `convex/retention.ts`)
+Logs, counters and raw samples expire; product data (accounts, projects, aggregates, daily rows) is only ever removed by its
+owner (`convex/account.ts`). The sweep is scheduled from the daily sweep, walks one table per step and re-schedules itself
+until the step is empty, exactly like `native.pruneEvents`. Periods live in `RETENTION_DAYS` (`src/lib/legal.ts`) — the same
+constant the privacy policy renders, so the page and the job can never disagree.
+
+| Table | Kept | Index |
+|---|---|---|
+| `syncRuns` | 30 days | `by_time` |
+| `webhookDeliveries` (`success` / `exhausted` only) | 30 days | `by_status_created` |
+| `emailEvents` | 180 days | `by_created` |
+| `apiUsage` | 90 days | `by_day` |
+| `auditLogs` | 365 days | `by_time` |
+| `oauthStates` | 1 day | `by_created` |
+| `backfills` · `jobRuns` | 90 days | `by_time` |
+| `snapshots` · `stageSnapshots` | thinned to the **last row of each UTC day** (per stage) after 180 days | `by_saas_time` · `by_saas_captured` |
+| `integrationEvents` | 30 days (`native.pruneEvents`, v0.7) | `by_time` |
+
+Thinning reads at most 400 expired rows per project per page and only ever deletes a row in favour of a *later* row of the
+same day, so a partially scanned project simply finishes on one of the next sweeps (A203).
 
 ## Follow, watchlist & digest (`docs/FOLLOWS.md`)
 `follows.follow` / `unfollow` are idempotent (self-follow, private targets and unknown ids are rejected) and maintain `followerCount`; `follows.ids` is the single subscription behind every follow chip. `follows.feed` → `watchlistFeed`: watched projects = direct follows ∪ public projects of followed founders; items are stored milestones and events (incl. `launched` shown as "new project from a founder you follow"), plus `rank_change` at ≥ 5 places from the materialized 7-day movement, deduped by stable id, private projects excluded. Follower emails (`notifyFollowers`) fan out only for ≥ 1K milestones, Top 10 entries and ≥ 3× spikes, gated by the master switch and the per-kind sub-preferences. `digest.generate` `digest.generate` (Monday 08:00 UTC, paged 50 profiles per mutation) builds one payload per profile with `weeklyDigest` enabled (own products, followed movers, milestones, leaderboard movers, trending), stores it in-app (`/app/digest`) and enqueues the `weekly-digest` email only when there is a signal (own movement, followed products or milestones). "Preview this week" rebuilds the caller's digest without emailing.
@@ -314,6 +336,25 @@ The directory counters on every board page (`public.stats`, `public.boardMeta`, 
 
 At 200 public products that is 600 → ~102 documents per crawler hit; at 5,000 it is 15,000 → ~102, and with ISR the whole page is served from cache for 5 minutes anyway. `/discover` went from one N-row collect to ten ≤ 5-row index walks plus one `publicStats` read; `/sitemap.xml` from N to at most 5,000.
 
+## Error tracking, health and degraded reads (v1.0, OPS-3)
+- **Sentry** is feature-flagged on `NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_DSN`. Without a DSN `Sentry.init` is never called and
+  the SDK is never imported: `src/instrumentation.ts` imports `sentry.server.config` / `sentry.edge.config` dynamically per
+  `NEXT_RUNTIME`, `src/instrumentation-client.ts` code-splits the browser SDK behind the same check, and `next.config.ts` only
+  wraps the config in `withSentryConfig` when a DSN exists (source maps upload only where `SENTRY_AUTH_TOKEN` is set, i.e. CI).
+  Errors only — no tracing, no replay, no PII. `src/lib/sentry.ts` scrubs every event: request bodies and cookies are dropped,
+  `authorization` / `x-api-key` / `cookie` / `x-ut-gateway-secret` headers are removed and `token` / `state` / `code` / `secret`
+  query parameters are redacted in URLs, query strings and breadcrumbs. The CSP allows `https://*.ingest.de.sentry.io` (EU).
+- **Error boundaries.** `src/app/error.tsx` (branded panel, "Try again" + "Go home", `digest` shown as a reference) and
+  `src/app/global-error.tsx` for a failing root layout — it ships its own `<html>`/`<body>` and its own font stack because the
+  layout that defines them is what failed. Both report to Sentry when it is enabled.
+- **Degraded public reads.** `publicData(load)` in `src/lib/convex-public.ts` catches an unreachable Convex and returns `null`;
+  the board pages and the landing page then render `DegradedNotice` ("Live data is temporarily unavailable") instead of
+  throwing the whole route, and the static OG cards / `sitemap.xml` fall back to `EMPTY_STATS` / their fixed URLs. This is what
+  lets `pnpm build` succeed in CI with a placeholder `NEXT_PUBLIC_CONVEX_URL` (A202).
+- **Health check.** `GET /api/health` → `200 {ok, version, uptime}` **without touching Convex**, so a Convex blip never makes
+  Railway restart a healthy app (`railway.toml` → `healthcheckPath`). `?deep=1` adds one `public.stats` read plus the
+  gateway-only `jobs.health` summary (latest run per job) behind a 3 s timeout and reports `convex: "ok" | "down"` — still 200.
+
 ## Dashboard (`src/app/app/*`)
 - `/app` overview: totals, primary product detail, state-derived **Next actions** (publish → connect activation → add badge → share card → see how you compare), compact benchmark cards, digest preview.
 - `/app/saas/[id]`: anchored sections `#overview` (with "Next steps"), `#growth`, `#funnel` (owner funnel, all stages), `#benchmarks`, `#integrations` (per-role sources with verification level + capabilities, `ConnectSource` with live test, `PostgresWizard` for `postgres` and Supabase database mode), `#sharing`, `#embeds` (badge + link to the configurator), `#settings`. `/app/saas/[id]/embed`: full configurator.
@@ -331,7 +372,7 @@ Applied to every route (`/(.*)`):
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), interest-cohort=()` |
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'unsafe-inline' https://rybbit.internal.thecodecave.de; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://rybbit.internal.thecodecave.de; frame-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'` (+ `upgrade-insecure-requests` when `NEXT_PUBLIC_SITE_URL` is https) |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'unsafe-inline' https://rybbit.internal.thecodecave.de; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://rybbit.internal.thecodecave.de https://*.ingest.de.sentry.io; frame-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'` (+ `upgrade-insecure-requests` when `NEXT_PUBLIC_SITE_URL` is https) |
 | `X-Frame-Options` | `DENY` — on every route **except** the embeddable ones (negative-lookahead source `/((?!embed/|api/badge/|api/embed/|widget\.js).*)`) |
 
 Embeddable routes `/embed/:slug*`, `/api/badge/:slug*`, `/api/embed/:slug*`, `/widget.js` get the same CSP with `frame-ancestors *` (later entries override same-named keys) and no `X-Frame-Options`; `/widget.js` keeps its `Cache-Control` + `Access-Control-Allow-Origin: *`.
