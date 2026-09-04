@@ -3,7 +3,7 @@
 A tiny, fully standalone waitlist page for https://usertrack.dev, used while the main app is not public yet.
 Vite + React 19 + Tailwind v4 + Convex (own project, own deployment). No auth, no email sending, no cookies.
 
-- Live: https://usertrack-waitlist-production.up.railway.app (Railway service `usertrack-waitlist` in project `usertrack`)
+- Live: https://usertrack.dev (+ www) → Railway service `usertrack-waitlist` in project `usertrack`; fallback URL https://usertrack-waitlist-production.up.railway.app
 - Convex project: `thecodecave/usertrack-waitlist` — prod `glad-lynx-143` (https://glad-lynx-143.eu-west-1.convex.cloud), dev `judicious-canary-549`
 - Dashboard: https://dashboard.convex.dev/t/thecodecave/usertrack-waitlist
 - Routes: `/` (waitlist), `/impressum` (DE), `/privacy` (EN + DE header). Client-side routing, `serve -s` rewrites everything to `index.html`.
