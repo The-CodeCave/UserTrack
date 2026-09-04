@@ -5,7 +5,7 @@ import { RateLimiter } from "@convex-dev/rate-limiter";
 import { action, internalMutation, internalQuery, query, type ActionCtx } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { requireProfile } from "./profiles";
+import { getProfileForUser, requireProfile } from "./profiles";
 import { RATE_LIMITS } from "./lib/rateLimits";
 import { TrustmrrError, fetchStartup, mapTrustmrrStartup, parseTrustmrrRef, TRUSTMRR_SITE, type TrustmrrImport } from "./lib/trustmrr";
 import { DOCS_SHAPE } from "./lib/trustmrr.fixtures";
@@ -16,9 +16,10 @@ const FIXTURE_KEY = "fixture";
 
 export const isConfigured = () => Boolean(process.env.TRUSTMRR_API_KEY);
 
+// Whether the operator key exists is only interesting to a signed-in founder; a visitor always sees "not configured".
 export const status = query({
   args: {},
-  handler: async () => ({ configured: isConfigured() }),
+  handler: async (ctx) => ({ configured: Boolean((await getProfileForUser(ctx)).profile) && isConfigured() }),
 });
 
 export const myProfileId = internalQuery({

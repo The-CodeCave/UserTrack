@@ -4,7 +4,7 @@ Everything the agent could not complete autonomously because it needs an externa
 
 Last updated: 2026-09-04 · code state: **v1.0 launch hardening complete** (SEC-1..3, LEGAL-1..2, ANALYTICS-1, AUTH-1, PROFILE-1, IMPORT-1, SOCIAL-1, OPS-1..3, SHIP-1 — see `docs/RELEASE-v1.0.md`). Nothing is deployed: the v1.0 commits are on `main` locally and have **not** been pushed or shipped.
 
-**TL;DR** — the code is launch-ready; 13 human steps stand between it and production. Do the *Required* list below **in order** — each one is a link to the detailed section further down, which has the exact commands and values. Everything under *Recommended* can wait until after launch. A separate branch `waitlist` (worktree `../UserTrack-waitlist`) holds an interim standalone waitlist app under `apps/waitlist/`, deployed as its own Railway service; it is not merged into `main` and is not part of this release.
+**TL;DR** — the code is launch-ready; 14 human steps stand between it and production. Do the *Required* list below **in order** — each one is a link to the detailed section further down, which has the exact commands and values. Everything under *Recommended* can wait until after launch. A separate branch `waitlist` (worktree `../UserTrack-waitlist`) holds an interim standalone waitlist app under `apps/waitlist/`, deployed as its own Railway service; it is not merged into `main` and is not part of this release.
 
 ---
 
@@ -27,6 +27,7 @@ Last updated: 2026-09-04 · code state: **v1.0 launch hardening complete** (SEC-
 | 11 | **`railway up --service usertrack --ci`** | Then the app. Also: set the Railway health-check path to `/api/health` (OPS-3 changed it in `railway.toml`; a service created with the path in the dashboard needs it there too). | *11. Deploy the app* |
 | 12 | **Domain / DNS** (+ `UT_TRUST_CF_HEADERS`) | `usertrack.dev` has Cloudflare nameservers but **no A/CNAME record**, so nothing resolves. During the interim phase point it at the **waitlist** service, then switch the record to the main app. The moment the record is **proxied** (orange cloud), set `UT_TRUST_CF_HEADERS=1` on Railway or every visitor shares one rate-limit bucket. | *12. Domain / DNS (interim waitlist → main app)* |
 | 13 | **Post-deploy checks** | Health, headers, one real sign-up, one real import, one real X connect. | *13. Post-deploy checks* |
+| 14 | **Cloudflare cache rule for the board pages and the API** | The board pages (`/leaderboard`, `/trending`, `/discover`, `/fastest-growing-*`) render per request — only their Convex read is cached (A225). Without an edge rule every crawler hit re-renders them. | *14. Cloudflare cache rule (required)* |
 
 ### Recommended — after launch
 
@@ -34,7 +35,6 @@ Last updated: 2026-09-04 · code state: **v1.0 launch hardening complete** (SEC-
 |---|---|---|
 | **Sentry EU project + `NEXT_PUBLIC_SENTRY_DSN`** | Without a DSN the SDK is never initialised or downloaded — crashes render the branded error boundary but nobody is notified. | *Sentry — create the EU project and set the DSN (OPS-3)* |
 | **Convex → Sentry log stream** | Backend function errors land in the same project. | *Optional: Convex → Sentry log stream (OPS-3)* |
-| **Cloudflare cache rules** | OPS-2 already sends `Cache-Control: public, s-maxage=300` on every public route; a "Cache Everything" rule makes Cloudflare honour it. | *Cloudflare "Cache Everything" for `/api/v1/*` and `/s/*` (OPS-2, optional)* |
 | **npm publishes** (`@usertrack/protocol` → `@usertrack/node` → `@usertrack/better-auth`) | Until then founders install the SDK from a `pnpm pack` tarball. Order matters: the plugin depends on the other two. | `packages/node/HUMAN_TODO.md`, `packages/better-auth/HUMAN_TODO.md` |
 | **Search Console + directory submissions** | Only worth doing once the domain resolves. | *Search Console: submit the new public pages*, *Submit the UserTrack MCP server to agent directories* |
 | **Decide on the demo listings** | The 5 `demo-*` products stay in production until `npx convex run --prod seed:clear`. | *Decide what to do with the demo listings* |
@@ -162,6 +162,43 @@ Then, in the browser:
 3. **One real X connect**: `/app/settings/social` → Connect X → the handle and the follower count appear → *Refresh now* once.
 4. Convex dashboard → Data → `jobRuns`: after the next 03:30 UTC daily sweep there is one row per job with `finishedAt` and `errors: 0`, including `retention sweep`.
 5. Convex dashboard → Data → `publicStats`: one row, written by the next `rerank leaderboard` (every 4 h). Until then the directory counters render zero.
+
+**Status** — * [ ] Pending
+
+---
+
+### 14. Cloudflare cache rule (required)
+
+Only `/`, `/categories`, `/rankings`, `/sitemap.xml`, `/s/<slug>` and `/u/<name>` are ISR; every board page awaits
+`searchParams` and is rendered on demand (A225, `docs/ARCHITECTURE.md` → *Public caching*). They answer with
+`Cache-Control: public, s-maxage=300, stale-while-revalidate=1800` (`/api/v1/*`: `s-maxage=300, stale-while-revalidate=600`),
+which Cloudflare's free plan ignores on HTML unless a Cache Rule says otherwise.
+
+```
+# Cloudflare dashboard → Caching → Cache Rules → Create rule
+Name:       UserTrack public HTML + API
+Expression: (http.host eq "usertrack.dev" and (
+              starts_with(http.request.uri.path, "/leaderboard") or
+              starts_with(http.request.uri.path, "/trending") or
+              starts_with(http.request.uri.path, "/discover") or
+              starts_with(http.request.uri.path, "/fastest-growing-") or
+              starts_with(http.request.uri.path, "/api/v1/")))
+Action:     Cache eligibility  → Eligible for cache
+            Edge TTL           → Use cache-control header if present, otherwise 5 minutes
+            Browser TTL        → Respect origin
+            Cache key          → Bypass cache on cookie: better-auth.session_token
+```
+
+The cookie bypass matters because the header nav is a client component (OPS-2) but the founder's own project pages are
+not: a signed-in response must never land in a shared edge cache. Never add `/app`, `/sign-in`, `/sign-up`,
+`/api/auth/*` or `/api/account/export` to the expression.
+
+Verify:
+
+```bash
+curl -sI https://usertrack.dev/leaderboard | grep -i "cf-cache-status\|cache-control"   # MISS, then HIT
+curl -sI https://usertrack.dev/api/v1/leaderboard | grep -i cf-cache-status
+```
 
 **Status** — * [ ] Pending
 
@@ -686,7 +723,7 @@ Today Convex production is deployed from a logged-in laptop (`npx convex deploy`
 
 ### Edge rate limiting for the public API and MCP
 
-Since SEC-2 every per-minute limit is durable in Convex (`@convex-dev/rate-limiter`, installed by the normal `npx convex deploy` — no dashboard step, no new env var) and keyed on the trusted client IP (last `x-forwarded-for` hop). Per-key / per-token daily quotas stay in `apiUsage`. Application-level limiting is not DDoS protection: if the app is flooded at the network layer, put Cloudflare (or Railway's proxy rules) in front of `/api/v1/*`, `/mcp`, `/api/badge/*` and `/embed/*`. No code change needed. **Status** [ ] Optional
+Since SEC-2 every per-minute limit is durable in Convex (`@convex-dev/rate-limiter`, installed by the normal `npx convex deploy` — no dashboard step, no new env var) and keyed on the trusted client IP (last `x-forwarded-for` hop, or `cf-connecting-ip` with `UT_TRUST_CF_HEADERS=1`). Per-key / per-token daily quotas stay in `apiUsage`. FIX-4 closes the last gap: `/api/auth/*` (Better Auth inside the Convex HTTP router) now has its own durable limiter over the `authRateLimits` table — `/sign-in/*` 20 per 10 min, `/sign-up/*` 10 per hour, verification / password-reset mail 5 per 10 min, everything else 100/min, all per client IP. Nothing to configure; the table and its indexes ship with `npx convex deploy`. The one residual gap is that the Convex HTTP endpoint (`<deployment>.convex.site/api/auth/*`) stays reachable without going through the Next.js proxy, so a caller who addresses it directly can forge the IP header and pick a bucket (A223) — the same shape of residual risk as a directly reachable Railway origin (A212). Application-level limiting is not DDoS protection: if the app is flooded at the network layer, put Cloudflare (or Railway's proxy rules) in front of `/api/v1/*`, `/mcp`, `/api/badge/*` and `/embed/*`. No code change needed. **Status** [ ] Optional
 
 ### Stripe sandbox key — live end-to-end test of the conversion adapter
 
@@ -722,25 +759,9 @@ Benchmark cards and the public "Top X% …" statement only appear once a cohort 
 
 ---
 
-### Cloudflare "Cache Everything" for `/api/v1/*` and `/s/*` (OPS-2, optional)
+### Cloudflare "Cache Everything" for `/api/v1/*` and `/s/*` (OPS-2)
 
-Every public page now answers with `Cache-Control: public, s-maxage=300, stale-while-revalidate=1800` and the JSON API with `public, s-maxage=300, stale-while-revalidate=600`, so any CDN in front of Railway caches them without further configuration. Cloudflare's *free* plan ignores `s-maxage` on HTML by default — it only caches static extensions — so if you want the HTML edge-cached too, add a Cache Rule once the domain is live:
-
-```
-# Cloudflare dashboard → Caching → Cache Rules → Create rule
-Name:       UserTrack public HTML
-Expression: (http.host eq "usertrack.dev" and not starts_with(http.request.uri.path, "/app")
-             and not starts_with(http.request.uri.path, "/api/auth")
-             and not starts_with(http.request.uri.path, "/sign-"))
-Action:     Cache eligibility → Eligible for cache
-            Edge TTL → Use cache-control header if present
-            Browser TTL → Respect origin
-```
-
-Verify afterwards with `curl -sI https://usertrack.dev/leaderboard | grep -i cf-cache-status` (expect `HIT` on the second request). Do **not** add `/app`, `/sign-in`, `/sign-up`, `/api/auth/*` or `/api/account/export` — they carry session cookies.
-
-**Status**
-* [ ] Optional
+Promoted to **required step 14** — see *14. Cloudflare cache rule (required)* above for the exact rule.
 
 ---
 

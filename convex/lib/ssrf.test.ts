@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { allPublic, canonicalIpv4, checkPublicHttpsUrl, isBlockedHost, isPrivateIp, ownHosts, resolvePublicHost } from "./ssrf";
+import { allPublic, canonicalIpv4, checkPublicHttpsUrl, expandIpv6, isBlockedHost, isPrivateIp, ownHosts, resolvePublicHost } from "./ssrf";
 
 const ENV = { SITE_URL: "https://usertrack.dev", CONVEX_SITE_URL: "https://handsome-warthog-21.convex.site", CONVEX_CLOUD_URL: "https://handsome-warthog-21.convex.cloud" };
 
@@ -25,6 +25,15 @@ describe("canonicalIpv4 / isPrivateIp", () => {
     for (const ip of ["10.0.0.1", "172.16.5.5", "172.31.255.255", "192.168.1.1", "192.0.0.8", "127.0.0.1", "127.255.255.255", "169.254.169.254", "0.0.0.0", "100.64.1.1", "100.127.255.255", "198.18.0.1", "224.0.0.1", "255.255.255.255", "2130706433", "0x7f000001", "0xa000001", "::1", "::", "[::1]", "fe80::1", "fd12::1", "fc00::", "ff02::1", "::ffff:10.0.0.1", "::ffff:a00:1", "::ffff:7f00:1", "64:ff9b::a00:1"]) {
       expect(isPrivateIp(ip), ip).toBe(true);
     }
+  });
+
+  it("normalizes uncompressed, zoned and bracketed IPv6 literals before the range check", () => {
+    for (const ip of ["0:0:0:0:0:ffff:7f00:1", "0000:0000:0000:0000:0000:ffff:127.0.0.1", "::FFFF:0A00:0001", "::ffff:10.0.0.1", "fe80::1%eth0", "[::1]", "[fe80::1%25eth0]", "0:0:0:0:0:0:0:1", "::127.0.0.1", "FD00:0:0:0:0:0:0:1"])
+      expect(isPrivateIp(ip), ip).toBe(true);
+    for (const ip of ["0:0:0:0:0:ffff:808:808", "[2606:4700::1111]", "2606:4700:0:0:0:0:0:1111"]) expect(isPrivateIp(ip), ip).toBe(false);
+    expect(expandIpv6("::ffff:127.0.0.1")).toEqual([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1]);
+    expect(expandIpv6("2001:db8::1")).toEqual([0x2001, 0xdb8, 0, 0, 0, 0, 0, 1]);
+    for (const bad of ["1.2.3.4", "gggg::1", "1::2::3", "1:2:3:4:5:6:7:8:9", "::ffff:1.2.3.4:5"]) expect(expandIpv6(bad), bad).toBeNull();
   });
 
   it("accepts public addresses", () => {

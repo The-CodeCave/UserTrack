@@ -6,6 +6,8 @@ import type { DataModel } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import authConfig from "./auth.config";
 import { enabledProviders, socialProviderConfig } from "./lib/authProviders";
+import { AUTH_RATE_LIMIT_DEFAULT, AUTH_RATE_LIMIT_RULES } from "./lib/authRateLimits";
+import { CLIENT_IP_HEADER } from "../src/lib/client-ip";
 
 const siteUrl = process.env.SITE_URL!;
 const VERIFY_TTL_S = 24 * 60 * 60;
@@ -45,6 +47,24 @@ async function dispatch(ctx: GenericCtx<DataModel>, args: { userId?: string; to:
   else console.error(`email ${args.type}: no scheduler in this auth context, not sent`);
 }
 
+// Better Auth counts requests in the process it runs in, which on more than one Railway replica is not a limit at all;
+// the buckets live in Convex instead. `registerRoutes` builds a static auth with `{}` as ctx — that one gets no limiter.
+function durableRateLimit(ctx: GenericCtx<DataModel>) {
+  if (!("runMutation" in ctx) || !("runQuery" in ctx)) return undefined;
+  return {
+    enabled: true,
+    ...AUTH_RATE_LIMIT_DEFAULT,
+    customRules: AUTH_RATE_LIMIT_RULES,
+    customStorage: {
+      get: (key: string) => ctx.runQuery(internal.authRateLimits.get, { key }),
+      set: async (key: string, value: { count: number; lastRequest: number }) => {
+        await ctx.runMutation(internal.authRateLimits.set, { key, count: value.count, lastRequest: value.lastRequest });
+      },
+      consume: (key: string, rule: { window: number; max: number }) => ctx.runMutation(internal.authRateLimits.consume, { key, window: rule.window, max: rule.max }),
+    },
+  };
+}
+
 export const createAuth = (ctx: GenericCtx<DataModel>) =>
   betterAuth({
     baseURL: siteUrl,
@@ -70,6 +90,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
       },
     },
     socialProviders: socialProviderConfig(process.env),
+    // `x-ut-client-ip` is set by the Next.js proxy from the FIX-1 trust rules; a raw x-forwarded-for reaching Convex is not trustworthy.
+    advanced: { ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] } },
+    rateLimit: durableRateLimit(ctx),
     // All three providers hand us provider-verified emails; X may hand us none, so linking from Settings must not require a match.
     account: { accountLinking: { enabled: true, trustedProviders: ["google", "github", "twitter"], allowDifferentEmails: true } },
     plugins: [convex({ authConfig })],

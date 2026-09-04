@@ -850,6 +850,16 @@ export default defineSchema({
     t30: v.optional(v.number()),
   }).index("by_run", ["runId"]),
 
+  // Better Auth's rate-limit store (convex/authRateLimits.ts): one row per `<ip>|<path>` bucket, consumed inside a
+  // mutation so the limit survives across Railway replicas. Expired rows are swept opportunistically.
+  authRateLimits: defineTable({
+    key: v.string(),
+    count: v.number(),
+    lastRequest: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_lastRequest", ["lastRequest"]),
+
   // One row per run of a paged background job (convex/jobs.ts). Operators read it in the Convex dashboard and /api/health.
   jobRuns: defineTable({
     job: v.string(),

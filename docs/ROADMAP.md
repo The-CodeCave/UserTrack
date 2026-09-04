@@ -128,7 +128,7 @@ No new product surface; everything here makes v0.9 safe to show to strangers. Re
 - Milestones for `best_day` / `best_week` need ≥3 / ≥14 closed days of daily data; Trending Score reaches full weight only after 14 tracked days.
 - Demo listings remain in production until `seed:clear` is run (see `HUMAN_TODO.md`).
 - Provider credentials in `integrations.config` are stored without application-level encryption (A120); nothing returns them, but deployment access can read them.
-- Better Auth sign-in / sign-up is not rate limited — it runs inside the Convex HTTP router where the Next.js `limit()` helper cannot reach it (deferred from SEC-2, `docs/BACKLOG.md`).
+- Better Auth sign-in / sign-up / verification mail is rate limited durably since FIX-4 (`authRateLimits` in Convex, keyed on the `x-ut-client-ip` the `/api/auth` proxy stamps); the Convex HTTP endpoint itself stays publicly reachable, so a caller addressing `<deployment>.convex.site/api/auth/*` directly can still forge that header and choose a bucket (A223).
 - The TrustMRR mapper is written against the published example response, not a live key (A173); unknown fields land in `unmapped[]`.
 - Public pages may be up to 5 minutes stale (`revalidate = 300`, A192); the dashboard stays live.
 - The provider adapters (including the v0.4 PostgreSQL, Supabase database mode and Firebase scan paths) are unit-tested against documented API shapes and SQL builders but have not yet been exercised against live third-party accounts or databases.

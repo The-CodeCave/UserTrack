@@ -2,6 +2,10 @@
 // everything left of it (and x-real-ip when set by the client) can be forged. Never key a limit on the first entry.
 // Behind Cloudflare that last hop is Cloudflare's own address (one bucket for every visitor), so cf-connecting-ip /
 // true-client-ip win — but only when UT_TRUST_CF_HEADERS=1 confirms Cloudflare really fronts this deployment.
+// Header the /api/auth proxy stamps with the resolved address so Better Auth (running inside Convex, one hop further
+// away) keys its durable rate limit on the same trust rules instead of re-deriving them from a forwarded chain.
+export const CLIENT_IP_HEADER = "x-ut-client-ip";
+
 const IPV4 = /^(\d{1,3}\.){3}\d{1,3}$/;
 const IPV6 = /^[0-9a-f:.]+$/i;
 

@@ -52,6 +52,13 @@ describe("trustmrr.importStartup", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("hides whether the operator key is configured from callers without a founder profile", async () => {
+    const t = setup();
+    expect(await t.query(api.trustmrr.status, {})).toEqual({ configured: false });
+    await seed(t);
+    expect(await t.query(api.trustmrr.status, {})).toEqual({ configured: true });
+  });
+
   it("rejects bad references before spending a slot", async () => {
     const t = setup(); await seed(t);
     expect(await failure(t.action(api.trustmrr.importStartup, { urlOrSlug: "https://example.com/x" }))).toMatchObject({ code: "bad_request" });
