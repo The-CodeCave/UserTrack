@@ -19,18 +19,18 @@ export function DiscoveryFeed({ items }: { items: FeedItem[] }) {
         const Icon = i.kind === "milestone" ? (MILESTONE_ICON[i.subkind] ?? Trophy) : KIND_ICON[i.kind];
         return (
           <Panel key={i.id} className="flex items-center gap-3 p-3">
-            <div className="grid size-9 shrink-0 place-items-center border border-pink/50 text-pink"><Icon className="size-4" /></div>
+            <div className="grid size-9 shrink-0 place-items-center border border-line-strong text-foreground"><Icon className="size-4" /></div>
             <SaasLogo name={i.saas.name} logoUrl={i.saas.logoUrl} size={28} className="hidden sm:block" />
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-baseline gap-2 text-sm">
-                <Link href={`/s/${i.saas.slug}`} className="shrink-0 font-medium hover:text-pink">{i.saas.name}</Link>
-                <span className={i.kind === "rank_jump" ? "min-w-0 truncate font-mono font-semibold text-pink" : "min-w-0 truncate text-foreground/80"}>{i.title}</span>
+                <Link href={`/s/${i.saas.slug}`} className="shrink-0 font-medium hover:text-foreground">{i.saas.name}</Link>
+                <span className={i.kind === "rank_jump" ? "min-w-0 truncate font-mono font-semibold text-positive" : "min-w-0 truncate text-foreground/80"}>{i.title}</span>
               </div>
               <div className="truncate text-xs text-muted-foreground">{i.detail}</div>
             </div>
             <div className="shrink-0 text-right font-mono text-[11px] text-muted-foreground">
               <div>{timeAgo(i.at)}</div>
-              {i.share && <Link href={`/s/${i.saas.slug}/${i.share}`} className="text-pink hover:underline">Share</Link>}
+              {i.share && <Link href={`/s/${i.saas.slug}/${i.share}`} className="text-foreground hover:underline">Share</Link>}
             </div>
           </Panel>
         );

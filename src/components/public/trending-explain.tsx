@@ -14,7 +14,7 @@ export function TrendingExplain({ slug }: { slug: string }) {
   if (!t) return null;
   return (
     <Tooltip>
-      <TooltipTrigger className="grid size-5 place-items-center border border-line text-muted-foreground hover:border-pink hover:text-pink" aria-label="Why is this trending?"><Info className="size-3" /></TooltipTrigger>
+      <TooltipTrigger className="grid size-5 place-items-center border border-line text-muted-foreground hover:border-line-strong hover:text-foreground" aria-label="Why is this trending?"><Info className="size-3" /></TooltipTrigger>
       <TooltipContent className="flex-col items-stretch p-3 text-left">
         <div className="flex items-baseline justify-between gap-4 font-mono text-[10px] uppercase tracking-wider opacity-70"><span>Trending score · 7d</span><span>{t.score ?? 0}{t.previousRank && t.rank ? ` · #${t.previousRank} → #${t.rank}` : ""}</span></div>
         <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-6 gap-y-0.5 font-mono text-[11px]">

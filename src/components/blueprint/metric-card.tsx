@@ -26,7 +26,7 @@ export function MetricCard({
       <div
         className={cn(
           "mt-2 text-3xl font-semibold tracking-tight sm:text-4xl",
-          accent && "text-pink",
+          accent && "text-foreground",
         )}
       >
         {formatCompact(value)}
@@ -35,7 +35,7 @@ export function MetricCard({
         <div
           className={cn(
             "tabular mt-1 font-mono text-xs",
-            delta > 0 ? "text-pink" : delta < 0 ? "text-destructive" : "text-muted-foreground",
+            delta > 0 ? "text-positive" : delta < 0 ? "text-negative" : "text-muted-foreground",
           )}
         >
           {formatDelta(delta)}

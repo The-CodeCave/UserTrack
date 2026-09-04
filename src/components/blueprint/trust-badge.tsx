@@ -4,13 +4,13 @@ import { cn } from "@/lib/utils";
 export type Trust = "verified" | "unverified" | "pending";
 
 const map = {
-  verified: { label: "Verified", Icon: ShieldCheck, cls: "border-pink/60 text-pink" },
+  verified: { label: "Verified", Icon: ShieldCheck, cls: "border-trust/60 text-trust" },
   unverified: { label: "Self-reported", Icon: ShieldAlert, cls: "border-line text-muted-foreground" },
   pending: { label: "Pending", Icon: Clock, cls: "border-line text-muted-foreground" },
 } as const;
 
 const byLabel: Record<string, { Icon: typeof ShieldCheck; cls: string }> = {
-  "Partially verified": { Icon: ShieldHalf, cls: "border-pink/40 text-pink/80" },
+  "Partially verified": { Icon: ShieldHalf, cls: "border-trust/40 text-trust/80" },
   "Data under review": { Icon: Eye, cls: "border-line-strong text-foreground/80" },
 };
 

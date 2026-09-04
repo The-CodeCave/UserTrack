@@ -15,7 +15,7 @@ export function MilestoneRow({ m, slug, name, compact }: { m: MilestoneItem; slu
   return (
     <Link href={`/s/${slug}/share/milestone-${m._id}`} className="group block">
       <Panel className={cn("flex items-center gap-3 transition-colors group-hover:border-line-strong", compact ? "p-3" : "p-4")}>
-        <div className="grid size-9 shrink-0 place-items-center border border-pink/50 text-pink"><Icon className="size-4" /></div>
+        <div className="grid size-9 shrink-0 place-items-center border border-line-strong text-foreground"><Icon className="size-4" /></div>
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{name ? `${name} · ` : ""}{m.title}</div>
           <div className="truncate text-xs text-muted-foreground">{m.copy}</div>

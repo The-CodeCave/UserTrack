@@ -125,7 +125,7 @@ function Stat({ label, value, accent }: { label: string; value: number; accent?:
   return (
     <Panel className="px-3 py-2">
       <div className="text-label">{label}</div>
-      <div className={cn("text-xl font-semibold", accent && "text-pink")}>{formatCompact(value)}</div>
+      <div className={cn("text-xl font-semibold", accent && "text-new")}>{formatCompact(value)}</div>
     </Panel>
   );
 }

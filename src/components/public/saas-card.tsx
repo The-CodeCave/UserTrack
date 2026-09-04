@@ -100,7 +100,7 @@ export function LeaderboardRow({ s, position, board = "most-new", window = "30d"
           <Sparkline values={s.spark} className="hidden text-foreground sm:block" />
           <div className="text-right sm:text-left">
             <div className="text-label sm:hidden">{m.label}</div>
-            <div className="font-semibold text-pink">{m.value}</div>
+            <div className="font-semibold">{m.value}</div>
             <div className="hidden truncate font-mono text-[11px] text-muted-foreground sm:block" title={m.sub}>{m.sub}</div>
           </div>
           <div className="col-span-3 flex items-center justify-between border-t border-line pt-2 sm:col-span-1 sm:block sm:border-0 sm:pt-0">
@@ -133,17 +133,17 @@ export function MiniSaasCard({ s, metric }: { s: SaasRow; metric?: { label: stri
               <span className="min-w-0 truncate">{s.name}</span>
               {s.isDemo && <DemoTag />}
               {trusted && <TrustBadge trust={s.trust} label={s.trustLabel} className="shrink-0" />}
-              {s.trendingRank && <span className="shrink-0 border border-pink/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-pink">#{s.trendingRank} trending</span>}
+              {s.trendingRank && <span className="shrink-0 border border-new/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-new">#{s.trendingRank} trending</span>}
             </div>
             <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
               <span className="min-w-0 truncate">{formatCompact(s.totalUsers)} users · {categoryLabel(s.category)}</span>
               {s.movement && <MovementTag m={s.movement} className="shrink-0" />}
             </div>
-            <div className="truncate font-mono text-[11px] text-muted-foreground"><span className="text-pink">{formatDelta(s.newUsers30d)}</span> · 30d · {formatPct(s.growth30dPct)}</div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground"><span className="text-foreground">{formatDelta(s.newUsers30d)}</span> · 30d · {formatPct(s.growth30dPct)}</div>
           </div>
           <Sparkline values={s.spark} width={72} height={24} className="hidden shrink-0 text-foreground sm:block" />
           <div className="shrink-0 text-right">
-            <div className="font-semibold text-pink">{metric?.value ?? formatDelta(s.newUsers7d)}</div>
+            <div className="font-semibold">{metric?.value ?? formatDelta(s.newUsers7d)}</div>
             <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{metric?.label ?? "7d"}</div>
           </div>
         </Panel>
