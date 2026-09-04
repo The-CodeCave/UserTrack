@@ -13,6 +13,11 @@
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-pink: var(--pink);
+  --color-trust: var(--trust);
+  --color-trust-foreground: var(--trust-foreground);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-new: var(--new);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -88,8 +93,24 @@
 
   --line: rgb(255 255 255 / 0.14);
   --line-strong: rgb(255 255 255 / 0.32);
-  --pink: #fb0184;
+  --pink-50: #fff0f8;
+  --pink-100: #ffdbee;
+  --pink-200: #ffb3da;
+  --pink-300: #fe7bbf;
+  --pink-400: #fe399f;
+  --pink-500: #fb0184;
+  --pink-600: #d5016f;
+  --pink-700: #ad015a;
+  --pink-800: #890147;
+  --pink-900: #6b0137;
+  --pink-950: #420022;
+  --pink: var(--pink-500);
   --pink-glow: rgb(251 1 132 / 0.35);
+  --trust: #4da3ff;
+  --trust-foreground: #eef6ff;
+  --positive: #34d399;
+  --negative: #ff6b6b;
+  --new: #fbbf24;
   --grid-size: 32px;
 }
 
