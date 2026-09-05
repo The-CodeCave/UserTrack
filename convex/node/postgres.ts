@@ -7,7 +7,7 @@ import { BLOCKED_HOST_ERROR, allPublic, isBlockedHost, isIpLiteral } from "../li
 import { internalAction } from "../_generated/server";
 import { integrationRole } from "../schema";
 import { COLUMNS_SQL, TABLES_SQL, countQuery, dailyQuery, identityQuery, rankTables, suggestColumns, type ColumnInfo, type TableInfo } from "../providers/postgres";
-import { normalizeRole, DAY_MS, IDENTITY_CAP, dayKey, isoDaysAgo, type History, type PostgresQuery, type ProviderMetrics, type Role, type StageIdentities } from "../providers/types";
+import { normalizeRole, fillDaily, IDENTITY_CAP, isoDaysAgo, type History, type PostgresQuery, type ProviderMetrics, type Role, type StageIdentities } from "../providers/types";
 
 const CONNECT_TIMEOUT_MS = 10_000;
 const STATEMENT_TIMEOUT_MS = 20_000;
@@ -151,16 +151,16 @@ export const fetchHistory = internalAction({
       const { text, values } = dailyQuery(pg, since);
       const res = await c.query(text, values);
       const perDay = new Map<string, number>();
-      for (const r of res.rows as { day: string; n: string }[]) perDay.set(String(r.day).slice(0, 10), num(r.n));
-      const start = Date.now() - days * DAY_MS;
-      const points: { day: string; value: number }[] = [];
-      for (let i = 0; i <= days; i++) {
-        const day = dayKey(start + i * DAY_MS);
-        points.push({ day, value: perDay.get(day) ?? 0 });
+      let inWindow = 0;
+      for (const r of res.rows as { day: string; n: string }[]) {
+        const n = num(r.n);
+        perDay.set(String(r.day).slice(0, 10), n);
+        inWindow += n;
       }
-      if (role !== "activation") return { metric: "newUsers", points };
       const total = await count(c, pg);
-      let running = Math.max(0, total - points.reduce((s, p) => s + p.value, 0));
+      const points = fillDaily(perDay, days, total - inWindow);
+      if (role !== "activation") return { metric: "newUsers", points };
+      let running = Math.max(0, total - inWindow);
       return { metric: "activatedUsers", points: points.map((p) => ({ day: p.day, value: (running += p.value) })) };
     });
   },

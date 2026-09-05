@@ -10,5 +10,5 @@ export function SaasGrowth({ slug, initialRange = "30d", compact }: { slug: stri
   const [range, setRange] = useState<Range>(initialRange);
   const history = useQuery(api.public.history, { slug, range });
   const annotations = useQuery(api.public.annotations, { slug, range });
-  return <GrowthChart data={history === undefined ? undefined : (history?.points ?? null)} gaps={history?.gaps} resolution={history?.resolution} annotations={annotations ?? []} range={range} onRangeChange={setRange} compact={compact} />;
+  return <GrowthChart data={history === undefined ? undefined : (history?.points ?? null)} gaps={history?.gaps} resolution={history?.resolution} reconstructedUntil={history?.reconstructedUntil} annotations={annotations ?? []} range={range} onRangeChange={setRange} compact={compact} />;
 }

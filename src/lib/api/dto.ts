@@ -134,8 +134,8 @@ export function historyDto(points: { t: number; total: number; delta: number; ac
 }
 
 // Storage-aware history (docs/HISTORY.md): resolution says what one point is; gaps are stretches without stored rows.
-export function historySeriesDto(h: { range: string; resolution: string; points: Parameters<typeof historyDto>[0]; gaps: { from: number; to: number; days: number }[] }) {
-  return { range: h.range, resolution: h.resolution, points: historyDto(h.points), gaps: h.gaps.map((g) => ({ from: new Date(g.from).toISOString(), to: new Date(g.to).toISOString(), days: g.days })) };
+export function historySeriesDto(h: { range: string; resolution: string; points: Parameters<typeof historyDto>[0]; gaps: { from: number; to: number; days: number }[]; reconstructedUntil?: number }) {
+  return { range: h.range, resolution: h.resolution, points: historyDto(h.points), gaps: h.gaps.map((g) => ({ from: new Date(g.from).toISOString(), to: new Date(g.to).toISOString(), days: g.days })), reconstructedUntil: iso(h.reconstructedUntil) };
 }
 
 export function rankHistoryDto(r: { slug: string; kind: string; window: string; current?: number; best?: number; rank7dAgo?: number; movement7d: { kind: string; delta: number } | null; points: { day: string; rank: number; score?: number }[] }) {

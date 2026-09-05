@@ -53,15 +53,20 @@ describe("firebase", () => {
     expect(firebase.publicConfig({ serviceAccount, projectId: "proj-1", scanSignups: false }).signups).toBe("snapshot deltas");
   });
 
-  it("fetchHistory returns days+1 daily newUsers points", async () => {
+  it("fetchHistory returns days+1 daily newUsers points when older accounts exist, else starts at the first signup", async () => {
     const now = Date.now();
     const today = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate()) + 1000;
-    stub(3, [today, today, now - 2 * DAY, now - 10 * DAY]);
+    stub(4, [today, today, now - 2 * DAY, now - 10 * DAY]);
     const h = await firebase.fetchHistory!({ serviceAccount, projectId: "proj-1" }, "users", 3);
     expect(h?.metric).toBe("newUsers");
     expect(h?.points).toHaveLength(4);
     expect(h?.points.every((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.day))).toBe(true);
     expect(h?.points.reduce((a, p) => a + p.value, 0)).toBe(3);
     expect(h?.points[3].value).toBe(2);
+    // Full reach: the account created 10 days ago is the first ever → no zero days before it.
+    stub(3, [today, today, now - 10 * DAY]);
+    const full = await firebase.fetchHistory!({ serviceAccount, projectId: "proj-1" }, "users", 1826);
+    expect(full?.points[0]).toEqual({ day: new Date(now - 10 * DAY).toISOString().slice(0, 10), value: 1 });
+    expect(full?.points).toHaveLength(11);
   });
 });

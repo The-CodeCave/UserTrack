@@ -1,4 +1,4 @@
-import { asCount, fetchJson, DAY_MS, dayKey, type History, type Provider, type ProviderCapabilities, type ProviderMetrics } from "./types";
+import { asCount, fetchJson, fillDaily, DAY_MS, dayKey, FULL_HISTORY, type History, type Provider, type ProviderCapabilities, type ProviderMetrics } from "./types";
 import { googleAccessToken, parseServiceAccount } from "./google";
 
 export interface FirebaseConfig { serviceAccount: string; projectId?: string; scanSignups?: boolean }
@@ -72,6 +72,7 @@ export const firebase: Provider<FirebaseConfig> = {
     const since = (d: number) => ts.filter((t) => t >= now - d * DAY_MS).length;
     return { totalUsers, newUsers24h: since(1), newUsers7d: since(7), newUsers30d: since(30) };
   },
+  historyLimit: () => FULL_HISTORY,
   async fetchHistory(cfg, _role, days): Promise<History | null> {
     const token = await googleAccessToken(parseServiceAccount(cfg.serviceAccount), SCOPE);
     const n = await total(cfg, token);
@@ -79,13 +80,12 @@ export const firebase: Provider<FirebaseConfig> = {
     const ts = await createdAtTimestamps(cfg, token, FIREBASE_SCAN_LIMIT);
     const start = Date.now() - days * DAY_MS;
     const perDay = new Map<string, number>();
-    for (const t of ts) if (t >= start) perDay.set(dayKey(t), (perDay.get(dayKey(t)) ?? 0) + 1);
-    const points = [];
-    for (let i = 0; i <= days; i++) {
-      const day = dayKey(start + i * DAY_MS);
-      points.push({ day, value: perDay.get(day) ?? 0 });
+    let older = 0;
+    for (const t of ts) {
+      if (t < start) older++;
+      else perDay.set(dayKey(t), (perDay.get(dayKey(t)) ?? 0) + 1);
     }
-    return { metric: "newUsers", points };
+    return { metric: "newUsers", points: fillDaily(perDay, days, older) };
   },
   publicConfig: (cfg) => ({ project: project(cfg), account: parseServiceAccount(cfg.serviceAccount).client_email, signups: cfg.scanSignups === false ? "snapshot deltas" : `createdAt scan (≤${FIREBASE_SCAN_LIMIT / 1000}k accounts)` }),
 };

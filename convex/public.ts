@@ -299,6 +299,8 @@ export async function historyFor(ctx: QueryCtx, s: Doc<"saas">, range: Range) {
   const spanDays = s.firstSnapshotAt ? (Date.now() - s.firstSnapshotAt) / DAY : 0;
   const resolution = resolutionFor(range, spanDays);
   let points: HistoryPoint[];
+  // Last day whose totals were reconstructed from signup timestamps (backfill); the chart labels everything up to it.
+  let reconstructedUntil: number | undefined;
   if (resolution === "raw") points = await seriesFor(ctx, s, range);
   else {
     const ms = RANGE_MS[range];
@@ -306,8 +308,10 @@ export async function historyFor(ctx: QueryCtx, s: Doc<"saas">, range: Range) {
     const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).gte("day", dayKey(cutoff))).collect();
     const vis = visibilityOf(s);
     points = downsample(rows.map((r) => ({ day: r.day, totalUsers: r.totalUsers, newUsers: r.newUsers, activatedUsers: vis.activationRate ? r.activatedUsers : undefined, visitors: vis.traffic ? r.visitors : undefined, convertedUsers: vis.convertedCount ? r.convertedUsers : undefined })), resolution);
+    const lastReconstructed = rows.filter((r) => r.backfilled).pop();
+    if (lastReconstructed) reconstructedUntil = Date.parse(`${lastReconstructed.day}T12:00:00Z`);
   }
-  return { range, resolution, points, gaps: findGaps(points, resolution === "raw" ? 1 : resolution === "day" ? 3 : resolution === "week" ? 14 : 45) };
+  return { range, resolution, points, gaps: findGaps(points, resolution === "raw" ? 1 : resolution === "day" ? 3 : resolution === "week" ? 14 : 45), reconstructedUntil };
 }
 
 export const history = query({

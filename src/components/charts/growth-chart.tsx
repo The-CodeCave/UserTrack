@@ -25,6 +25,7 @@ export function GrowthChart({
   data,
   gaps = [],
   resolution,
+  reconstructedUntil,
   annotations = [],
   range,
   onRangeChange,
@@ -34,6 +35,8 @@ export function GrowthChart({
   data: SeriesPoint[] | null | undefined;
   gaps?: Gap[];
   resolution?: Resolution;
+  // Points at or before this time were reconstructed from signup timestamps by a backfill, not observed live.
+  reconstructedUntil?: number;
   annotations?: Annotation[];
   range: Range;
   onRangeChange: (r: Range) => void;
@@ -98,7 +101,7 @@ export function GrowthChart({
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={(t) => formatTick(t, range)} tick={AXIS} axisLine={false} tickLine={false} minTickGap={40} />
                 <YAxis tickFormatter={formatCompact} tick={AXIS} axisLine={false} tickLine={false} width={44} domain={["auto", "auto"]} />
-                <Tooltip cursor={{ stroke: "rgba(255,255,255,0.35)", strokeWidth: 1 }} content={<PointTooltip range={range} metric={metric} marks={marks} />} />
+                <Tooltip cursor={{ stroke: "rgba(255,255,255,0.35)", strokeWidth: 1 }} content={<PointTooltip range={range} metric={metric} marks={marks} reconstructedUntil={reconstructedUntil} />} />
                 {gaps.map((g) => (
                   <ReferenceArea key={g.from} x1={g.from} x2={g.to} fill={`url(#${hatchId})`} stroke="rgba(255,255,255,0.12)" strokeDasharray="3 3" ifOverflow="visible" label={<GapLabel days={g.days} />} />
                 ))}
@@ -114,7 +117,7 @@ export function GrowthChart({
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="t" tickFormatter={(t) => formatTick(t, range)} tick={AXIS} axisLine={false} tickLine={false} minTickGap={40} />
                 <YAxis tickFormatter={formatCompact} tick={AXIS} axisLine={false} tickLine={false} width={44} />
-                <Tooltip cursor={{ fill: "rgba(255,255,255,0.06)" }} content={<PointTooltip range={range} metric={metric} marks={marks} />} />
+                <Tooltip cursor={{ fill: "rgba(255,255,255,0.06)" }} content={<PointTooltip range={range} metric={metric} marks={marks} reconstructedUntil={reconstructedUntil} />} />
                 <Bar dataKey="delta" fill={PINK} maxBarSize={24} radius={[4, 4, 0, 0]} animationDuration={reduced ? 0 : 700} isAnimationActive={!reduced} />
                 {marks.map((m) => (
                   <ReferenceDot key={m.id} x={m.x} y={m.y} r={0} shape={<Marker kind={m.kind} />} />
@@ -128,6 +131,7 @@ export function GrowthChart({
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 px-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
           {resolution && <span>{RESOLUTION_HINT[resolution]}</span>}
           {gaps.length > 0 && <span>{gaps.length} {gaps.length === 1 ? "gap" : "gaps"} · no data, never interpolated</span>}
+          {reconstructedUntil !== undefined && points.some((p) => p.t <= reconstructedUntil) && <span>through {formatPointDate(reconstructedUntil, "all")} reconstructed from signup dates</span>}
           {marks.length > 0 && <span className="inline-flex items-center gap-1"><MarkerGlyph kind="milestone" /> milestone</span>}
           {marks.some((m) => m.kind.includes("spike")) && <span className="inline-flex items-center gap-1"><MarkerGlyph kind="spike" /> growth spike</span>}
           {marks.some((m) => m.kind === "reconnect" || m.kind === "source_changed") && <span className="inline-flex items-center gap-1"><MarkerGlyph kind="reconnect" /> source change</span>}
@@ -176,20 +180,22 @@ function Segmented<T extends string>({ value, options, onChange }: { value: T; o
   );
 }
 
-function PointTooltip({ active, payload, range, metric, marks }: { active?: boolean; payload?: { payload: Plotted }[]; range: Range; metric: Metric; marks: (Annotation & { x: number })[] }) {
+function PointTooltip({ active, payload, range, metric, marks, reconstructedUntil }: { active?: boolean; payload?: { payload: Plotted }[]; range: Range; metric: Metric; marks: (Annotation & { x: number })[]; reconstructedUntil?: number }) {
   const p = payload?.[0]?.payload;
   if (!active || !p) return null;
   if (p.gap || p.total === null) return <div className="border border-line bg-background/95 px-3 py-2 font-mono text-[11px] text-muted-foreground shadow-lg backdrop-blur">No snapshots stored here</div>;
   const here = marks.filter((m) => m.x === p.t);
+  const reconstructed = reconstructedUntil !== undefined && p.t <= reconstructedUntil;
   return (
     <div className="max-w-[240px] border border-line bg-background/95 px-3 py-2 shadow-lg backdrop-blur">
-      <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{formatPointDate(p.t, range)}</div>
+      <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{formatPointDate(p.t, range)}{reconstructed && " · reconstructed"}</div>
       <div className="mt-1 flex items-center gap-2">
         <span className="h-0.5 w-3" style={{ background: metric === "total" ? WHITE : PINK }} />
         <span className="text-base font-semibold">{metric === "total" ? formatCompact(p.total) : formatDelta(p.delta)}</span>
         <span className="text-xs text-muted-foreground">{metric === "total" ? "users" : "new"}</span>
       </div>
       {metric === "total" && p.delta !== 0 && <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{formatDelta(p.delta)} vs previous</div>}
+      {reconstructed && <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">Rebuilt from signup dates, not observed live</div>}
       {metric === "total" && p.activated != null && (
         <div className="mt-0.5 flex items-center gap-2 font-mono text-[11px]" style={{ color: SKY }}><span className="h-0.5 w-3" style={{ background: SKY }} />{formatCompact(p.activated)} activated</div>
       )}

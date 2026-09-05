@@ -1,6 +1,6 @@
 # Historical data
 
-**TL;DR** — UserTrack treats history as the product. Every verified number is appended, never rewritten: 4-hour user snapshots, per-stage snapshots, daily rollups, daily ranking + trending positions, weekly benchmark standings and frozen monthly rankings. Charts downsample for long ranges and draw gaps as gaps. Providers that can read history backfill it idempotently with full provenance.
+**TL;DR** — UserTrack treats history as the product. Every verified number is appended, never rewritten: 4-hour user snapshots, per-stage snapshots, daily rollups, daily ranking + trending positions, weekly benchmark standings and frozen monthly rankings. Charts downsample for long ranges and draw gaps as gaps. Providers that can read history backfill it idempotently with full provenance — on the first sync back to the first signup (5-year cap) for sources that answer one aggregate query, one year for sources that need a request per day.
 
 Source: `convex/schema.ts`, `convex/sync.ts`, `convex/leaderboard.ts`, `convex/daily.ts`, `convex/lib/history.ts`, `convex/public.ts` (`history`, `rankHistory`, `rankingSnapshot`).
 
@@ -10,7 +10,7 @@ Source: `convex/schema.ts`, `convex/sync.ts`, `convex/leaderboard.ts`, `convex/d
 |---|---|---|---|---|
 | `snapshots` | `{ saasId, totalUsers, capturedAt, source, trust, syncRunId?, backfilled? }` | `sync.recordSuccess` (users role), `sync.recordHistory` (backfill) | every 4 h per users source; one per backfilled day | **never** |
 | `stageSnapshots` | `{ saasId, stage: activated \| trial \| converted, value, capturedAt, source, integrationId, trust, mode? }` | `sync.recordSuccess` | every 4 h per activation / conversion source | **never** |
-| `dailyMetrics` | one row per SaaS per UTC day: totals + flows for every stage, `visitors`, `rank` | `sync.upsertDaily`, `daily.run` (rank) | patched during the day, closed afterwards | today's row only |
+| `dailyMetrics` | one row per SaaS per UTC day: totals + flows for every stage, `visitors`, `rank`, `backfilled?` | `sync.upsertDaily`, `daily.run` (rank) | patched during the day, closed afterwards | today's row only |
 | `rankHistory` | `{ saasId, kind: leaderboard \| trending, window, day, rank, score?, at }` | `leaderboard.rerank` | every rerank (6×/day) → one row per day, last position wins | today's row only |
 | `benchmarkHistory` | `{ saasId, week, day, standings[{ groupKey, metric, value, percentile, median, sampleSize }] }` | `daily.benchmarks` | daily → one row per ISO week | current week only |
 | `benchmarkAggregates` | deciles per `(groupKey, metric)` | `daily.benchmarks` | daily | yes (current cohort state; standings keep the history) |
@@ -37,7 +37,7 @@ When storage optimisation becomes necessary the plan is: keep every daily row an
 
 `downsample(rows, resolution)` is a pure function: last total per bucket, flows summed, activated / converted carried as "last known". It never creates a point for a bucket without rows. The underlying daily and 4-hour rows are untouched by downsampling.
 
-Public API: `GET /api/v1/saas/{slug}/history?range=` returns `{ range, resolution, points, gaps }`; the internal query is `public.history`. `public.series` (legacy) returns the same points.
+Public API: `GET /api/v1/saas/{slug}/history?range=` returns `{ range, resolution, points, gaps, reconstructedUntil? }`; the internal query is `public.history`. `public.series` (legacy) returns the same points.
 
 ## Gaps are honest
 
@@ -50,12 +50,26 @@ The founder aggregate chart (`lib/founder.ts`) is the one place values are forwa
 Providers that expose history (`docs/PROVIDERS.md`: Clerk, Supabase, Auth0, Firebase, PostHog, Plausible, GA4, PostgreSQL, native SDK sources) import it through one path, `sync.runBackfill`:
 
 1. `sync.startBackfill` writes a `backfills` row (`running`, `fromDay`, `toDay`, `trigger: first_sync | rolling | manual`).
-2. `fetchHistory` reads the provider (bounded: 30 days on first sync, 7 rolling days for traffic, ≤ 90 days on request).
-3. `sync.recordHistory` writes **only days before the first live snapshot**, skips any day that already has a backfilled snapshot (idempotent), marks rows `backfilled: true` with the integration's trust level, and records `pointsWritten`.
-4. `backfilledAt` is stamped on the integration **only after a successful import**, so a transient provider error keeps the backfill pending for the next sync (v0.8 stamped it regardless).
-5. Failures end in `status: error` with the message; empty answers in `status: empty`.
+2. `fetchHistory` reads the provider up to its **reach** (`Provider.historyLimit`, `historyLimit(kind, config)` in `convex/providers/index.ts`):
 
-Founders can re-run it from the project page ("Backfill history", `integrations.backfill`, users role, ≤ 90 days) and see the last ten runs (`integrations.backfills`). MCP: `usertrack_sync_project` triggers a sync; a dedicated backfill tool is a roadmap item.
+   | Reach | Providers | First sync | Why |
+   |---|---|---|---|
+   | `full` — 1,826 days (5 years) | PostgreSQL, Supabase (database mode), Firebase (createdAt scan ≤ 100k accounts) | everything back to the first signup | one `GROUP BY day` query / one scan, cost independent of the range |
+   | `bounded` — 365 days | Clerk, Supabase (API mode), Auth0 | one year | one request per day (Clerk, Supabase API) or a stats endpoint we do not want to stretch (Auth0) |
+   | `bounded` — 90 days | native SDK (`@usertrack/node`, `@usertrack/better-auth`) | 90 days | protocol v1 caps `days` at `MAX_HISTORY_DAYS = 90` (`packages/protocol`); raising it is a protocol change |
+   | default — 30 days | PostHog, Plausible, GA4 (traffic; PostHog activation) | 30 days, then 7 rolling days on every run | unchanged rolling window |
+
+   Full-reach providers return signups per UTC day (`metric: newUsers`); `fillDaily` (`convex/providers/types.ts`) zero-fills days without signups but **starts the series at the first signup** when nothing exists before the window, so a product founded in 2023 does not get two years of flat zero before day one. When users exist before the window (older than the cap, or a manual 30-day re-run), the series starts at the window start instead.
+3. Signup series become end-of-day totals once, in the action (`reconstructTotals`, `convex/lib/history.ts`): walking back from the live total, today's signups are subtracted but not emitted (the live snapshot owns today), and the total ahead of the first point is the baseline for its `newUsers`. (Before v1.0.1 the reconstruction skipped today, so every reconstructed day was one day late and the live day's `newUsers` was yesterday's.)
+4. `sync.recordHistory` writes **365-day chunks** (one mutation each — up to ~730 lookups + ~730 writes, inside Convex transaction limits). It writes only days before the first *live* snapshot, skips any day that already has a backfilled snapshot (idempotent), marks rows `backfilled: true` (snapshot **and** daily row) with the integration's trust level, and returns the last total so the next chunk's deltas stay exact across the boundary. `sync.finishHistory` then gives the live day its real `newUsers` baseline and recomputes the derived window metrics once. The `backfills` row receives the sum of all chunks in `pointsWritten`.
+5. `backfilledAt` is stamped on the integration **only after a successful import**, so a transient provider error keeps the backfill pending for the next sync (v0.8 stamped it regardless).
+6. Failures end in `status: error` with the message; empty answers in `status: empty`.
+
+**Reconstructed days never trigger anything.** No milestone, spike, feed event, mail, share or webhook is emitted by the import (those hooks live in `recordSuccess`, the live path). The daily sweep (`daily.run`) excludes `backfilled` daily rows from `dailyMilestones` (best day / best week / streak / monthly growth), so a 500-signup launch day in 2023 is not posted as "biggest day ever" the morning after connecting; the streak chip still counts reconstructed days because a streak is a present fact about consecutive signup days. `firstSnapshotAt` moves back to the first reconstructed day, which makes "tracking since", the `tracked:` cohorts and the early-traction rule reflect the product's own history — an old product connecting today is not "early traction". Covered by `convex/history.test.ts`.
+
+Founders can re-run it from the project page ("Backfill history", `integrations.backfill`, users role): **last 30 days** or **entire history** (`days: "all"` → the provider's reach; explicit day counts are clamped to it) and see the last ten runs (`integrations.backfills`). Charts and `GET /api/v1/saas/{slug}/history` expose `reconstructedUntil` (the last reconstructed day) and label those points "reconstructed from signup dates". MCP: `usertrack_sync_project` triggers a sync; a dedicated backfill tool is a roadmap item.
+
+Reconstructed totals count users that still exist: a hard-deleted account is missing from every reconstructed day, so historic totals are systematically a little low unless the source keeps `deleted_at` (Supabase `auth.users` does; see `docs/ASSUMPTIONS.md`).
 
 ## Ranking history
 
@@ -85,7 +99,7 @@ On the first day of each month the daily sweep freezes the previous month's boar
 
 ## Data quality flags on history
 
-Each stored row keeps the quality it had when captured: `trust` (`verified` / `unverified` / `pending`), `source`, `backfilled`. Public projections label products, not rows, through `publicTrustLabel` (`docs/METRICS.md`); the API exposes `trust` per row where rows are returned (datasets, ranking snapshots).
+Each stored row keeps the quality it had when captured: `trust` (`verified` / `unverified` / `pending`), `source`, `backfilled`. Public projections label products, not rows, through `publicTrustLabel` (`docs/METRICS.md`); the API exposes `trust` per row where rows are returned (datasets, ranking snapshots) and `reconstructedUntil` on history responses.
 
 ## Performance notes
 

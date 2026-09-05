@@ -46,6 +46,8 @@ const HEALTH: Record<Health, { label: string; cls: string }> = {
   none: { label: "Not connected", cls: "border-line text-muted-foreground" },
 };
 
+const historyReach = (days: number) => (days >= 730 ? `${Math.round(days / 365)} years` : `${days} days`);
+
 export default function ManageSaasPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const saasId = id as Id<"saas">;
@@ -71,6 +73,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
   const byRole = (r: Role) => saas.integrations.find((i) => i.role === r);
   const publish = (v: boolean) => setPublic({ id: saasId, isPublic: v }).then(() => track(v ? "project_published" : "project_unpublished")).catch((e: Error) => toast.error(/Uncaught \w*Error: ([^\n]*)/.exec(e.message)?.[1] ?? "Could not update the page"));
   const copy = async (key: string, text: string) => { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(null), 1500); };
+  const runBackfill = (days: number | "all") => backfill({ saasId, role: "users", days }).then(() => track("backfill_triggered")).then(() => toast.success(days === "all" ? "Backfill started — a long history can take a few minutes" : "Backfill started — points land within a minute")).catch((e) => toast.error(errMsg(e)));
   // Derived from state only; disappears as the founder completes each item.
   const nextSteps = [
     ...(!saas.isPublic ? [{ label: "Publish your page", onClick: () => publish(true) }] : []),
@@ -242,10 +245,12 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
         <div className="space-y-3">
           <div>
             <div className="text-sm font-medium">Backfill history</div>
-            <p className="mt-1 text-xs text-muted-foreground">Re-import the last 30 days of daily user counts from your users source. Useful after connecting a new source or fixing a broken one.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Re-import daily user counts from your users source — the last 30 days, or everything it can read (rebuilt from signup dates, back to your first user). Days that already have data are never rewritten.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button variant="outline" size="sm" disabled={!users?.capabilities.historicalUsers || backfills?.[0]?.status === "running"} onClick={() => backfill({ saasId, role: "users", days: 30 }).then(() => track("backfill_triggered")).then(() => toast.success("Backfill started — points land within a minute")).catch((e) => toast.error(errMsg(e)))}><History className="size-4" /> Backfill last 30 days</Button>
+            <Button variant="outline" size="sm" disabled={!users?.capabilities.historicalUsers || backfills?.[0]?.status === "running"} onClick={() => runBackfill(30)}><History className="size-4" /> Backfill last 30 days</Button>
+            <Button variant="outline" size="sm" disabled={!users?.capabilities.historicalUsers || backfills?.[0]?.status === "running"} onClick={() => runBackfill("all")}><History className="size-4" /> Backfill entire history</Button>
+            {users?.capabilities.historicalUsers && <span className="font-mono text-[11px] text-muted-foreground">{users.label} can read up to {historyReach(users.historyDays)} back.</span>}
             {users && !users.capabilities.historicalUsers && <span className="font-mono text-[11px] text-muted-foreground">Your {users.provider} source cannot read history.</span>}
           </div>
           {backfills && backfills.length > 0 && (

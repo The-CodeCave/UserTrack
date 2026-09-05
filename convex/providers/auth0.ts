@@ -1,5 +1,5 @@
 import { checkPublicHttpsUrl } from "../lib/ssrf";
-import { asCount, fetchJson, isoDaysAgo, DAY_MS, type Provider, type ProviderMetrics } from "./types";
+import { asCount, fetchJson, isoDaysAgo, BOUNDED_HISTORY, DAY_MS, type Provider, type ProviderMetrics } from "./types";
 
 export interface Auth0Config { domain: string; clientId: string; clientSecret: string }
 
@@ -53,6 +53,7 @@ export const auth0: Provider<Auth0Config> = {
     ]);
     return { totalUsers, newUsers24h, newUsers7d, newUsers30d, activeUsers30d: asCount(active, "Auth0 active-users") };
   },
+  historyLimit: () => BOUNDED_HISTORY,
   async fetchHistory(cfg, _role, days) {
     const tok = await token(cfg);
     const now = Date.now();

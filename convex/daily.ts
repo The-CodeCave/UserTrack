@@ -37,7 +37,8 @@ export const run = internalMutation({
           const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id)).order("desc").take(400);
           rows.reverse();
           const existing = new Set((await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).collect()).map((m) => m.key));
-          await addMilestones(ctx, s._id, dailyMilestones(rows, s.name, s.growth30dPct, existing));
+          // Reconstructed days are context, not achievements: no "biggest day" for a year before the product joined.
+          await addMilestones(ctx, s._id, dailyMilestones(rows.filter((r) => !r.backfilled), s.name, s.growth30dPct, existing));
           const streak = streakDays(rows);
           if (streak !== (s.streakDays ?? 0)) await ctx.db.patch(s._id, { streakDays: streak });
           if (streak > (s.bestStreakDays ?? 0)) await ctx.db.patch(s._id, { bestStreakDays: streak });

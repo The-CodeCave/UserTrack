@@ -42,6 +42,8 @@ interface MetricsBody {
 }
 
 const TIMEOUT_MS = 15_000;
+// Protocol v1 caps `days` at 90 (packages/protocol MAX_HISTORY_DAYS), so native history is bounded to that window.
+export const NATIVE_HISTORY_DAYS = 90;
 const ROLES: Role[] = ["users", "activation", "conversion"];
 
 export const defaultBasePath = (source: NativeSource) => (source === "better-auth" ? "/api/auth" : "/api/usertrack");
@@ -190,9 +192,10 @@ export const native: Provider<NativeStoredConfig> = {
   async fetch(cfg, role) {
     return parseMetrics(await pull(cfg, {}), role);
   },
+  historyLimit: () => ({ reach: "bounded", maxDays: NATIVE_HISTORY_DAYS }),
   async fetchHistory(cfg, role, days): Promise<History | null> {
     if (role === "conversion") return null;
-    const m = await pull(cfg, { days: Math.min(90, Math.max(1, days)) });
+    const m = await pull(cfg, { days: Math.min(NATIVE_HISTORY_DAYS, Math.max(1, days)) });
     if (role === "activation") {
       const daily = m.activation?.daily;
       if (!Array.isArray(daily)) return null;

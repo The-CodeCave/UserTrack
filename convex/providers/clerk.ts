@@ -1,4 +1,4 @@
-import { asCount, fetchJson, mapLimit, DAY_MS, dayKey, type Provider, type ProviderMetrics } from "./types";
+import { asCount, fetchJson, mapLimit, BOUNDED_HISTORY, DAY_MS, dayKey, type Provider, type ProviderMetrics } from "./types";
 
 export interface ClerkConfig { secretKey: string }
 
@@ -33,6 +33,7 @@ export const clerk: Provider<ClerkConfig> = {
     ]);
     return { totalUsers, newUsers24h: new24h, newUsers7d: new7d, newUsers30d: new30d, activeUsers30d: active30d };
   },
+  historyLimit: () => BOUNDED_HISTORY,
   // One count call per day, at most 4 in flight so Clerk's rate limit (and its Retry-After backoff in fetchJson) is respected.
   async fetchHistory({ secretKey }, _role, days) {
     const now = Date.now();

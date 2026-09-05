@@ -2,11 +2,12 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { getProvider, normalizeRole, ProviderError, providerLabel, type History, type LifecycleStage, type ProviderMetrics, type Role, type StageIdentities } from "./providers";
+import { getProvider, historyLimit, normalizeRole, ProviderError, providerLabel, type History, type LifecycleStage, type ProviderMetrics, type Role, type StageIdentities } from "./providers";
 import { recordReported } from "./domain/integrations";
 import { identitySalt, subjectHash } from "./lib/identity";
 import { fetchHistory, fetchMetrics, hasHistory } from "./providerRun";
 import { DAY, HOUR, dayKey, dayStart } from "./lib/time";
+import { reconstructTotals } from "./lib/history";
 import { growthPct, pct, previousWindowDelta, windowDelta } from "./lib/metrics";
 import { growth24h } from "./lib/boardRules";
 import { estimateRetention } from "./lib/retention";
@@ -26,6 +27,8 @@ import { trackEvent } from "./lib/analytics";
 const STAGGER_WINDOW_MS = 10 * 60_000;
 const MAX_ATTEMPTS = 3;
 const BACKFILL_DAYS = 30;
+// Days per recordHistory mutation: 365 days = ~730 lookups + ~730 writes, well inside Convex transaction limits.
+const HISTORY_CHUNK = 365;
 export const STALE_AFTER_MS = 2 * DAY + HOUR;
 
 const metricsValidator = v.object({
@@ -110,7 +113,7 @@ export const runOne = internalAction({
       });
       if (identities?.length) await recordIdentityBatches(ctx, integrationId, String(integration.saasId), identities);
       if (hasHistory(integration.provider, integration.config) && (!integration.backfilledAt || role === "traffic")) {
-        await runBackfill(ctx, integration, role, integration.backfilledAt ? 7 : BACKFILL_DAYS, integration.backfilledAt ? "rolling" : "first_sync");
+        await runBackfill(ctx, integration, role, integration.backfilledAt ? 7 : historyLimit(integration.provider, integration.config).maxDays, integration.backfilledAt ? "rolling" : "first_sync");
       }
       await trackEvent("sync_completed", { provider: integration.provider, role, ok: true });
     } catch (e) {
@@ -133,8 +136,8 @@ export async function runBackfill(ctx: ActionCtx, integration: Doc<"integrations
   try {
     const history = await fetchHistory(ctx, integration.provider, integration.config, role, days);
     const points = history?.points.length ?? 0;
-    if (history && points) await ctx.runMutation(internal.sync.recordHistory, { integrationId: integration._id, role, history, backfillId });
-    else await ctx.runMutation(internal.sync.finishBackfill, { backfillId, status: "empty", pointsWritten: 0 });
+    const written = history && points ? await writeHistory(ctx, integration, role, history) : 0;
+    await ctx.runMutation(internal.sync.finishBackfill, { backfillId, status: points ? "ok" : "empty", pointsWritten: written });
     if (trigger !== "rolling") await ctx.runMutation(internal.sync.markBackfilled, { integrationId: integration._id });
     return { ok: true, points, ms: Date.now() - now };
   } catch (e) {
@@ -145,15 +148,39 @@ export async function runBackfill(ctx: ActionCtx, integration: Doc<"integrations
   }
 }
 
-// Owner-triggered re-import (dashboard "Backfill history" + MCP). Bounded to 90 days; providers without history return empty.
+// Signup-per-day series become totals once (walking back from the live total), then every series is written in
+// HISTORY_CHUNK-day mutations; `prev` carries the last total across chunk boundaries so daily deltas stay exact.
+async function writeHistory(ctx: ActionCtx, integration: Doc<"integrations">, role: Role, history: History): Promise<number> {
+  let series = history;
+  let prev: number | undefined;
+  if (role === "users" && history.metric === "newUsers") {
+    const data = await ctx.runQuery(internal.integrations.getForSync, { integrationId: integration._id });
+    if (!data) return 0;
+    const { totals, before } = reconstructTotals(history.points, data.totalUsers, dayKey(Date.now()));
+    series = { metric: "totalUsers", points: totals };
+    prev = before;
+  }
+  const points = [...series.points].sort((a, b) => a.day.localeCompare(b.day));
+  let written = 0;
+  for (let i = 0; i < points.length; i += HISTORY_CHUNK) {
+    const r: { written: number; prev: number | null } = await ctx.runMutation(internal.sync.recordHistory, { integrationId: integration._id, role, history: { metric: series.metric, points: points.slice(i, i + HISTORY_CHUNK) }, prev });
+    written += r.written;
+    prev = r.prev ?? undefined;
+  }
+  if (written > 0 && role === "users") await ctx.runMutation(internal.sync.finishHistory, { integrationId: integration._id, prev });
+  return written;
+}
+
+// Owner-triggered re-import (dashboard "Backfill history"). Bounded by the provider's reach; "all" imports everything it can read.
 export const backfill = internalAction({
-  args: { integrationId: v.id("integrations"), days: v.optional(v.number()) },
+  args: { integrationId: v.id("integrations"), days: v.optional(v.union(v.number(), v.literal("all"))) },
   handler: async (ctx, { integrationId, days }): Promise<BackfillResult> => {
     const data: { integration: Doc<"integrations">; websiteUrl: string } | null = await ctx.runQuery(internal.integrations.getForSync, { integrationId });
     if (!data) return { ok: false, error: "integration not found" };
     const { integration } = data;
     if (!hasHistory(integration.provider, integration.config)) return { ok: false, error: "this source cannot read history" };
-    return runBackfill(ctx, integration, normalizeRole(integration.role), Math.min(90, Math.max(1, days ?? BACKFILL_DAYS)), "manual");
+    const max = historyLimit(integration.provider, integration.config).maxDays;
+    return runBackfill(ctx, integration, normalizeRole(integration.role), days === "all" ? max : Math.min(max, Math.max(1, days ?? BACKFILL_DAYS)), "manual");
   },
 });
 
@@ -423,77 +450,75 @@ export const markBackfilled = internalMutation({
   },
 });
 
-// One-time (users/activation) or rolling (traffic) history import. Never overwrites days that already have live data.
+// Earliest snapshot taken live (backfilled rows sit before it once a chunk has been written).
+const firstLiveSnapshot = (ctx: MutationCtx, saasId: Id<"saas">) =>
+  ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", saasId)).order("asc").filter((q) => q.neq(q.field("backfilled"), true)).first();
+
+// One chunk of a history import (users totals, activation, conversion or rolling traffic). Never overwrites days that already
+// have live data; `prev` is the last value of the previous chunk (or the total before the first point) and is returned for the next.
 export const recordHistory = internalMutation({
-  args: { integrationId: v.id("integrations"), role: integrationRole, history: historyValidator, backfillId: v.optional(v.id("backfills")) },
-  handler: async (ctx, { integrationId, role: rawRole, history, backfillId }) => {
+  args: { integrationId: v.id("integrations"), role: integrationRole, history: historyValidator, prev: v.optional(v.number()) },
+  handler: async (ctx, { integrationId, role: rawRole, history, prev: prevArg }): Promise<{ written: number; prev: number | null }> => {
     const role = normalizeRole(rawRole);
     const integration = await ctx.db.get(integrationId);
-    if (!integration) return;
-    const saas = await ctx.db.get(integration.saasId);
-    if (!saas) return;
+    if (!integration) return { written: 0, prev: null };
     const { saasId } = integration;
     const points = [...history.points].sort((a, b) => a.day.localeCompare(b.day));
     let written = 0;
-    const done = async () => { if (backfillId) await ctx.db.patch(backfillId, { status: "ok", pointsWritten: written, finishedAt: Date.now() }); };
+    let prev: number | null = prevArg ?? null;
     if (history.metric === "visitors") {
       for (const p of points) { await upsertDaily(ctx, saasId, p.day, { visitors: p.value }); written++; }
-      return done();
+      return { written, prev };
     }
     if (history.metric === "convertedUsers" || history.metric === "trialUsers") {
-      let prev: number | null = null;
       for (const p of points) {
         const delta = prev === null ? 0 : Math.max(0, p.value - prev);
         await upsertDaily(ctx, saasId, p.day, history.metric === "convertedUsers" ? { convertedUsers: p.value, newConverted: delta } : { trialUsers: p.value, newTrials: delta });
         prev = p.value;
         written++;
       }
-      return done();
+      return { written, prev };
     }
     if (history.metric === "activatedUsers" && role === "activation") {
-      let prev: number | null = null;
       for (const p of points) {
         await upsertDaily(ctx, saasId, p.day, { activatedUsers: p.value, newActivated: prev === null ? 0 : p.value - prev });
         prev = p.value;
         written++;
       }
-      return done();
+      return { written, prev };
     }
-    if (role !== "users") return done();
-    const firstLive = await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", saasId)).order("asc").first();
+    // Users history arrives as totals: signup series are reconstructed once in the action (writeHistory), not per chunk.
+    if (role !== "users" || history.metric !== "totalUsers") return { written, prev };
+    const firstLive = await firstLiveSnapshot(ctx, saasId);
     const liveDay = firstLive ? dayKey(firstLive.capturedAt) : "9999-99-99";
-    let totals: { day: string; value: number }[];
-    if (history.metric === "newUsers") {
-      // Reconstruct totals backwards from the current total using per-day signups.
-      let running = saas.totalUsers;
-      const rev = [...points].reverse();
-      const today = dayKey(Date.now());
-      totals = [];
-      for (const p of rev) {
-        if (p.day >= today) continue;
-        running -= p.value;
-        totals.push({ day: p.day, value: Math.max(0, running) });
-      }
-      totals.reverse();
-    } else totals = points;
-    let prev: number | null = null;
-    for (const t of totals) {
+    for (const t of points) {
       if (t.day >= liveDay) { prev = t.value; continue; }
       const at = dayStart(Date.parse(`${t.day}T00:00:00Z`)) + DAY - 1;
       // Idempotent: a day that already has a backfilled snapshot is left untouched (history is never rewritten).
       const dup = await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", saasId).eq("capturedAt", at)).first();
       if (!dup) {
         await ctx.db.insert("snapshots", { saasId, totalUsers: t.value, capturedAt: at, source: integration.provider, trust: integration.trust, backfilled: true });
-        await upsertDaily(ctx, saasId, t.day, { totalUsers: t.value, newUsers: prev === null ? 0 : t.value - prev });
+        await upsertDaily(ctx, saasId, t.day, { totalUsers: t.value, newUsers: prev === null ? 0 : t.value - prev, backfilled: true });
         written++;
       }
       prev = t.value;
     }
-    // Live day's newUsers now has a real baseline.
-    const liveRow = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", saasId).eq("day", liveDay)).unique();
-    if (liveRow && prev !== null && written > 0) await ctx.db.patch(liveRow._id, { newUsers: liveRow.totalUsers - prev });
-    if (written > 0) await recomputeDerived(ctx, saasId);
-    await done();
+    return { written, prev };
+  },
+});
+
+// After the last users chunk: the live day's newUsers gets its real baseline and the window metrics are recomputed once.
+export const finishHistory = internalMutation({
+  args: { integrationId: v.id("integrations"), prev: v.optional(v.number()) },
+  handler: async (ctx, { integrationId, prev }) => {
+    const integration = await ctx.db.get(integrationId);
+    if (!integration) return;
+    const { saasId } = integration;
+    const firstLive = await firstLiveSnapshot(ctx, saasId);
+    if (!firstLive) return;
+    const liveRow = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", saasId).eq("day", dayKey(firstLive.capturedAt))).unique();
+    if (liveRow && prev !== undefined) await ctx.db.patch(liveRow._id, { newUsers: liveRow.totalUsers - prev });
+    await recomputeDerived(ctx, saasId);
   },
 });
 

@@ -1,4 +1,4 @@
-import { hostOf, ProviderError, type PostgresQuery, type Provider, type ProviderCapabilities } from "./types";
+import { hostOf, ProviderError, FULL_HISTORY, type PostgresQuery, type Provider, type ProviderCapabilities } from "./types";
 
 // Generic read-only PostgreSQL source. Everything here is pure (validation + SQL building);
 // the TCP work happens in convex/node/postgres.ts, which the sync engine reaches through Provider.runtime.
@@ -115,6 +115,7 @@ export const postgres: Provider<PostgresConfig> = {
   trust: () => "verified",
   runtime: () => "node",
   toPostgres: (cfg) => cfg,
+  historyLimit: () => FULL_HISTORY,
   describe(cfg, role): ProviderCapabilities {
     const ranged = Boolean(cfg.createdAtColumn || cfg.sql);
     return { totalUsers: role === "users", createdUsers: role === "users" && ranged, historicalUsers: ranged && !cfg.sql, activationEvents: role === "activation", retention: false, traffic: false, trial: false, converted: false, identity: Boolean(cfg.idColumn) };

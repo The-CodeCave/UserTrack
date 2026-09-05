@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { downsample, findGaps, isRankJump, rankMovement, resolutionFor } from "./history";
+import { downsample, findGaps, isRankJump, rankMovement, reconstructTotals, resolutionFor } from "./history";
 
 const DAY = 86_400_000;
 const day = (d: number) => new Date(Date.UTC(2026, 0, 1) + d * DAY).toISOString().slice(0, 10);
@@ -68,5 +68,25 @@ describe("rank movement", () => {
     expect(isRankJump(120, 60)).toBe(false);
     expect(isRankJump(undefined, 5)).toBe(false);
     expect(isRankJump(20, 30)).toBe(false);
+  });
+});
+
+describe("reconstructTotals", () => {
+  it("walks back from the live total, subtracts today without emitting it, and returns the baseline before the first point", () => {
+    const points = [{ day: day(0), value: 20 }, { day: day(1), value: 10 }, { day: day(2), value: 5 }];
+    const { totals, before } = reconstructTotals(points, 100, day(2));
+    // End of day(1) = 100 − today's 5; end of day(0) = 95 − 10.
+    expect(totals).toEqual([{ day: day(0), value: 85 }, { day: day(1), value: 95 }]);
+    expect(before).toBe(65);
+  });
+  it("is order-independent, clamps at zero (hard deletes) and keeps deltas exact across chunk boundaries", () => {
+    const series = Array.from({ length: 800 }, (_, i) => ({ day: day(i), value: 1 })).reverse();
+    const { totals, before } = reconstructTotals(series, 700, day(800));
+    expect(totals).toHaveLength(800);
+    expect(totals[799]).toEqual({ day: day(799), value: 700 });
+    expect(totals[0]).toEqual({ day: day(0), value: 0 });
+    expect(totals[100].value).toBe(1);
+    expect(before).toBe(0);
+    for (let i = 365; i < 800; i++) expect(totals[i].value - totals[i - 1].value).toBe(i < 100 ? 0 : 1);
   });
 });

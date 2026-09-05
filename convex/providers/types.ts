@@ -62,6 +62,14 @@ export interface HistoryPoint { day: string; value: number }
 export type HistoryMetric = "totalUsers" | "newUsers" | "activatedUsers" | "visitors" | "convertedUsers" | "trialUsers";
 export interface History { metric: HistoryMetric; points: HistoryPoint[] }
 
+// How far back fetchHistory can read: "full" = one aggregate query (5-year cap), "bounded" = one request per day (1-year cap).
+export type HistoryReach = "full" | "bounded";
+export interface HistoryLimit { reach: HistoryReach; maxDays: number }
+export const FULL_HISTORY_DAYS = 1826;
+export const BOUNDED_HISTORY_DAYS = 365;
+export const FULL_HISTORY: HistoryLimit = { reach: "full", maxDays: FULL_HISTORY_DAYS };
+export const BOUNDED_HISTORY: HistoryLimit = { reach: "bounded", maxDays: BOUNDED_HISTORY_DAYS };
+
 export type Validation<Config> = { ok: true; config: Config } | { ok: false; error: string };
 
 // Capability model: what a configured source can actually deliver. Shown to founders, agents and the public provenance panel.
@@ -105,6 +113,8 @@ export interface Provider<Config> {
   fetch(config: Config, role: Role): Promise<ProviderMetrics>;
   // Optional one-time backfill on connect. Returns daily points (UTC day keys), oldest first.
   fetchHistory?(config: Config, role: Role, days: number): Promise<History | null>;
+  // Reach of fetchHistory for one configuration (default: 30 days, the rolling traffic window).
+  historyLimit?(config: Config): HistoryLimit;
   // Secret-free view of the config for the UI.
   publicConfig(config: Config): Record<string, string>;
   // Display label for one configuration (native sources show the SDK adapter, e.g. "Better Auth").
@@ -213,6 +223,20 @@ export function str(c: unknown, key: string) {
 export const DAY_MS = 86_400_000;
 export const dayKey = (ts: number) => new Date(ts).toISOString().slice(0, 10);
 export const isoDaysAgo = (days: number, now = Date.now()) => new Date(now - days * DAY_MS).toISOString();
+
+// Zero-filled daily points from `days` ago through today. When nothing exists before the window the series starts at the
+// first signup instead (no years of flat zero before day one).
+export function fillDaily(perDay: Map<string, number>, days: number, olderUsers: number, now = Date.now()): HistoryPoint[] {
+  const start = now - days * DAY_MS;
+  const points: HistoryPoint[] = [];
+  for (let i = 0; i <= days; i++) {
+    const day = dayKey(start + i * DAY_MS);
+    const value = perDay.get(day) ?? 0;
+    if (!points.length && olderUsers <= 0 && value === 0) continue;
+    points.push({ day, value });
+  }
+  return points;
+}
 
 // Run `fn` over `items` with at most `limit` in flight. Used for provider history backfills.
 export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {

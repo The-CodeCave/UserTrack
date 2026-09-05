@@ -392,6 +392,8 @@ export default defineSchema({
     activeUsers30d: v.optional(v.number()),
     // Leaderboard rank at the end of the day (written by the daily sweep), used for monthly rank deltas.
     rank: v.optional(v.number()),
+    // Totals reconstructed from signup timestamps by a history backfill (never a live snapshot).
+    backfilled: v.optional(v.boolean()),
   }).index("by_saas_day", ["saasId", "day"]),
 
   syncRuns: defineTable({

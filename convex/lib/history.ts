@@ -44,6 +44,18 @@ export function downsample(rows: DailyPoint[], res: Resolution): HistoryPoint[] 
 const tOf = (day: string) => Date.parse(`${day}T12:00:00Z`);
 const toPoint = (r: DailyPoint): HistoryPoint => ({ t: tOf(r.day), total: r.totalUsers, delta: r.newUsers, activated: r.activatedUsers, visitors: r.visitors, converted: r.convertedUsers });
 
+// Rebuilds end-of-day totals from per-day signups by walking back from the current total. Today's signups are subtracted
+// but not emitted (the live snapshot owns today); `before` is the total ahead of the first point, the baseline for its newUsers.
+export function reconstructTotals(points: { day: string; value: number }[], total: number, today: string) {
+  let running = total;
+  const totals: { day: string; value: number }[] = [];
+  for (const p of [...points].sort((a, b) => b.day.localeCompare(a.day))) {
+    if (p.day < today) totals.push({ day: p.day, value: Math.max(0, running) });
+    running -= p.value;
+  }
+  return { totals: totals.reverse(), before: Math.max(0, running) };
+}
+
 // Stretches without any stored row longer than `minDays`. Charts shade them instead of drawing a line across.
 export function findGaps(points: { t: number }[], minDays = 3): Gap[] {
   const gaps: Gap[] = [];

@@ -218,7 +218,7 @@ Time series of total users with a storage-aware **resolution** and explicit **ga
 | `week` | one ISO week (last total of the week, new users summed) | `1y`, `all` |
 | `month` | one month | `all` on products with more than two years of history |
 
-`activatedUsers` is present on daily and coarser points for products with an activation source; `visitors` and `convertedUsers` only when the owner publishes traffic / converted counts. `gaps` lists stretches without stored rows (longer than 1 / 3 / 14 / 45 days depending on the resolution) so charts can shade them instead of drawing a line across.
+`activatedUsers` is present on daily and coarser points for products with an activation source; `visitors` and `convertedUsers` only when the owner publishes traffic / converted counts. `gaps` lists stretches without stored rows (longer than 1 / 3 / 14 / 45 days depending on the resolution) so charts can shade them instead of drawing a line across. `reconstructedUntil` (daily and coarser resolutions, omitted when absent) is the last day whose totals were rebuilt from the source's signup timestamps by a history backfill rather than observed live — label those points accordingly.
 
 ```bash
 curl "https://usertrack.dev/api/v1/saas/acme/history?range=7d"
@@ -234,7 +234,8 @@ curl "https://usertrack.dev/api/v1/saas/acme/history?range=7d"
       { "t": "2026-08-26T16:00:00.000Z", "totalUsers": 12190, "newUsers": 21 },
       { "t": "2026-08-28T20:00:00.000Z", "totalUsers": 12214, "newUsers": 24, "activatedUsers": 4801 }
     ],
-    "gaps": [{ "from": "2026-08-26T16:00:00.000Z", "to": "2026-08-28T20:00:00.000Z", "days": 2 }]
+    "gaps": [{ "from": "2026-08-26T16:00:00.000Z", "to": "2026-08-28T20:00:00.000Z", "days": 2 }],
+    "reconstructedUntil": "2026-08-25T12:00:00.000Z"
   },
   "meta": { "version": "v1", "generatedAt": "2026-09-02T10:15:00.000Z" }
 }

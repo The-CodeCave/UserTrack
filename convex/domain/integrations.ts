@@ -2,7 +2,7 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { describeProvider, getProvider, normalizeProviderKind, normalizeRole, providerLabel, verificationLevel, ROLE_STAGE, type ProviderMetrics, type Role } from "../providers";
+import { describeProvider, getProvider, historyLimit, normalizeProviderKind, normalizeRole, providerLabel, verificationLevel, ROLE_STAGE, type ProviderMetrics, type Role } from "../providers";
 import { dayKey } from "../lib/time";
 import { DomainError } from "./projects";
 
@@ -26,6 +26,7 @@ export function integrationView(i: Doc<"integrations">) {
     trust: i.trust,
     verification: verificationLevel(i.provider, i.trust, capabilities, role),
     capabilities,
+    historyDays: historyLimit(i.provider, i.config).maxDays,
     lastError: i.lastError,
     lastSyncAt: i.lastSyncAt,
     lastSuccessAt: i.lastSuccessAt,

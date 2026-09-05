@@ -1,5 +1,5 @@
 import { checkPublicHttpsUrl } from "../lib/ssrf";
-import { asCount, hostOf, hostnameOf, isoDaysAgo, isRedirect, ProviderError, DAY_MS, dayKey, FETCH_TIMEOUT_MS, REDIRECT_ERROR, type PostgresQuery, type Provider, type ProviderCapabilities, type ProviderMetrics } from "./types";
+import { asCount, hostOf, hostnameOf, isoDaysAgo, isRedirect, ProviderError, BOUNDED_HISTORY, DAY_MS, dayKey, FETCH_TIMEOUT_MS, FULL_HISTORY, REDIRECT_ERROR, type PostgresQuery, type Provider, type ProviderCapabilities, type ProviderMetrics } from "./types";
 import { defaultSsl, isIdent, parseConnectionString, projectRefFromHost, splitTable, validateSql } from "./postgres";
 
 // Two modes behind one adapter:
@@ -106,6 +106,7 @@ export const supabase: Provider<SupabaseConfig> = {
       ? { activatedUsers: total, activated24h: r24, activated7d: r7, activated30d: r30 }
       : { totalUsers: total, newUsers24h: r24, newUsers7d: r7, newUsers30d: r30 };
   },
+  historyLimit: (cfg) => (cfg.mode === "database" ? FULL_HISTORY : BOUNDED_HISTORY),
   async fetchHistory(cfg, role, days) {
     if (cfg.mode === "database" || !cfg.table || !cfg.createdAtColumn) return null;
     const now = Date.now();

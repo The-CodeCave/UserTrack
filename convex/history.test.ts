@@ -7,6 +7,9 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
 vi.mock("./email/users", () => ({ findAuthUser: async () => null }));
+// Provider reads are stubbed at the runtime switch; everything after it (chunked writes, provenance, derived metrics) is real.
+const mocks = vi.hoisted(() => ({ fetchHistory: vi.fn() }));
+vi.mock("./providerRun", async (importOriginal) => ({ ...(await importOriginal<typeof import("./providerRun")>()), hasHistory: () => true, fetchHistory: mocks.fetchHistory }));
 
 const modules = import.meta.glob("./**/*.*s");
 const t = () => convexTest(schema, modules);
@@ -111,25 +114,103 @@ describe("growth history", () => {
 });
 
 describe("backfill provenance", () => {
+  const today = () => dayKey(Date.now());
+  // One live snapshot + today's row, as recordSuccess leaves them after the first sync.
+  const seedLive = async (tx: ReturnType<typeof t>, id: Id<"saas">, provider: "clerk" | "postgres", totalUsers: number) => {
+    const integrationId = await tx.run((ctx) => ctx.db.insert("integrations", { saasId: id, provider, role: "users", config: {}, status: "ok", trust: "verified" }));
+    await tx.run(async (ctx) => {
+      await ctx.db.insert("snapshots", { saasId: id, totalUsers, capturedAt: Date.now(), source: provider, trust: "verified" });
+      await ctx.db.insert("dailyMetrics", { saasId: id, day: today(), totalUsers, newUsers: 0 });
+    });
+    return integrationId;
+  };
+
   it("never duplicates a backfilled day and records a backfills row", async () => {
     const tx = t();
     const owner = await seedOwner(tx);
     const id = await seedSaas(tx, owner, { totalUsers: 100 });
-    const integrationId = await tx.run((ctx) => ctx.db.insert("integrations", { saasId: id, provider: "clerk", role: "users", config: {}, status: "ok", trust: "verified" }));
-    await tx.run((ctx) => ctx.db.insert("snapshots", { saasId: id, totalUsers: 100, capturedAt: Date.now(), source: "clerk", trust: "verified" }));
+    const integrationId = await seedLive(tx, id, "clerk", 100);
     const points = [3, 2, 1].map((d) => ({ day: dayKey(Date.now() - d * DAY), value: 100 - d * 10 }));
-    const backfillId = await tx.mutation(internal.sync.startBackfill, { integrationId, role: "users", days: 3, trigger: "manual" });
-    await tx.mutation(internal.sync.recordHistory, { integrationId, role: "users", history: { metric: "totalUsers", points }, backfillId });
-    await tx.mutation(internal.sync.recordHistory, { integrationId, role: "users", history: { metric: "totalUsers", points } });
+    mocks.fetchHistory.mockResolvedValue({ metric: "totalUsers", points });
+    await tx.action(internal.sync.backfill, { integrationId, days: 3 });
+    await tx.action(internal.sync.backfill, { integrationId, days: 3 });
     const snaps = await tx.run((ctx) => ctx.db.query("snapshots").collect());
     expect(snaps.filter((s) => s.backfilled).length).toBe(3);
     expect(snaps.filter((s) => s.backfilled).every((s) => s.trust === "verified" && s.source === "clerk")).toBe(true);
     const daily = await tx.run((ctx) => ctx.db.query("dailyMetrics").collect());
-    expect(daily.length).toBe(3);
-    const runs = await tx.run((ctx) => ctx.db.query("backfills").collect());
-    expect(runs.length).toBe(1);
+    expect(daily.length).toBe(4);
+    expect(daily.filter((r) => r.backfilled).map((r) => r.newUsers)).toEqual([0, 10, 10]);
+    const live = daily.find((r) => r.day === today())!;
+    expect(live.newUsers).toBe(10);
+    expect(live.backfilled).toBeUndefined();
+    const runs = await tx.run((ctx) => ctx.db.query("backfills").withIndex("by_saas_time", (q) => q.eq("saasId", id)).order("asc").collect());
+    expect(runs.length).toBe(2);
     expect(runs[0]).toMatchObject({ status: "ok", pointsWritten: 3, trigger: "manual", provider: "clerk", role: "users" });
     expect(runs[0].finishedAt).toBeDefined();
+    // Re-run: same points, nothing rewritten.
+    expect(runs[1]).toMatchObject({ status: "ok", pointsWritten: 0 });
+    expect((await tx.run((ctx) => ctx.db.get(integrationId)))?.backfilledAt).toBeDefined();
+  });
+
+  it("bounds per-day providers to 365 days and full providers to five years", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    const id = await seedSaas(tx, owner, { totalUsers: 100 });
+    const clerkId = await seedLive(tx, id, "clerk", 100);
+    mocks.fetchHistory.mockResolvedValue(null);
+    await tx.action(internal.sync.backfill, { integrationId: clerkId, days: "all" });
+    expect(mocks.fetchHistory).toHaveBeenLastCalledWith(expect.anything(), "clerk", {}, "users", 365);
+    await tx.action(internal.sync.backfill, { integrationId: clerkId, days: 900 });
+    expect(mocks.fetchHistory).toHaveBeenLastCalledWith(expect.anything(), "clerk", {}, "users", 365);
+    await tx.action(internal.sync.backfill, { integrationId: clerkId, days: 30 });
+    expect(mocks.fetchHistory).toHaveBeenLastCalledWith(expect.anything(), "clerk", {}, "users", 30);
+    const pgId = await tx.run((ctx) => ctx.db.insert("integrations", { saasId: id, provider: "postgres", role: "users", config: {}, status: "ok", trust: "verified" }));
+    await tx.action(internal.sync.backfill, { integrationId: pgId, days: "all" });
+    expect(mocks.fetchHistory).toHaveBeenLastCalledWith(expect.anything(), "postgres", {}, "users", 1826);
+    const runs = await tx.run((ctx) => ctx.db.query("backfills").collect());
+    expect(runs.every((r) => r.status === "empty" && r.pointsWritten === 0)).toBe(true);
+  });
+
+  it("writes an 800-day signup series in chunks with exact totals across chunk boundaries, and never fires milestones, events or mails for reconstructed days", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    const id = await seedSaas(tx, owner, { totalUsers: 2000, isPublic: true });
+    const integrationId = await seedLive(tx, id, "postgres", 2000);
+    // 1 signup per day for 800 days, a 500-signup spike 700 days ago, and today's 1 (already inside the live total).
+    const points = Array.from({ length: 801 }, (_, i) => ({ day: dayKey(Date.now() - (800 - i) * DAY), value: i === 100 ? 500 : 1 }));
+    mocks.fetchHistory.mockResolvedValue({ metric: "newUsers", points });
+    const res = await tx.action(internal.sync.backfill, { integrationId, days: "all" });
+    expect(res).toMatchObject({ ok: true, points: 801 });
+    const snaps = await tx.run((ctx) => ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", id)).order("asc").collect());
+    expect(snaps.filter((s) => s.backfilled).length).toBe(800);
+    expect(snaps[snaps.length - 1].backfilled).toBeUndefined();
+    // Yesterday = live total minus today's signup; first day = 2000 − 800 − 499 (spike); every step is that day's signups.
+    expect(snaps[799].totalUsers).toBe(1999);
+    expect(snaps[0].totalUsers).toBe(2000 - 1 - 799 - 499);
+    for (let i = 1; i < 800; i++) expect(snaps[i].totalUsers - snaps[i - 1].totalUsers).toBe(i === 100 ? 500 : 1);
+    const daily = await tx.run((ctx) => ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", id)).order("asc").collect());
+    expect(daily.length).toBe(801);
+    expect(daily.slice(0, 800).every((r) => r.backfilled)).toBe(true);
+    expect(daily[0].newUsers).toBe(1);
+    expect(daily[100].newUsers).toBe(500);
+    expect(daily[400].newUsers).toBe(1);
+    expect(daily[800]).toMatchObject({ day: dayKey(Date.now()), newUsers: 1 });
+    expect(daily[800].backfilled).toBeUndefined();
+    const run = (await tx.run((ctx) => ctx.db.query("backfills").collect()))[0];
+    expect(run).toMatchObject({ status: "ok", pointsWritten: 800, trigger: "manual" });
+    const saas = (await tx.run((ctx) => ctx.db.get(id)))!;
+    // Window baselines are end-of-day snapshots, so a 7-day window spans 7 or 8 reconstructed days depending on the clock.
+    expect([7, 8]).toContain(saas.newUsers7d);
+    expect([30, 31]).toContain(saas.newUsers30d);
+    // Nothing retroactive: no threshold / best-day milestones, spikes, feed events, mails, shares or webhooks — also after the daily sweep.
+    await tx.mutation(internal.daily.run, {});
+    for (const table of ["milestones", "events", "emailEvents", "shareEvents", "webhookDeliveries"] as const) {
+      expect(await tx.run((ctx) => ctx.db.query(table).collect()), table).toEqual([]);
+    }
+    // Public history labels the reconstructed stretch.
+    const h = (await tx.query(api.public.history, { slug: "acme", range: "all" }))!;
+    expect(h.reconstructedUntil).toBe(Date.parse(`${dayKey(Date.now() - DAY)}T12:00:00Z`));
+    expect(h.points[h.points.length - 1].total).toBe(2000);
   });
 });
 
