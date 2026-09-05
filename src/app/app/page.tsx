@@ -10,6 +10,7 @@ import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { MovementTag } from "@/components/blueprint/movement";
 import { StreakChip } from "@/components/blueprint/streak-chip";
 import { BenchmarkCards } from "@/components/app/benchmark-cards";
+import { WatchlistFeedItem } from "@/components/app/watchlist-feed-item";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCompact, formatDelta, formatPct, formatRate } from "@/lib/format";
@@ -17,6 +18,8 @@ import { formatCompact, formatDelta, formatPct, formatRate } from "@/lib/format"
 export default function OverviewPage() {
   const list = useQuery(api.saas.listMine);
   const digest = useQuery(api.digest.latest);
+  const watch = useQuery(api.follows.feed, { days: 7, limit: 5 });
+  const watched = watch ? watch.saas.length : 0;
   const primary = list?.[0];
   const detail = useQuery(api.saas.getMine, primary ? { id: primary._id } : "skip");
   // Same rules as the manage page's "Next steps", derived from state only.
@@ -115,18 +118,34 @@ export default function OverviewPage() {
         </section>
       )}
 
-      <section className="grid gap-3 md:grid-cols-2">
-        <Panel className="p-4">
-          <div className="flex items-center gap-2 text-sm font-medium"><Flame className="size-4 text-pink" /> Weekly digest</div>
-          <p className="mt-1 text-xs text-muted-foreground">{digest?.length ? `Latest: week ${digest[0].weekKey}.` : "Your first digest is generated on Monday morning, or preview one now."}</p>
-          <Button variant="outline" size="sm" className="mt-3" render={<Link href="/app/digest" />}>Open digest</Button>
-        </Panel>
-        <Panel className="p-4">
-          <div className="text-sm font-medium">Following</div>
-          <p className="mt-1 text-xs text-muted-foreground">Follow products and founders to get their milestones and weekly movement in one feed.</p>
-          <Button variant="outline" size="sm" className="mt-3" render={<Link href="/app/following" />}>Open feed</Button>
-        </Panel>
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <SectionLabel>From your watchlist · 7d</SectionLabel>
+            {watch && watch.unseenCount > 0 && <span className="inline-flex items-center border border-new/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-new">{watch.unseenCount} new</span>}
+          </div>
+          <Link href="/app/following" className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">See all →</Link>
+        </div>
+        {watch === undefined ? (
+          <Skeleton className="h-16" />
+        ) : !watch || (watched === 0 && watch.founders.length === 0) ? (
+          <Panel className="p-4">
+            <div className="text-sm font-medium">Following</div>
+            <p className="mt-1 text-xs text-muted-foreground">Follow products and founders to get their milestones and weekly movement in one feed.</p>
+            <div className="mt-3 flex gap-2"><Button variant="outline" size="sm" render={<Link href="/discover" />}>Discover</Button><Button variant="outline" size="sm" render={<Link href="/trending" />}>Trending</Button></div>
+          </Panel>
+        ) : watch.feed.length === 0 ? (
+          <Panel className="p-4 text-sm text-muted-foreground">Quiet week for the {watched} {watched === 1 ? "product" : "products"} you follow.</Panel>
+        ) : (
+          <Panel className="divide-y divide-line p-0">{watch.feed.map((e) => <WatchlistFeedItem key={e.id} item={e} />)}</Panel>
+        )}
       </section>
+
+      <Panel className="p-4">
+        <div className="flex items-center gap-2 text-sm font-medium"><Flame className="size-4 text-pink" /> Weekly digest</div>
+        <p className="mt-1 text-xs text-muted-foreground">{digest?.length ? `Latest: week ${digest[0].weekKey}.` : "Your first digest is generated on Monday morning, or preview one now."}</p>
+        <Button variant="outline" size="sm" className="mt-3" render={<Link href="/app/digest" />}>Open digest</Button>
+      </Panel>
     </div>
   );
 }

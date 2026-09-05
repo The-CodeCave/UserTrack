@@ -26,6 +26,8 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const me = useQuery(api.profiles.me);
+  const watch = useQuery(api.follows.feed, me?.profile ? { days: 30, limit: 1 } : "skip");
+  const unseen = watch?.unseenCount ?? 0;
   const pathname = usePathname();
   const router = useRouter();
   const onboarding = pathname.startsWith("/app/onboarding");
@@ -55,6 +57,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {NAV.map(({ href, label, Icon }) => (
             <NavLink key={href} href={href} active={href === "/app" ? pathname === href : pathname.startsWith(href)}>
               <Icon className="size-4" />{label}
+              {href === "/app/following" && unseen > 0 && <span className="ml-auto border border-new/60 px-1 font-mono text-[10px] text-new" aria-label={`${unseen} unseen`}>{unseen}</span>}
             </NavLink>
           ))}
         </nav>
@@ -81,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           const active = href === "/app" ? pathname === href : pathname.startsWith(href);
           return (
             <Link key={href} href={href} className={cn("flex h-14 flex-col items-center justify-center gap-1 text-[9px] font-mono uppercase tracking-wider", active ? "text-pink" : "text-muted-foreground")}>
-              <Icon className="size-5" />{label}
+              <span className="relative"><Icon className="size-5" />{href === "/app/following" && unseen > 0 && <span className="absolute -right-1 -top-0.5 size-1.5 bg-new" aria-label={`${unseen} unseen`} />}</span>{label}
             </Link>
           );
         })}

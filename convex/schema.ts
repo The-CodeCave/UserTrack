@@ -99,6 +99,8 @@ export default defineSchema({
     onboardingCompleted: v.boolean(),
     digestOptIn: v.optional(v.boolean()),
     followerCount: v.optional(v.number()),
+    // Last time the founder opened /app/following; feed items newer than this count as unseen.
+    feedSeenAt: v.optional(v.number()),
     // false hides /u/<username>, search and the API; default public.
     profilePublic: v.optional(v.boolean()),
     // Summary of a connected X account; tokens live in socialConnections and never here.

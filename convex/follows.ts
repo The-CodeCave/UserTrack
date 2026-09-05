@@ -145,12 +145,25 @@ export async function watchlistFeed(ctx: Ctx, profileId: Id<"profiles">, days = 
     }
   }
   const seen = new Set<string>();
-  const feed = items.filter((i) => !seen.has(i.id) && seen.add(i.id)).sort((a, b) => b.at - a.at).slice(0, limit);
+  const merged = items.filter((i) => !seen.has(i.id) && seen.add(i.id)).sort((a, b) => b.at - a.at);
+  // Unseen = newer than the last visit to /app/following, counted over the whole window, not just the returned slice.
+  const seenAt = (await ctx.db.get(profileId))?.feedSeenAt ?? 0;
+  const unseenCount = merged.filter((i) => i.at > seenAt).length;
+  const feed = merged.slice(0, limit);
   const saas = projects
     .map(({ saas: s, via }) => ({ _id: s._id, slug: s.slug, name: s.name, logoUrl: publicLogo(s), category: s.category, trust: s.trust, trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore), totalUsers: s.totalUsers, newUsers7d: s.newUsers7d, newUsers30d: s.newUsers30d, growth7dPct: s.growth7dPct ?? 0, growth30dPct: s.growth30dPct, rank: s.rank, rank7dAgo: s.rank7dAgo, rankMovement7d: rankMovement(s.rank7dAgo, s.rank), trendingRank: s.trendingRank, trendingMovement7d: rankMovement(s.trendingRank7dAgo, s.trendingRank), via, followed: directIds.has(s._id) }))
     .sort((a, b) => b.newUsers7d - a.newUsers7d);
-  return { saas, founders: founders.map((p) => ({ _id: p._id, username: p.username, displayName: p.displayName, avatarUrl: p.avatarUrl, followerCount: p.followerCount ?? 0 })), feed };
+  return { saas, founders: founders.map((p) => ({ _id: p._id, username: p.username, displayName: p.displayName, avatarUrl: p.avatarUrl, followerCount: p.followerCount ?? 0 })), feed, seenAt, unseenCount };
 }
+
+// /app/following was opened: everything currently in the feed counts as seen.
+export const markFeedSeen = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { profile } = await requireProfile(ctx);
+    await ctx.db.patch(profile._id, { feedSeenAt: Date.now() });
+  },
+});
 
 // Everything the signed-in user follows, with the last 7 days of movement, plus the personalized feed (last 30 days).
 export const feed = query({

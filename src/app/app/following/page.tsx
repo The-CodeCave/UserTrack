@@ -1,28 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "convex/react";
-import { ArrowRight, Award, Flame, Rocket, ShieldCheck, Sprout, TrendingDown, TrendingUp, Trophy, Zap } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { ArrowRight } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { MovementTag } from "@/components/blueprint/movement";
-import { MILESTONE_ICON } from "@/components/public/milestones";
 import { SaasLogo } from "@/components/public/saas-card";
 import { FollowButton } from "@/components/public/follow-button";
+import { WatchlistFeedItem } from "@/components/app/watchlist-feed-item";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatCompact, formatDelta, formatPct, timeAgo } from "@/lib/format";
+import { formatCompact, formatDelta, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const DAYS = [7, 30, 90] as const;
-const ICON: Record<string, typeof Trophy> = { milestone: Trophy, spike: Flame, activation_spike: Zap, launched: Rocket, new_project: Rocket, verified: ShieldCheck, rank_jump: TrendingUp, rank_change: TrendingUp, traction: Sprout, benchmark: Award };
 
 export default function FollowingPage() {
   const [days, setDays] = useState<(typeof DAYS)[number]>(30);
   const feed = useQuery(api.follows.feed, { days });
+  const markSeen = useMutation(api.follows.markFeedSeen);
+  // Once per visit: clears the unseen count in the sidebar and on the dashboard.
+  useEffect(() => { void markSeen().catch(() => undefined); }, [markSeen]);
   const nothing = feed && feed.saas.length === 0 && feed.founders.length === 0;
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
@@ -101,25 +103,7 @@ export default function FollowingPage() {
             <Panel className="p-4 text-sm text-muted-foreground">Nothing notable yet — milestones, spikes and rank moves appear here as they happen.</Panel>
           ) : (
             <Panel className="divide-y divide-line p-0">
-              {feed.feed.map((e) => {
-                const Icon = (e.kind === "milestone" && MILESTONE_ICON[e.subkind]) || ICON[e.kind] || Trophy;
-                const down = (e.kind === "rank_change" || e.kind === "rank_jump") && e.subkind === "down";
-                return (
-                  <div key={e.id} className="flex items-start gap-3 p-3">
-                    {down ? <TrendingDown className="mt-1 size-4 shrink-0 text-muted-foreground" /> : <Icon className="mt-1 size-4 shrink-0 text-pink" />}
-                    <SaasLogo name={e.saas.name} logoUrl={e.saas.logoUrl} size={28} className="mt-0.5" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm"><Link href={`/s/${e.saas.slug}`} className="font-medium hover:underline">{e.saas.name}</Link> <span className="text-muted-foreground">—</span> {e.title}</div>
-                      {e.detail && <div className="mt-0.5 text-xs text-muted-foreground">{e.detail}</div>}
-                      <div className="mt-1 flex flex-wrap items-center gap-x-2 font-mono text-[11px] text-muted-foreground">
-                        <span>{timeAgo(e.at)}</span>
-                        {e.founder && <span>· via <Link href={`/u/${e.founder.username}`} className="hover:text-foreground">@{e.founder.username}</Link></span>}
-                        {e.share && <Link href={`/s/${e.saas.slug}/${e.share}`} className="text-pink hover:underline">Share</Link>}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {feed.feed.map((e) => <WatchlistFeedItem key={e.id} item={e} />)}
             </Panel>
           )}
         </section>

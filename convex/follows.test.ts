@@ -3,10 +3,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { followTarget, unfollowTarget, watchlistFeed } from "./follows";
 
+vi.mock("./auth", () => ({ authComponent: { safeGetAuthUser: async () => ({ _id: "u_ada", email: "ada@example.com", name: "Ada", emailVerified: true }) } }));
 vi.mock("./email/users", () => ({ findAuthUser: async () => null }));
 
 const modules = import.meta.glob("./**/*.*s");
@@ -65,6 +66,15 @@ describe("follows", () => {
     expect(f.feed.map((i) => i.kind)).toEqual(["rank_change", "milestone", "spike", "new_project"]);
     expect(f.feed.find((i) => i.kind === "new_project")?.title).toBe("New from Bob");
     expect(f.feed.every((i) => i.saas.slug === "acme")).toBe(true);
+    // Unseen state: everything is new until /app/following is opened; the count covers the whole window, not the slice.
+    expect(f.seenAt).toBe(0);
+    expect(f.unseenCount).toBe(4);
+    expect(await t.run((ctx) => watchlistFeed(ctx, ada, 30, 2))).toMatchObject({ unseenCount: 4, feed: [expect.anything(), expect.anything()] });
+    await t.mutation(api.follows.markFeedSeen, {});
+    const seen = await t.run((ctx) => watchlistFeed(ctx, ada, 30, 50));
+    expect(seen.seenAt).toBeGreaterThan(0);
+    expect(seen.unseenCount).toBe(0);
+    expect(seen.feed.length).toBe(4);
     // Direct follow of the same product de-duplicates and flips `via`.
     await t.run(async (ctx) => followTarget(ctx, (await ctx.db.get(ada))!, "saas", acme));
     const g = await t.run((ctx) => watchlistFeed(ctx, ada, 30, 50));
