@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { LayoutGrid, Boxes, Bell, Mail, UserRound, Code2, Settings, LogOut, Share2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import { track } from "@/lib/analytics";
@@ -25,7 +25,9 @@ const NAV = [
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const me = useQuery(api.profiles.me);
+  // `me` is only read once the Convex client carries the session token; before that it would answer null and bounce a signed-in founder to /sign-in.
+  const { isLoading, isAuthenticated } = useConvexAuth();
+  const me = useQuery(api.profiles.me, isAuthenticated ? {} : "skip");
   const watch = useQuery(api.follows.feed, me?.profile ? { days: 30, limit: 1 } : "skip");
   const unseen = watch?.unseenCount ?? 0;
   const pathname = usePathname();
@@ -33,12 +35,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const onboarding = pathname.startsWith("/app/onboarding");
 
   useEffect(() => {
-    if (me === undefined) return;
-    if (me === null) router.replace("/sign-in");
+    if (isLoading || (isAuthenticated && me === undefined)) return;
+    if (!isAuthenticated || !me) router.replace("/sign-in");
     else if (!me.profile?.onboardingCompleted && !onboarding) router.replace("/app/onboarding");
-  }, [me, onboarding, router]);
+  }, [isLoading, isAuthenticated, me, onboarding, router]);
 
-  if (me === undefined) return <ShellSkeleton />;
+  if (isLoading || me === undefined) return <ShellSkeleton />;
   if (onboarding) return <>{children}</>;
   if (!me?.profile?.onboardingCompleted) return <ShellSkeleton />;
 

@@ -3,12 +3,14 @@
 
 export const AUTH_RATE_LIMIT_DEFAULT = { window: 60, max: 100 };
 
-export const AUTH_RATE_LIMIT_RULES: Record<string, { window: number; max: number }> = {
+export const AUTH_RATE_LIMIT_RULES: Record<string, { window: number; max: number } | false> = {
   "/sign-in/*": { window: 600, max: 20 },
   "/sign-up/*": { window: 3600, max: 10 },
   "/send-verification-email": { window: 600, max: 5 },
   "/forget-password": { window: 600, max: 5 },
   "/request-password-reset": { window: 600, max: 5 },
+  // The public key set Convex itself fetches to validate JWTs: no client IP, so it would share one bucket with nothing to protect.
+  "/convex/jwks": false,
 };
 
 export type AuthRateLimitRow = { count: number; lastRequest: number };

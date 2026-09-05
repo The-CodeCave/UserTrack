@@ -52,7 +52,7 @@ const username = reuse ? process.env.USERNAME_TAG : tag;
 const raw = execSync(`npx convex run qaLoops:prepare '${JSON.stringify({ username })}'`, { encoding: "utf8" });
 const fixture = JSON.parse(raw.slice(raw.indexOf("{")));
 console.log("fixture", fixture);
-// The app shell occasionally bounces a fresh page to /sign-in while the Convex token resolves; a second load lands.
+// Safety net only: the bounce to /sign-in was the shared `no-trusted-ip` token bucket in the proxy guard (fixed in src/proxy.ts).
 for (let i = 0; i < 3 && !(await d.locator("text=From your watchlist").count()); i++) { await d.goto(`${base}/app`, { waitUntil: "domcontentloaded" }); await d.waitForTimeout(5000); }
 const manageHref = await d.locator('a[href^="/app/saas/j"]').first().getAttribute("href");
 await d.close();
