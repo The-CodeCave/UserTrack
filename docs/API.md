@@ -793,19 +793,21 @@ A 28px-high shields.io-style SVG, or a 320×120 mini growth chart. The `.svg` su
 
 Rate limit: 120 requests per minute per client IP (durable, see *Rate limits*); beyond that `429` with `Retry-After` and `Cache-Control: no-store`. Unknown or private slugs return **`404`** whose body is still a neutral "not found" SVG, so a broken embed shows a labelled badge rather than a broken image. Draft (unpublished) products render that badge until they are published.
 
-The dashboard has a configurator with live preview and copyable HTML / Markdown / image URL at `/app/saas/[id]/embed`; MCP clients get the same snippets from `usertrack_get_embed_code`.
+The dashboard has a configurator with live preview and copyable HTML / Markdown / image URL at `/app/saas/[id]/embed`; MCP clients get the same snippets from `usertrack_get_embed_code`. The snippets link back with `?ref=badge&utm_source=badge&utm_medium=image&utm_campaign=<type>` so badge traffic is attributable (`docs/ANALYTICS.md`); the bare `/s/{slug}` stays the canonical.
 
 HTML:
 
 ```html
-<a href="https://usertrack.dev/s/acme"><img src="https://usertrack.dev/api/badge/acme.svg?type=users" alt="Acme users on UserTrack" height="28"></a>
+<a href="https://usertrack.dev/s/acme?ref=badge&utm_source=badge&utm_medium=image&utm_campaign=users"><img src="https://usertrack.dev/api/badge/acme.svg?type=users" alt="Acme users on UserTrack" height="28"></a>
 ```
 
 Markdown:
 
 ```markdown
-[![Acme users on UserTrack](https://usertrack.dev/api/badge/acme.svg?type=users)](https://usertrack.dev/s/acme)
+[![Acme users on UserTrack](https://usertrack.dev/api/badge/acme.svg?type=users)](https://usertrack.dev/s/acme?ref=badge&utm_source=badge&utm_medium=image&utm_campaign=users)
 ```
+
+**Where it's embedded.** Like the widget route, the badge route records the referring host (domain only, never visitors) into the same per-(project, host) `embedSites` row — `badgeLoads` next to the widget's `loads`, one shared `lastSeenAt`, at most one write per host and project per minute — and the dashboard labels each host `widget` / `badge`. This is best effort: the SVG is edge-cached for an hour, so only cache misses reach origin, and GitHub proxies README images through camo without a Referer. It discovers badges on the founder's own sites and docs, not READMEs.
 
 Light background, growth variant, 7-day window:
 
@@ -816,7 +818,7 @@ Light background, growth variant, 7-day window:
 Mini chart:
 
 ```html
-<a href="https://usertrack.dev/s/acme"><img src="https://usertrack.dev/api/badge/acme.svg?type=chart" alt="Acme on UserTrack" height="120"></a>
+<a href="https://usertrack.dev/s/acme?ref=badge&utm_source=badge&utm_medium=image&utm_campaign=chart"><img src="https://usertrack.dev/api/badge/acme.svg?type=chart" alt="Acme on UserTrack" height="120"></a>
 ```
 
 ## Widgets: `/widget.js`, `/embed/{slug}`, `GET /api/embed/{slug}.json`

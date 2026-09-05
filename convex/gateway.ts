@@ -32,6 +32,7 @@ import { buildExport } from "./account";
 import { founderAggregates } from "./lib/founder";
 import { normalizePrefs } from "./lib/shareRules";
 import { xConnectionState, xIntentUrl } from "../src/lib/social";
+import { attributedUrl } from "../src/lib/site";
 import { xDraft, type DraftKind } from "../src/lib/x-drafts";
 import { CARD_RANGES, CARD_STYLES, cardQuery, type CardConfig } from "../src/lib/share-card";
 import { shareStatus } from "./schema";
@@ -766,7 +767,7 @@ export const shareCard = query({
       const base = projectUrls(saas).page;
       const kinds = ["users", "growth", "week", ...(saas.rank ? ["rank"] : []), ...(saas.trendingRank ? ["trending"] : []), ...(saas.activationRatePct !== undefined ? ["activation"] : [])];
       const milestones = await milestonesFor(ctx, saas._id, 5);
-      const card = (k: string) => ({ kind: k, page: `${base}/share/${k}`, image: `${base}/share/${k}/card`, square: `${base}/share/${k}/card?size=square`, xIntent: `https://x.com/intent/post?url=${encodeURIComponent(`${base}/share/${k}`)}` });
+      const card = (k: string) => ({ kind: k, page: `${base}/share/${k}`, image: `${base}/share/${k}/card`, square: `${base}/share/${k}/card?size=square`, xIntent: `https://x.com/intent/post?url=${encodeURIComponent(mcpShare(`${base}/share/${k}`, k))}` });
       if (kind && !kinds.includes(kind) && !kind.startsWith("milestone-") && !kind.startsWith("spike-")) fail("bad_request", `kind must be one of ${kinds.join(", ")} or milestone-<id>`);
       return { project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic }, card: kind ? card(kind) : card("users"), available: kinds.map(card), milestones: milestones.map((m) => ({ ...card(`milestone-${m.id}`), title: m.title })), note: saas.isPublic ? undefined : "Publish the project first; share images 404 for drafts." };
     }),
@@ -799,12 +800,13 @@ export const embedCode = query({
       const qs = new URLSearchParams({ type, ...(theme === "light" ? { theme: "light" } : {}), ...(window === "7d" ? { window: "7d" } : {}), ...(compact ? { compact: "1" } : {}) });
       const src = `${urls.badge}?${qs}`;
       const height = type === "chart" ? (compact ? 96 : 120) : 28;
+      const page = attributedUrl(urls.page, { ref: "badge", source: "badge", medium: "image", campaign: type });
       return {
         project, format,
         type, theme: theme ?? "dark", window, compact: Boolean(compact),
         imageUrl: src,
-        html: `<a href="${urls.page}"><img src="${src}" alt="${saas.name} on UserTrack" height="${height}"></a>`,
-        markdown: `[![${saas.name} on UserTrack](${src})](${urls.page})`,
+        html: `<a href="${page}"><img src="${src}" alt="${saas.name} on UserTrack" height="${height}"></a>`,
+        markdown: `[![${saas.name} on UserTrack](${src})](${page})`,
         types, cache: "Rendered on request, cached 1h at the edge; only public metrics; no key needed.",
         note,
       };
@@ -813,6 +815,9 @@ export const embedCode = query({
 
 // ---- v0.7: founder profile, share events, share cards, X drafts ------------------------------------------------------
 
+// Outbound share links handed to agents are attributed; `page` / `card` URLs stay canonical.
+const mcpShare = (page: string, kind: string) => attributedUrl(page, { ref: "share", source: "mcp", medium: "share-card", campaign: kind });
+
 const cardUrls = (page: string, kind: string, c: Partial<CardConfig> = {}) => {
   const q = cardQuery(c);
   return { kind, page: `${page}/share/${kind}`, image: `${page}/share/${kind}/card${q}`, square: `${page}/share/${kind}/card${cardQuery({ ...c, size: "square" })}` };
@@ -820,7 +825,7 @@ const cardUrls = (page: string, kind: string, c: Partial<CardConfig> = {}) => {
 
 function draftFor(e: Doc<"shareEvents">, saas: Doc<"saas">, profile: Doc<"profiles">, url: string) {
   const text = xDraft({ kind: e.kind as DraftKind, name: saas.name, value: e.value, title: e.title, totalUsers: saas.totalUsers, newUsers30d: saas.newUsers30d, growth30dPct: saas.growth30dPct, rank: e.rank, percentile: e.percentile, verified: saas.trust === "verified", author: "founder", seed: e.key, founderHandle: profile.x });
-  return { text, xIntent: xIntentUrl(text, url) };
+  return { text, xIntent: xIntentUrl(text, mcpShare(url, e.cardKind)) };
 }
 
 async function founderProfile(ctx: QueryCtx | MutationCtx, profile: Doc<"profiles">) {
@@ -931,7 +936,7 @@ export const createShareCardTool = mutation({
       if (!kinds.includes(k) && !/^(milestone|spike)-[a-z0-9]+$/i.test(k)) fail("bad_request", `kind must be one of ${kinds.join(", ")}, milestone-<id> or spike-<id>`);
       const urls = cardUrls(projectUrls(saas).page, k, config);
       if (event) await ctx.db.patch(event._id, { status: "shared", sharedAt: Date.now() });
-      const draft = event ? draftFor(event, saas, profile, urls.page) : (() => { const text = xDraft({ kind: (k.split("-")[0] as DraftKind), name: saas.name, value: saas.totalUsers, totalUsers: saas.totalUsers, newUsers30d: saas.newUsers30d, newUsers7d: saas.newUsers7d, growth30dPct: saas.growth30dPct, rank: k === "trending" ? saas.trendingRank : saas.rank, verified: saas.trust === "verified", author: "founder", seed: k }); return { text, xIntent: xIntentUrl(text, urls.page) }; })();
+      const draft = event ? draftFor(event, saas, profile, urls.page) : (() => { const text = xDraft({ kind: (k.split("-")[0] as DraftKind), name: saas.name, value: saas.totalUsers, totalUsers: saas.totalUsers, newUsers30d: saas.newUsers30d, newUsers7d: saas.newUsers7d, growth30dPct: saas.growth30dPct, rank: k === "trending" ? saas.trendingRank : saas.rank, verified: saas.trust === "verified", author: "founder", seed: k }); return { text, xIntent: xIntentUrl(text, mcpShare(urls.page, k)) }; })();
       return { project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic }, config: { style: "blueprint", size: "og", range: "30d", chart: true, logo: true, founder: true, verified: true, dates: true, ...config }, card: urls, draft, styles: CARD_STYLES, ranges: CARD_RANGES, verificationLine: saas.trust === "verified" ? "Verified by UserTrack" : "Tracked on UserTrack", note: saas.isPublic ? undefined : "Publish the project first; share images 404 for drafts." };
     }),
 });
@@ -952,7 +957,7 @@ export const xDraftTool = query({
       const k = (kind ?? "users") as DraftKind;
       const page = `${projectUrls(saas).page}/share/${kind ?? "users"}`;
       const text = xDraft({ kind: k, name: saas.name, value: k === "users" ? saas.totalUsers : k === "growth" ? saas.newUsers30d : k === "week" ? saas.newUsers7d : k === "activation" ? (saas.activationRatePct ?? 0) : k === "trending" ? (saas.trendingRank ?? 0) : (saas.rank ?? 0), totalUsers: saas.totalUsers, newUsers30d: saas.newUsers30d, newUsers7d: saas.newUsers7d, growth30dPct: saas.growth30dPct, rank: k === "trending" ? saas.trendingRank : saas.rank, verified: saas.trust === "verified", author: "founder", seed: k, founderHandle: profile.x });
-      return { project: { id: saas._id, slug: saas.slug, name: saas.name }, url: page, text, xIntent: xIntentUrl(text, page) };
+      return { project: { id: saas._id, slug: saas.slug, name: saas.name }, url: page, text, xIntent: xIntentUrl(text, mcpShare(page, kind ?? "users")) };
     }),
 });
 

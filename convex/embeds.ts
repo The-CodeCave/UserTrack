@@ -11,10 +11,11 @@ export function normalizeHost(raw: string | null | undefined) {
   return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(h) && h.length <= 253 ? h : null;
 }
 
-// Called by /embed/[slug] after the response is sent. Gateway secret keeps the mutation private to the Next.js process.
+// Called by /embed/[slug] and /api/badge/[slug] after the response is sent. Gateway secret keeps the mutation private to
+// the Next.js process. One row per (project, host) whatever the kind; widget loads and badge loads are counted apart.
 export const record = mutation({
-  args: { gateway: v.optional(v.string()), slug: v.string(), host: v.string() },
-  handler: async (ctx, { gateway, slug, host }) => {
+  args: { gateway: v.optional(v.string()), slug: v.string(), host: v.string(), kind: v.optional(v.union(v.literal("widget"), v.literal("badge"))) },
+  handler: async (ctx, { gateway, slug, host, kind = "widget" }) => {
     if (!gatewayMatches(gateway)) return { ok: false as const };
     const h = normalizeHost(host);
     if (!h) return { ok: false as const };
@@ -22,10 +23,11 @@ export const record = mutation({
     if (!s || !s.isPublic) return { ok: false as const };
     const now = Date.now();
     const row = await ctx.db.query("embedSites").withIndex("by_saas_host", (q) => q.eq("saasId", s._id).eq("host", h)).unique();
+    const badge = kind === "badge";
     if (row) {
-      await ctx.db.patch(row._id, { loads: row.loads + 1, lastSeenAt: now });
+      await ctx.db.patch(row._id, { ...(badge ? { badgeLoads: (row.badgeLoads ?? 0) + 1 } : { loads: row.loads + 1 }), lastSeenAt: now });
     } else {
-      await ctx.db.insert("embedSites", { saasId: s._id, host: h, loads: 1, firstSeenAt: now, lastSeenAt: now });
+      await ctx.db.insert("embedSites", { saasId: s._id, host: h, loads: badge ? 0 : 1, badgeLoads: badge ? 1 : undefined, firstSeenAt: now, lastSeenAt: now });
       await ctx.db.patch(s._id, { embedSiteCount: (s.embedSiteCount ?? 0) + 1 });
     }
     return { ok: true as const, host: h };

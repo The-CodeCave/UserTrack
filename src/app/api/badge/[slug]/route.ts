@@ -1,8 +1,10 @@
-import { fetchQuery } from "convex/nextjs";
+import { after } from "next/server";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@convex/_generated/api";
 import { BADGE_TYPES, renderBadge, renderNotFoundBadge, type BadgeTheme, type BadgeType, type BadgeWindow } from "@/lib/badge";
 import { serverTrack } from "@/lib/analytics-server";
-import { limit, tooMany } from "@/lib/api/rate-limit";
+import { embedHost } from "@/lib/embed-host";
+import { limit, take, tooMany } from "@/lib/api/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   const compact = q.get("compact") === "1";
   const s = await fetchQuery(api.public.saasBySlug, { slug });
   if (s) serverTrack(req, "badge_rendered", { type });
+  // Best effort: only cache misses reach origin, and README images arrive via GitHub's camo proxy without a Referer.
+  const host = s ? embedHost(req.headers.get("referer")) : null;
+  if (host && take(`embed-site:${slug}:${host}`, Date.now(), 1).allowed) {
+    after(() => fetchMutation(api.embeds.record, { gateway: process.env.UT_GATEWAY_SECRET, slug, host, kind: "badge" }).catch((e) => console.error("[badge] record", e)));
+  }
   const svg = s
     ? renderBadge({ type, theme, window, compact, name: s.name, totalUsers: s.totalUsers, newUsers7d: s.newUsers7d, newUsers30d: s.newUsers30d, growth7dPct: s.growth7dPct, growth30dPct: s.growth30dPct, trendingRank: s.trendingRank, trustLabel: s.trustLabel, spark: s.spark })
     : renderNotFoundBadge(theme);

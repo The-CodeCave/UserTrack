@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCompact, timeAgo } from "@/lib/format";
 import { AGENT_PROMPT, mcpSnippets } from "@/lib/mcp/snippets";
-import { saasUrl, shareUrl } from "@/lib/site";
+import { saasUrl, shareLinkUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 type Status = NonNullable<FunctionReturnType<typeof api.onboarding.agentSetupStatus>>;
@@ -351,7 +351,7 @@ function Done({ project }: { project: AiSetupProject }) {
       </div>
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         <Button className="h-11" render={<a href={url} target="_blank" rel="noreferrer" />}>View public page <ExternalLink className="size-4" /></Button>
-        <Button variant="outline" className="h-11" render={<a href={shareUrl(project.slug, "users")} target="_blank" rel="noreferrer" />}><Share2 className="size-4" /> Share</Button>
+        <Button variant="outline" className="h-11" render={<a href={shareLinkUrl(project.slug, "users", "ai-setup")} target="_blank" rel="noreferrer" />}><Share2 className="size-4" /> Share</Button>
         <Button variant="ghost" className="h-11" render={<Link href="/app" />}>Go to dashboard</Button>
       </div>
     </Panel>

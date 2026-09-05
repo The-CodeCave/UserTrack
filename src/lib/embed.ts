@@ -1,3 +1,5 @@
+import { attributedUrl } from "./site";
+
 // Widget embed parameters + snippets. Shared by the configurator, the /embed route, the loader defaults and the MCP
 // gateway (imported from convex/), so every snippet matches what /embed/[slug] actually parses.
 export const WIDGET_TYPES = ["users", "growth", "verified", "chart"] as const;
@@ -30,7 +32,9 @@ export function widgetQuery(p: WidgetParams) {
 }
 
 // Every link out of a widget is attributable: ref for the app, utm_* for whatever analytics the founder runs.
-export const widgetPageUrl = (siteUrl: string, slug: string, type: WidgetType) => `${siteUrl}/s/${slug}?ref=embed&utm_source=embed&utm_medium=widget&utm_campaign=${type}`;
+export const widgetPageUrl = (siteUrl: string, slug: string, type: WidgetType) => attributedUrl(`${siteUrl}/s/${slug}`, { ref: "embed", source: "embed", medium: "widget", campaign: type });
+// Which kinds of embed a host has loaded (embedSites row).
+export const embedKinds = (e: { loads: number; badgeLoads?: number }) => [...(e.loads > 0 ? ["widget"] : []), ...((e.badgeLoads ?? 0) > 0 ? ["badge"] : [])];
 
 export function widgetSnippets(o: { siteUrl: string; slug: string; name: string } & WidgetParams) {
   const q = widgetQuery(o);

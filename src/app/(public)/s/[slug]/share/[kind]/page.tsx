@@ -46,7 +46,7 @@ export default async function SharePage({ params }: { params: Promise<{ slug: st
       </Panel>
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <ShareButton target={target} variant="button" className="h-9 border-pink/60 text-pink hover:bg-pink/10">Customize in Studio</ShareButton>
-        <ShareButtons url={url} text={c.text} />
+        <ShareButtons url={url} text={c.text} kind={kind} />
         <TrackOnMount event="share_card_viewed" props={{ kind }} />
         <Button size="sm" variant="outline" render={<TrackedA event="share_card_downloaded" props={{ kind, range: "30d" }} href={image} download={`${slug}-${kind}.png`} />}><Download className="size-4" /> PNG</Button>
         <Button size="sm" variant="outline" render={<TrackedA event="share_card_downloaded" props={{ kind, range: "30d" }} href={`${image}?size=square`} download={`${slug}-${kind}-square.png`} />}><Download className="size-4" /> Square</Button>

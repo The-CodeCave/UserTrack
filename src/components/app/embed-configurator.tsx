@@ -4,16 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { Panel } from "@/components/blueprint/panel";
 import { badgeSrc, hasWindow, Seg, Snippet, TYPES, type BadgeKind, type Win } from "@/components/public/embed-badge";
-import { widgetHasWindow, widgetSnippets, type WidgetTheme, type WidgetType } from "@/lib/embed";
+import { embedKinds, widgetHasWindow, widgetSnippets, type WidgetTheme, type WidgetType } from "@/lib/embed";
 import { formatDate, timeAgo } from "@/lib/format";
-import { SITE_URL, saasUrl } from "@/lib/site";
+import { SITE_URL, attributedUrl, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 
 const Field = ({ label, children }: { label: string; children: React.ReactNode }) => <div className="space-y-1"><div className="text-label">{label}</div>{children}</div>;
 const WIN = [{ key: "7d", label: "7d" }, { key: "30d", label: "30d" }] as const;
 const WIDGETS = [{ key: "users", label: "Live user count" }, { key: "growth", label: "Growth %" }, { key: "verified", label: "Verified by UserTrack" }, { key: "chart", label: "Mini chart" }] as const;
-export interface EmbedSite { host: string; loads: number; firstSeenAt: number; lastSeenAt: number }
+export interface EmbedSite { host: string; loads: number; badgeLoads?: number; firstSeenAt: number; lastSeenAt: number }
 
 // Full embed configurator: live iframe widget (script / iframe snippets) or SVG badge (HTML / Markdown), plus where it is embedded.
 export function EmbedConfigurator({ slug, name, isPublic, embedSites }: { slug: string; name: string; isPublic: boolean; embedSites: EmbedSite[] }) {
@@ -76,7 +76,7 @@ function BadgeConfigurator({ slug, name }: { slug: string; name: string }) {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [compact, setCompact] = useState(false);
   const { src, height } = badgeSrc({ slug, type, theme, window: win, compact });
-  const page = saasUrl(slug);
+  const page = attributedUrl(saasUrl(slug), { ref: "badge", source: "badge", medium: "image", campaign: type });
   const html = `<a href="${page}"><img src="${src}" alt="${name} on UserTrack" height="${height}"></a>`;
   const md = `[![${name} on UserTrack](${src})](${page})`;
   return (
@@ -111,13 +111,14 @@ function EmbedSites({ sites }: { sites: EmbedSite[] }) {
         <span className="font-mono text-[11px] text-muted-foreground">{sites.length} {sites.length === 1 ? "site" : "sites"}</span>
       </div>
       {sites.length === 0 ? (
-        <p className="mt-1 text-xs text-muted-foreground">No embeds detected yet. Hosts show up here after the first load of a widget on another site — only the domain is stored, never visitors. Your own domain and localhost are ignored.</p>
+        <p className="mt-1 text-xs text-muted-foreground">No embeds detected yet. Hosts show up here after the first load of a widget or badge on another site — only the domain is stored, never visitors. Your own domain and localhost are ignored; badges in GitHub READMEs are proxied without a referrer and cannot be detected.</p>
       ) : (
         <ul className="mt-3 divide-y divide-line border-t border-line">
           {sites.map((s) => (
             <li key={s.host} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-sm">
               <a href={`https://${s.host}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium hover:text-pink">{s.host} <ExternalLink className="size-3" /></a>
-              <span className="ml-auto font-mono text-[11px] text-muted-foreground">{s.loads.toLocaleString("en")} {s.loads === 1 ? "load" : "loads"} · since {formatDate(s.firstSeenAt)} · last {timeAgo(s.lastSeenAt)}</span>
+              {embedKinds(s).map((k) => <span key={k} className="border border-line px-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{k}</span>)}
+              <span className="ml-auto font-mono text-[11px] text-muted-foreground">{(s.loads + (s.badgeLoads ?? 0)).toLocaleString("en")} {s.loads + (s.badgeLoads ?? 0) === 1 ? "load" : "loads"} · since {formatDate(s.firstSeenAt)} · last {timeAgo(s.lastSeenAt)}</span>
             </li>
           ))}
         </ul>

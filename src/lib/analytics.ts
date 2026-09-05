@@ -33,7 +33,7 @@ export type Events = {
   embed_snippet_copied: { widget: string };
   dataset_downloaded: { dataset: string; format: "json" | "csv" };
   sign_up_started: { method: AuthMethod };
-  sign_up_completed: { method: AuthMethod };
+  sign_up_completed: { method: AuthMethod; ref?: string };
   sign_in: { method: AuthMethod };
   email_verification_resent: undefined;
   sign_out: undefined;

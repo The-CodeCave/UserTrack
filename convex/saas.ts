@@ -163,7 +163,7 @@ export const getMine = query({
     const embedSites = await ctx.db.query("embedSites").withIndex("by_saas_last", (q) => q.eq("saasId", id)).order("desc").take(20);
     return {
       ...saas,
-      embedSites: embedSites.map((e) => ({ host: e.host, loads: e.loads, firstSeenAt: e.firstSeenAt, lastSeenAt: e.lastSeenAt })),
+      embedSites: embedSites.map((e) => ({ host: e.host, loads: e.loads, badgeLoads: e.badgeLoads, firstSeenAt: e.firstSeenAt, lastSeenAt: e.lastSeenAt })),
       trustLabel: publicTrustLabel(saas.trust, saas.trustState, saas.trustScore),
       visibility: visibilityOf(saas),
       integrations: integrations.map((i) => ({ _id: i._id, ...integrationView(i) })),

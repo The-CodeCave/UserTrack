@@ -104,7 +104,7 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
           </Panel>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <SectionLabel>Share this comparison</SectionLabel>
-            <ShareButtons url={`${SITE_URL}${href(current, days)}`} text={`Comparing ${items.map((i) => i.name).join(" vs ")} on UserTrack`} />
+            <ShareButtons url={`${SITE_URL}${href(current, days)}`} text={`Comparing ${items.map((i) => i.name).join(" vs ")} on UserTrack`} kind="compare" />
           </div>
         </>
       )}

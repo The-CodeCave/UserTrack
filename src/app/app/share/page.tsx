@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ShareButton } from "@/components/share/share-button";
 import { SHARE_CATEGORY_META, type ShareCategory } from "@convex/lib/shareRules";
-import { shareUrl } from "@/lib/site";
+import { shareLinkUrl, shareUrl } from "@/lib/site";
 import { xDraft, type DraftKind } from "@/lib/x-drafts";
 import { xIntentUrl } from "@/lib/social";
 import { timeAgo } from "@/lib/format";
@@ -84,10 +84,10 @@ export default function ShareCenterPage() {
               </div>
               <div className={cn("mt-3 flex flex-wrap items-center gap-2", !e.saas.isPublic && "pointer-events-none opacity-50")}>
                 <ShareButton variant="button" className="h-9 flex-1 sm:flex-none" target={{ page, slug: e.saas.slug, kind: e.cardKind, label: `${e.saas.name} · ${e.title}`, trust: e.saas.trust, text, shareEventId: e._id }}>Preview & download</ShareButton>
-                <Button size="sm" variant="outline" className="h-9" onClick={async () => { await navigator.clipboard.writeText(page); setCopied(e._id); setTimeout(() => setCopied(null), 1500); }}>
+                <Button size="sm" variant="outline" className="h-9" onClick={async () => { await navigator.clipboard.writeText(shareLinkUrl(e.saas.slug, e.cardKind, "link")); setCopied(e._id); setTimeout(() => setCopied(null), 1500); }}>
                   {copied === e._id ? <Check className="size-3.5 text-pink" /> : <Copy className="size-3.5" />} Copy link
                 </Button>
-                <Button size="sm" variant="outline" className="h-9 sm:ml-auto" render={<a href={xIntentUrl(text, page)} target="_blank" rel="noreferrer" />} onClick={() => { if (e.status === "ready") void markShared({ id: e._id }).catch(() => toast.error("Could not update")); }}>
+                <Button size="sm" variant="outline" className="h-9 sm:ml-auto" render={<a href={xIntentUrl(text, shareLinkUrl(e.saas.slug, e.cardKind, "x"))} target="_blank" rel="noreferrer" />} onClick={() => { if (e.status === "ready") void markShared({ id: e._id }).catch(() => toast.error("Could not update")); }}>
                   <span className="font-semibold">𝕏</span> Post to X
                 </Button>
               </div>

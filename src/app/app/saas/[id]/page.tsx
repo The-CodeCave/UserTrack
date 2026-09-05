@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { saasUrl, shareUrl } from "@/lib/site";
+import { embedKinds } from "@/lib/embed";
 import { availableShareKinds, shareCopy, type ShareKind } from "@/lib/share";
 import { ShareButton } from "@/components/share/share-button";
 import { formatCompact, formatDelta, formatPct, formatRate, timeAgo } from "@/lib/format";
@@ -315,7 +316,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
           <p className="mt-1 text-xs text-muted-foreground">Live widgets (user count, growth, verified, mini chart) with auto theme live in the configurator; the SVG badge below works anywhere.</p>
           <p className="mt-2 font-mono text-[11px] text-muted-foreground">
             {saas.embedSites.length > 0
-              ? `Embedded on ${saas.embedSites.length} ${saas.embedSites.length === 1 ? "site" : "sites"}: ${saas.embedSites.slice(0, 3).map((e) => e.host).join(", ")}${saas.embedSites.length > 3 ? ` +${saas.embedSites.length - 3}` : ""}`
+              ? `Embedded on ${saas.embedSites.length} ${saas.embedSites.length === 1 ? "site" : "sites"}: ${saas.embedSites.slice(0, 3).map((e) => `${e.host} (${embedKinds(e).join(" + ")})`).join(", ")}${saas.embedSites.length > 3 ? ` +${saas.embedSites.length - 3}` : ""}`
               : "Not embedded anywhere yet."}
           </p>
           <div className="mt-3"><EmbedBadge slug={saas.slug} name={saas.name} /></div>

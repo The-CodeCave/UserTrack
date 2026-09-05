@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Check, Copy } from "lucide-react";
 import { track } from "@/lib/analytics";
-import { badgeUrl, saasUrl } from "@/lib/site";
+import { attributedUrl, badgeUrl, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 export const TYPES = [
@@ -40,7 +40,7 @@ export function EmbedBadge({ slug, name, manageHref }: { slug: string; name: str
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [win, setWin] = useState<Win>("30d");
   const { src, height } = badgeSrc({ slug, type, theme, window: win });
-  const page = saasUrl(slug);
+  const page = attributedUrl(saasUrl(slug), { ref: "badge", source: "badge", medium: "image", campaign: type });
   const html = `<a href="${page}"><img src="${src}" alt="${name} on UserTrack" height="${height}"></a>`;
   const md = `[![${name} on UserTrack](${src})](${page})`;
   return (

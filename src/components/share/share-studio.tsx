@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { CARD_RANGE_LABEL, CARD_RANGES, CARD_STYLE_META, CARD_STYLES, DEFAULT_CARD, cardImageUrl, fileName, verificationLine, type CardConfig, type CardStyle } from "@/lib/share-card";
 import { xIntentUrl } from "@/lib/social";
+import { attributedUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 export interface StudioTarget {
@@ -98,8 +99,10 @@ export function ShareStudio({ target, open, onOpenChange }: { target: StudioTarg
       setBusy(null);
     }
   }
+  // Outbound links are attributed per channel; the preview / canonical `target.page` stays clean.
+  const outbound = (channel: string) => attributedUrl(target.page, { ref: "share", source: channel, medium: "share-card", campaign: target.kind });
   async function copyLink() {
-    await navigator.clipboard.writeText(target.page);
+    await navigator.clipboard.writeText(outbound("link"));
     void track({ kind: target.kind, action: "copied_link" });
     flash("link");
   }
@@ -107,7 +110,7 @@ export function ShareStudio({ target, open, onOpenChange }: { target: StudioTarg
     void track({ kind: target.kind, action: "x_intent" });
     analytics("share_intent_opened", { network: "x" });
     shared();
-    window.open(xIntentUrl(target.text, target.page), "_blank", "noopener,noreferrer");
+    window.open(xIntentUrl(target.text, outbound("x")), "_blank", "noopener,noreferrer");
   }
 
   return (

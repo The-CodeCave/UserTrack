@@ -49,6 +49,16 @@ describe("embeds.record", () => {
     expect(rows.map((r) => [r.host, r.loads]).sort()).toEqual([["acme.io", 2], ["blog.acme.io", 1]]);
     expect((await tx.run((ctx) => ctx.db.get(id as Id<"saas">)))?.embedSiteCount).toBe(2);
   });
+  it("counts badge loads apart on the same per-host row", async () => {
+    const tx = t();
+    const id = await seed(tx);
+    expect(await tx.mutation(api.embeds.record, { gateway: GATEWAY, slug: "acme", host: "acme.io", kind: "badge" })).toEqual({ ok: true, host: "acme.io" });
+    await tx.mutation(api.embeds.record, { gateway: GATEWAY, slug: "acme", host: "acme.io", kind: "badge" });
+    await tx.mutation(api.embeds.record, { gateway: GATEWAY, slug: "acme", host: "acme.io", kind: "widget" });
+    const rows = await tx.run((ctx) => ctx.db.query("embedSites").collect());
+    expect(rows.map((r) => [r.host, r.loads, r.badgeLoads])).toEqual([["acme.io", 1, 2]]);
+    expect((await tx.run((ctx) => ctx.db.get(id as Id<"saas">)))?.embedSiteCount).toBe(1);
+  });
   it("ignores drafts, unknown slugs and invalid hosts", async () => {
     const tx = t();
     await seed(tx, { isPublic: false });

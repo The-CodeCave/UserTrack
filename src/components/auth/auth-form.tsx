@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Loader2, MailCheck } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { track, type AuthMethod } from "@/lib/analytics";
+import { readAttribution } from "@/lib/attribution";
 import { authClient } from "@/lib/auth-client";
 import { safeInternalPath } from "@/lib/safe-redirect";
 import { Button } from "@/components/ui/button";
@@ -90,7 +91,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
       return;
     }
     if (mode === "sign-up") {
-      track("sign_up_completed", { method: "email" });
+      track("sign_up_completed", { method: "email", ref: readAttribution()?.ref });
       setSignedUp(email);
       return;
     }

@@ -5,21 +5,10 @@ import { parseWidgetParams, widgetPageUrl } from "@/lib/embed";
 import { renderWidgetHtml } from "@/lib/widget";
 import { serverTrack } from "@/lib/analytics-server";
 import { limit, take, tooMany } from "@/lib/api/rate-limit";
-import { SITE_HOST, SITE_URL } from "@/lib/site";
+import { SITE_URL } from "@/lib/site";
+import { embedHost } from "@/lib/embed-host";
 
 export const dynamic = "force-dynamic";
-
-const IGNORED_HOSTS = new Set([SITE_HOST, "localhost"]);
-
-// Embedding host from the Referer (origin only under the default referrer policy). Own host + localhost never count.
-function embedHost(referer: string | null) {
-  try {
-    const h = referer ? new URL(referer).hostname.toLowerCase().replace(/^www\./, "") : "";
-    return h && !IGNORED_HOSTS.has(h) ? h : null;
-  } catch {
-    return null;
-  }
-}
 
 // The iframe document behind /widget.js. HTML is never cached so every load can be attributed to its host.
 export async function GET(req: Request, { params }: { params: Promise<{ slug: string }> }) {

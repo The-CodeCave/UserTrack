@@ -101,6 +101,8 @@ export default defineSchema({
     followerCount: v.optional(v.number()),
     // Last time the founder opened /app/following; feed items newer than this count as unseen.
     feedSeenAt: v.optional(v.number()),
+    // First-touch sign-up source (ref / utm_*), written once on insert, never public (docs/ANALYTICS.md).
+    attribution: v.optional(v.object({ ref: v.optional(v.string()), source: v.optional(v.string()), medium: v.optional(v.string()), campaign: v.optional(v.string()), at: v.number() })),
     // false hides /u/<username>, search and the API; default public.
     profilePublic: v.optional(v.boolean()),
     // Summary of a connected X account; tokens live in socialConnections and never here.
@@ -556,6 +558,7 @@ export default defineSchema({
     saasId: v.id("saas"),
     host: v.string(),
     loads: v.number(),
+    badgeLoads: v.optional(v.number()),
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
   })

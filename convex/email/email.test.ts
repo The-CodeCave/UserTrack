@@ -32,6 +32,13 @@ const samples: { [T in EmailType]: TemplateData[T] } = {
 };
 
 describe("templates", () => {
+  it("attributes app links with ref=email + UTM, never the signed preference links", () => {
+    const r = renderEmail("user-milestone", samples["user-milestone"], ctx);
+    expect(r.html).toContain("/s/acme/share/users?ref=email&amp;utm_source=email&amp;utm_medium=user-milestone&amp;utm_campaign=users");
+    expect(r.text).toContain("utm_source=email");
+    expect(r.html).toContain(`href="${ctx.prefsUrl}"`);
+    expect(renderEmail("verify-email", samples["verify-email"], ctx).html).not.toContain("utm_source");
+  });
   for (const type of EMAIL_TYPES) {
     it(`${type} renders with subject, CTA and brand`, () => {
       const r = renderEmail(type, samples[type] as never, ctx);

@@ -8,6 +8,7 @@ import { api } from "../../../convex/_generated/api";
 import type { Doc } from "../../../convex/_generated/dataModel";
 import { slugify } from "@/lib/slug";
 import { normalizeXHandle, xHandleError } from "@/lib/social";
+import { readAttribution } from "@/lib/attribution";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,7 +50,7 @@ export function ProfileForm({
     setSaving(true);
     try {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
-      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: normalizeXHandle(x) || undefined, github: opt("github"), linkedin: opt("linkedin"), avatarUrl: opt("avatarUrl"), location: opt("location"), timezone });
+      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: normalizeXHandle(x) || undefined, github: opt("github"), linkedin: opt("linkedin"), avatarUrl: opt("avatarUrl"), location: opt("location"), timezone, attribution: readAttribution() ?? undefined });
       toast.success("Profile saved");
       onSaved?.();
     } catch (err) {

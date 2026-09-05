@@ -1,11 +1,14 @@
 import type { EmailType } from "../types";
 import type { MonthlyPayload, ProjectReport } from "../../lib/emailRules";
+import { attributedUrl } from "../../../src/lib/site";
 import { BRAND, button, dateStr, delta, esc, label, layout, metric, metricRow, muted, num, paragraph, pctStr, row, section, text } from "./layout";
 
 export interface RenderContext {
   siteUrl: string;
   prefsUrl?: string;
   unsubscribeUrl?: string;
+  // Set by renderEmail: becomes utm_medium on every app link.
+  emailType?: EmailType;
 }
 
 export interface Rendered {
@@ -52,10 +55,12 @@ const fmtDuration = (ms: number) => {
   return `${m} month${m === 1 ? "" : "s"}`;
 };
 
-const saasUrl = (c: RenderContext, slug: string) => `${c.siteUrl}/s/${slug}`;
-const manageUrl = (c: RenderContext, saasId: string) => `${c.siteUrl}/app/saas/${saasId}`;
-const shareUrl = (c: RenderContext, slug: string, kind: string) => `${c.siteUrl}/s/${slug}/share/${kind}`;
-const shareCenter = (c: RenderContext) => muted(`A ready-made share card is waiting in your <a href="${c.siteUrl}/app/share" style="color:${BRAND.ink}">Share Center</a> — download the PNG or post it to X in one click.`);
+// Every app link out of an email is attributable (docs/ANALYTICS.md). Signed prefs / unsubscribe / verify / reset links never go through here.
+const link = (c: RenderContext, path: string, campaign = path.split("/").filter(Boolean).pop() ?? "home") => attributedUrl(`${c.siteUrl}${path}`, { ref: "email", source: "email", medium: c.emailType ?? "email", campaign });
+const saasUrl = (c: RenderContext, slug: string) => link(c, `/s/${slug}`, "product");
+const manageUrl = (c: RenderContext, saasId: string) => link(c, `/app/saas/${saasId}`, "manage");
+const shareUrl = (c: RenderContext, slug: string, kind: string) => link(c, `/s/${slug}/share/${kind}`, kind);
+const shareCenter = (c: RenderContext) => muted(`A ready-made share card is waiting in your <a href="${esc(link(c, "/app/share"))}" style="color:${BRAND.ink}">Share Center</a> — download the PNG or post it to X in one click.`);
 
 type Builder<T extends EmailType> = (data: TemplateData[T], c: RenderContext) => Rendered;
 
@@ -64,7 +69,7 @@ const growthFooter = (c: RenderContext) => (c.prefsUrl ? "You get growth notific
 const nudgeFooter = "You get setup reminders while your UserTrack account is getting started.";
 
 const welcome: Builder<"welcome"> = (d, c) => {
-  const cta = d.verifyUrl ? { label: "Confirm email & set up your profile", url: d.verifyUrl } : { label: "Set up your profile", url: `${c.siteUrl}/app/onboarding` };
+  const cta = d.verifyUrl ? { label: "Confirm email & set up your profile", url: d.verifyUrl } : { label: "Set up your profile", url: link(c, "/app/onboarding") };
   const body = `<div style="margin:6px 0 4px">${["Connect a read-only data source — Clerk, Supabase, Firebase, Auth0 or your own endpoint.", "Get a public growth page with a verified user count, synced every 4 hours.", "Get ranked on the leaderboard and share your traction with real numbers."].map((s, i) => `<div style="padding:8px 0;border-top:1px solid ${BRAND.line};font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:${BRAND.ink}"><span style="font-family:ui-monospace,Menlo,monospace;color:${BRAND.pink};margin-right:10px">0${i + 1}</span>${esc(s)}</div>`).join("")}</div>`;
   return {
     subject: "Welcome to UserTrack",
@@ -98,8 +103,8 @@ const accountDeleted: Builder<"account-deleted"> = (d, c) => ({
 const profileReminder: Builder<"profile-reminder"> = (d, c) => ({
   subject: "Finish setting up your UserTrack profile",
   preheader: "Your public growth page is one step away.",
-  html: layout({ siteUrl: c.siteUrl, eyebrow: "SETUP", title: "Your profile is still empty", intro: `Hi ${esc(d.name)}, you created a UserTrack account yesterday but have not set up a founder profile yet. It takes about a minute: a handle, a name, and you are ready to add your first product.`, cta: { label: "Complete profile", url: `${c.siteUrl}/app/onboarding` }, footerNote: nudgeFooter + " This is the only reminder you will get about it.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
-  text: text([`Hi ${d.name}, your UserTrack profile is still empty. Finish it here:`, `${c.siteUrl}/app/onboarding`, "This is the only reminder you will get about it."]),
+  html: layout({ siteUrl: c.siteUrl, eyebrow: "SETUP", title: "Your profile is still empty", intro: `Hi ${esc(d.name)}, you created a UserTrack account yesterday but have not set up a founder profile yet. It takes about a minute: a handle, a name, and you are ready to add your first product.`, cta: { label: "Complete profile", url: link(c, "/app/onboarding") }, footerNote: nudgeFooter + " This is the only reminder you will get about it.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
+  text: text([`Hi ${d.name}, your UserTrack profile is still empty. Finish it here:`, link(c, "/app/onboarding"), "This is the only reminder you will get about it."]),
 });
 
 const missingSource: Builder<"missing-source"> = (d, c) => ({
@@ -136,12 +141,12 @@ const sourceRecovered: Builder<"source-recovered"> = (d, c) => ({
 
 const userMilestone: Builder<"user-milestone"> = (d, c) => {
   const sub = d.previousThreshold && d.sinceMs !== undefined ? `${num(d.previousThreshold)} → ${num(d.threshold)} in ${fmtDuration(d.sinceMs)}` : `${num(d.totalUsers)} users right now`;
-  const cta = d.isPublic ? { label: "Share milestone", url: shareUrl(c, d.slug, "users") } : { label: "Open dashboard", url: `${c.siteUrl}/app` };
+  const cta = d.isPublic ? { label: "Share milestone", url: shareUrl(c, d.slug, "users") } : { label: "Open dashboard", url: link(c, "/app") };
   return {
     subject: `${d.saasName} just crossed ${num(d.threshold)} users`,
     preheader: sub,
     html: layout({ siteUrl: c.siteUrl, eyebrow: "MILESTONE", title: `${esc(d.saasName)} crossed ${num(d.threshold)} users`, intro: `Verified by your connected data source, not typed in. That is worth telling people about.`, body: metricRow([metric("Milestone", num(d.threshold), undefined, true), metric("Total now", num(d.totalUsers), d.previousThreshold && d.sinceMs !== undefined ? `since ${num(d.previousThreshold)}: ${fmtDuration(d.sinceMs)}` : undefined)]) + (d.isPublic ? shareCenter(c) : muted("Your page is a draft — publish it to get a share card with this milestone.")), cta, secondary: d.isPublic ? { label: "View public page", url: saasUrl(c, d.slug) } : undefined, footerNote: growthFooter(c), prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
-    text: text([`${d.saasName} just crossed ${num(d.threshold)} users (${num(d.totalUsers)} now).`, sub, `${cta.label}: ${cta.url}`, d.isPublic ? `Share Center: ${c.siteUrl}/app/share` : undefined]),
+    text: text([`${d.saasName} just crossed ${num(d.threshold)} users (${num(d.totalUsers)} now).`, sub, `${cta.label}: ${cta.url}`, d.isPublic ? `Share Center: ${link(c, "/app/share")}` : undefined]),
   };
 };
 
@@ -150,7 +155,7 @@ const rankMilestone: Builder<"rank-milestone"> = (d, c) => {
   return {
     subject: d.threshold === 1 ? `${d.saasName} is #1 on UserTrack` : `${d.saasName} entered the UserTrack ${tier}`,
     preheader: `#${d.rank} by verified new users in the last 30 days.`,
-    html: layout({ siteUrl: c.siteUrl, eyebrow: "LEADERBOARD", title: d.threshold === 1 ? `${esc(d.saasName)} is #1 on UserTrack` : `${esc(d.saasName)} entered the ${tier}`, intro: `Ranked by verified new users over the last 30 days, across every public product on UserTrack.`, body: metricRow([metric("Current rank", `#${d.rank}`, "last 30 days", true), metric("New users · 30d", delta(d.newUsers30d), pctStr(d.growth30dPct))]) + shareCenter(c), cta: { label: "Share ranking", url: shareUrl(c, d.slug, "rank") }, secondary: { label: "View leaderboard", url: `${c.siteUrl}/leaderboard` }, footerNote: growthFooter(c) + " Ranking emails only go out at Top 100 / 50 / 25 / 10 / 5 / #1.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
+    html: layout({ siteUrl: c.siteUrl, eyebrow: "LEADERBOARD", title: d.threshold === 1 ? `${esc(d.saasName)} is #1 on UserTrack` : `${esc(d.saasName)} entered the ${tier}`, intro: `Ranked by verified new users over the last 30 days, across every public product on UserTrack.`, body: metricRow([metric("Current rank", `#${d.rank}`, "last 30 days", true), metric("New users · 30d", delta(d.newUsers30d), pctStr(d.growth30dPct))]) + shareCenter(c), cta: { label: "Share ranking", url: shareUrl(c, d.slug, "rank") }, secondary: { label: "View leaderboard", url: link(c, "/leaderboard") }, footerNote: growthFooter(c) + " Ranking emails only go out at Top 100 / 50 / 25 / 10 / 5 / #1.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
     text: text([`${d.saasName} entered the UserTrack ${tier}: #${d.rank} by verified new users in the last 30 days (${delta(d.newUsers30d)}, ${pctStr(d.growth30dPct)}).`, `Share: ${shareUrl(c, d.slug, "rank")}`]),
   };
 };
@@ -204,12 +209,12 @@ const monthlyReport: Builder<"monthly-report"> = (d, c) => {
   return {
     subject: `Your ${r.label.split(" ")[0]} growth report`,
     preheader: `${delta(s.totalNewUsers)} users across ${r.projects.length} product${r.projects.length === 1 ? "" : "s"}.`,
-    html: layout({ siteUrl: c.siteUrl, eyebrow: r.label.toUpperCase(), title: `Your ${r.label.split(" ")[0]} on UserTrack`, intro: `Hi ${esc(d.name)}, here is the completed month for every product you track.`, body: summary + section("Highlights", highlights) + projects, cta: { label: "View full report", url: `${c.siteUrl}/app/reports/${r.period}` }, footerNote: "You get one consolidated report per month for the products you own.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
+    html: layout({ siteUrl: c.siteUrl, eyebrow: r.label.toUpperCase(), title: `Your ${r.label.split(" ")[0]} on UserTrack`, intro: `Hi ${esc(d.name)}, here is the completed month for every product you track.`, body: summary + section("Highlights", highlights) + projects, cta: { label: "View full report", url: link(c, `/app/reports/${r.period}`, "report") }, footerNote: "You get one consolidated report per month for the products you own.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
     text: text([
       `Your ${r.label} on UserTrack`,
       `${delta(s.totalNewUsers)} new users across all products · ${num(s.totalUsersEnd)} total`,
       ...r.projects.map((p) => (p.hasData ? `${p.name}\n${line(p)}${p.rankStart !== undefined || p.rankEnd !== undefined ? ` · #${p.rankStart ?? "—"} → #${p.rankEnd ?? "—"}` : ""}${p.funnelChanges?.length ? `\nFunnel: ${p.funnelChanges.join(" · ")}` : ""}` : `${p.name}\nno data this month`)),
-      `Full report: ${c.siteUrl}/app/reports/${r.period}`,
+      `Full report: ${link(c, `/app/reports/${r.period}`, "report")}`,
     ]),
   };
 };
@@ -227,8 +232,8 @@ const weeklyDigest: Builder<"weekly-digest"> = (d, c) => {
   return {
     subject: "Your week on UserTrack",
     preheader: d.own.length ? `${delta(d.own.reduce((a, s) => a + s.newUsers7d, 0))} users across your products this week.` : "Movers, milestones and what is trending.",
-    html: layout({ siteUrl: c.siteUrl, eyebrow: `WEEK ${d.week}`, title: `Hi ${esc(d.name)}, here is your growth week.`, body, cta: { label: "Open dashboard", url: `${c.siteUrl}/app` }, footerNote: "Weekly digest — optional, Monday mornings.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
-    text: text([`Week ${d.week} on UserTrack`, ...d.own.map((s) => `${s.name}: ${delta(s.newUsers7d)} this week${s.rank ? ` · #${s.rank}` : ""}`), `Dashboard: ${c.siteUrl}/app`]),
+    html: layout({ siteUrl: c.siteUrl, eyebrow: `WEEK ${d.week}`, title: `Hi ${esc(d.name)}, here is your growth week.`, body, cta: { label: "Open dashboard", url: link(c, "/app") }, footerNote: "Weekly digest — optional, Monday mornings.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
+    text: text([`Week ${d.week} on UserTrack`, ...d.own.map((s) => `${s.name}: ${delta(s.newUsers7d)} this week${s.rank ? ` · #${s.rank}` : ""}`), `Dashboard: ${link(c, "/app")}`]),
   };
 };
 
@@ -259,7 +264,7 @@ const BUILDERS: { [T in EmailType]: Builder<T> } = {
 };
 
 export function renderEmail<T extends EmailType>(type: T, data: TemplateData[T], ctx: RenderContext): Rendered {
-  return (BUILDERS[type] as Builder<T>)(data, ctx);
+  return (BUILDERS[type] as Builder<T>)(data, { ...ctx, emailType: type });
 }
 
 export { paragraph, button };

@@ -3,6 +3,7 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import { authComponent } from "./auth";
 import { isValidHandle } from "../src/lib/slug";
 import { isValidXHandle, normalizeXHandle } from "../src/lib/social";
+import { sanitizeAttribution } from "../src/lib/attribution";
 import { setPreferences } from "./email/prefs";
 import { socialPrefs } from "./schema";
 import { requireVerifiedToPublish } from "./domain/projects";
@@ -71,9 +72,11 @@ const profileFields = {
   profilePublic: v.optional(v.boolean()),
 };
 
+const attribution = v.object({ ref: v.optional(v.string()), source: v.optional(v.string()), medium: v.optional(v.string()), campaign: v.optional(v.string()), at: v.number() });
+
 export const upsert = mutation({
-  args: { ...profileFields, timezone: v.optional(v.string()) },
-  handler: async (ctx, { timezone, ...args }) => {
+  args: { ...profileFields, timezone: v.optional(v.string()), attribution: v.optional(attribution) },
+  handler: async (ctx, { timezone, attribution, ...args }) => {
     const { user, profile } = await getProfileForUser(ctx);
     if (!user) throw new Error("Not signed in");
     if (!isValidHandle(args.username)) throw new Error("Invalid username");
@@ -103,7 +106,8 @@ export const upsert = mutation({
       return profile._id;
     }
     const prefill = await takePrefill(ctx, user._id);
-    return ctx.db.insert("profiles", { ...data, ...fillEmpty(data, prefill), ...followerPatch(prefill), userId: user._id, onboardingCompleted: false });
+    // First touch only: written with the new profile, re-validated here, never patched later.
+    return ctx.db.insert("profiles", { ...data, ...fillEmpty(data, prefill), ...followerPatch(prefill), userId: user._id, onboardingCompleted: false, attribution: sanitizeAttribution(attribution) ?? undefined });
   },
 });
 

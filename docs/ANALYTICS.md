@@ -44,7 +44,7 @@ All props are primitives. Never emails, handles, URLs of third parties or secret
 | `embed_snippet_copied` | `widget` | Widget configurator (script / iframe / JSON) |
 | `dataset_downloaded` | `dataset, format: json \| csv` | `/developers` dataset links |
 | `sign_up_started` | `method: email \| google \| github \| x` | Sign-up submit / Google button |
-| `sign_up_completed` | `method` | Account created (email; social completions land on the identify) |
+| `sign_up_completed` | `method, ref?` | Account created (email; social completions land on the identify). `ref` is the stored first-touch `ref` (below), if any |
 | `sign_in` | `method` | Successful password sign-in, Google button on sign-in |
 | `email_verification_resent` | — | “Resend verification email” |
 | `sign_out` | — | App shell + settings sign-out |
@@ -81,9 +81,31 @@ All props are primitives. Never emails, handles, URLs of third parties or secret
 | `mcp_tool_called` | `tool, ok, code?` | every MCP tool call |
 | `badge_rendered` | `type` | `/api/badge/[slug].svg` (found only) |
 | `embed_rendered` | `widget` | `/embed/[slug]` iframe document |
+
+Badge and widget loads additionally record the referring host into `embedSites` (see *Attribution*); that is a product signal shown to the founder, not an analytics event.
 | `native_event_ingested` | — | accepted (non-duplicate) native SDK event |
 | `webhook_delivered` | `ok, attempt` | Convex `webhooks.deliver` after each HTTP attempt |
 | `sync_completed` | `provider, role, ok` | Convex `sync.runOne` |
+
+## Attribution
+
+Every link that leaves UserTrack's own surfaces carries `ref` (read by the app) plus `utm_source` / `utm_medium` / `utm_campaign` (Rybbit parses UTMs natively). Canonical URLs — `alternates.canonical`, OG `url`, `shareUrl`, `saasUrl`, API `urls.*` — stay clean; only the *outbound* copy is attributed. `attributedUrl(url, { ref, source, medium, campaign })` in `src/lib/site.ts` is the one helper (Convex imports it too); `shareLinkUrl(slug, kind, channel)` wraps the share page.
+
+| Surface | `ref` | `utm_source` | `utm_medium` | `utm_campaign` | Where |
+|---|---|---|---|---|---|
+| Live widget | `embed` | `embed` | `widget` | widget type | `widgetPageUrl` (`src/lib/embed.ts`) |
+| SVG badge snippets (HTML / Markdown, configurator, public badge block, MCP `usertrack_get_embed_code`) | `badge` | `badge` | `image` | badge type | `attributedUrl(saasUrl(slug), …)` |
+| Share buttons (product page, share page, compare) | `share` | `x` · `link` | `share-card` | `page` · share kind · `compare` | `ShareButtons` |
+| Share Card Studio (Copy link / Post to X) · Share Center | `share` | `x` · `link` | `share-card` | share kind | `share-studio.tsx`, `/app/share` |
+| X auto-posts | `share` | `x-founder` · `x-bot` | `share-card` | share kind | `convex/social.ts` |
+| MCP share objects (`xIntent`, X drafts) | `share` | `mcp` | `share-card` | share kind | `convex/gateway.ts` |
+| Emails (product, share, dashboard, board, report links) | `email` | `email` | email type (e.g. `user-milestone`) | `product` · `manage` · share kind · path slug (`app`, `share`, `onboarding`, `leaderboard`, `report`) | `link()` in `convex/email/templates/index.ts` — signed prefs / unsubscribe / verify / reset links are untouched |
+
+**Badge host detection is best effort.** `/api/badge/[slug]` reads the `Referer` exactly like `/embed/[slug]` (`src/lib/embed-host.ts`) and records `kind: "badge"` into the same `embedSites` row (`badgeLoads`). The SVG is edge-cached for an hour, so only cache misses reach origin, and GitHub proxies README images through camo without a Referer: it discovers badges on the founder's own site and docs, not READMEs.
+
+**Sign-up first touch.** `<Attribution/>` (`src/components/analytics/attribution.tsx`, mounted in the root layout) stores `{ ref, source, medium, campaign, at }` from the first page load's `?ref` / `utm_*` in `localStorage["ut:attribution"]` — only when nothing is stored yet (first touch wins). Values are sanitized to `[a-z0-9_-]`, max 40 chars each (`src/lib/attribution.ts`, unit-tested); records older than 30 days are ignored when read. `ProfileForm` sends it to `profiles.upsert` as `attribution`; the mutation re-validates it server-side and writes it **only on insert** (never patched, never overwritten) as `profiles.attribution`. It is never public: `publicProfile` picks explicit fields, the API and MCP never see it. `sign_up_completed` carries the stored `ref` as an event prop, so the funnel can be split by source in Rybbit.
+
+**Why UTMs and `ref`.** Rybbit's *URL parameters off* setting strips `?ref=` (and `?next=`) from recorded paths, so paths stay clean and `ref` is only for the app; UTMs are parsed by Rybbit natively and survive that setting as the session's source / medium / campaign.
 
 ## Goals & funnels to create in the dashboard
 

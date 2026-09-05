@@ -7,6 +7,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getProfileForUser, requireProfile } from "./profiles";
 import { siteUrl } from "./domain/projects";
+import { attributedUrl } from "../src/lib/site";
 import { xConnectionState } from "../src/lib/social";
 import { safeInternalPath } from "../src/lib/safe-redirect";
 import { xDraft, type DraftKind } from "../src/lib/x-drafts";
@@ -261,7 +262,8 @@ export const refreshNow = action({
 
 // ---- Posting ----------------------------------------------------------------------------------------------------------
 
-const shareUrlFor = (slug: string, cardKind: string) => `${siteUrl()}/s/${slug}/share/${cardKind}`;
+// Posted links are attributed per account (docs/ANALYTICS.md); the share page itself stays canonical.
+const shareUrlFor = (slug: string, cardKind: string, channel: "x-founder" | "x-bot") => attributedUrl(`${siteUrl()}/s/${slug}/share/${cardKind}`, { ref: "share", source: channel, medium: "share-card", campaign: cardKind });
 
 // Hourly. Queues at most one founder post per day per account and a handful of bot posts per day; every event is
 // considered exactly once per account. Everything else stays a draft in the Share Center.
@@ -279,7 +281,6 @@ export const autoPost = internalMutation({
       const profile = await ctx.db.get(e.profileId);
       if (!saas || !profile || !saas.isPublic || saas.isDemo) continue;
       const prefs = normalizePrefs(profile.socialPrefs);
-      const url = shareUrlFor(saas.slug, e.cardKind);
       const draft = (author: "founder" | "usertrack") => xDraft({ kind: e.kind as DraftKind, name: saas.name, value: e.value, title: e.title, totalUsers: saas.totalUsers, newUsers30d: saas.newUsers30d, growth30dPct: saas.growth30dPct, rank: e.rank, percentile: e.percentile, verified: saas.trust === "verified", author, founderHandle: author === "usertrack" && prefs.allowTagging ? profile.x : undefined, seed: e.key });
 
       if (oauthEnabled() && prefs.autoShare[e.category]) {
@@ -287,7 +288,7 @@ export const autoPost = internalMutation({
         const dup = await ctx.db.query("socialPosts").withIndex("by_event_account", (q) => q.eq("shareEventId", e._id).eq("account", "founder")).first();
         const recent = (await ctx.db.query("socialPosts").withIndex("by_profile_time", (q) => q.eq("profileId", profile._id).gte("createdAt", now - FOUNDER_POST_COOLDOWN_MS)).collect()).some((p) => p.account === "founder" && p.status !== "failed");
         if (c && c.status === "active" && !dup && !recent) {
-          const id = await ctx.db.insert("socialPosts", { profileId: profile._id, saasId: saas._id, shareEventId: e._id, account: "founder", provider: "x", text: `${draft("founder")}\n\n${url}`, status: "queued", createdAt: now });
+          const id = await ctx.db.insert("socialPosts", { profileId: profile._id, saasId: saas._id, shareEventId: e._id, account: "founder", provider: "x", text: `${draft("founder")}\n\n${shareUrlFor(saas.slug, e.cardKind, "x-founder")}`, status: "queued", createdAt: now });
           await ctx.scheduler.runAfter(0, internal.social.deliverPost, { postId: id });
         }
       }
@@ -295,7 +296,7 @@ export const autoPost = internalMutation({
       if (bot && botToday < BOT_DAILY_CAP && saas.trust === "verified" && prefs.allowPromotion && botWorthy({ kind: e.kind, value: e.value, verified: true })) {
         const dup = await ctx.db.query("socialPosts").withIndex("by_event_account", (q) => q.eq("shareEventId", e._id).eq("account", "usertrack")).first();
         if (!dup) {
-          const id = await ctx.db.insert("socialPosts", { profileId: profile._id, saasId: saas._id, shareEventId: e._id, account: "usertrack", provider: "x", text: `${draft("usertrack")}\n\n${url}`, status: "queued", createdAt: now });
+          const id = await ctx.db.insert("socialPosts", { profileId: profile._id, saasId: saas._id, shareEventId: e._id, account: "usertrack", provider: "x", text: `${draft("usertrack")}\n\n${shareUrlFor(saas.slug, e.cardKind, "x-bot")}`, status: "queued", createdAt: now });
           await ctx.scheduler.runAfter(0, internal.social.deliverPost, { postId: id });
           botToday++;
         }

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AnalyticsIdentity, AnalyticsScript } from "@/components/analytics/analytics";
+import { Attribution } from "@/components/analytics/attribution";
 import { ConvexClientProvider } from "@/components/providers/convex-client-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <AnalyticsIdentity />
         </ConvexClientProvider>
         <AnalyticsScript />
+        <Attribution />
         <Toaster position="bottom-center" />
       </body>
     </html>

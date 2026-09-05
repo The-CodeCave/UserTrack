@@ -17,7 +17,7 @@ Usernames are case-insensitive (`/u/Ada` resolves `ada`). `profiles.profilePubli
 
 ## Profile fields
 
-`profiles`: `username`, `displayName`, `avatarUrl?`, `bio?` (≤160), `website?`, `x?` (canonical handle, no `@`), `github?`, `linkedin?`, `location?` (≤60), `profilePublic?` (default true), `xUserId?` / `xConnectedAt?` (set only by X OAuth), `xFollowers?` / `xFollowersAt?` (X follower count read from the founder's own token — Connect X or X sign-in — refreshed daily, see `docs/SOCIAL.md`), `socialPrefs?`, `followerCount?` (UserTrack followers), `_creationTime` → "Joined".
+`profiles`: `username`, `displayName`, `avatarUrl?`, `bio?` (≤160), `website?`, `x?` (canonical handle, no `@`), `github?`, `linkedin?`, `location?` (≤60), `profilePublic?` (default true), `xUserId?` / `xConnectedAt?` (set only by X OAuth), `xFollowers?` / `xFollowersAt?` (X follower count read from the founder's own token — Connect X or X sign-in — refreshed daily, see `docs/SOCIAL.md`), `socialPrefs?`, `followerCount?` (UserTrack followers), `feedSeenAt?` (last visit of `/app/following`, `docs/FOLLOWS.md`), `attribution?` (first-touch sign-up source `{ ref?, source?, medium?, campaign?, at }`, written once on insert, never public — `docs/ANALYTICS.md`), `_creationTime` → "Joined".
 
 Only `username` and `displayName` are required. Onboarding asks for name, handle, optional avatar URL and optional X handle.
 
