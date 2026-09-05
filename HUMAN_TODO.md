@@ -2,9 +2,9 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and documented.
 
-Last updated: 2026-09-04 · code state: **v1.0 launch hardening + v1.0.1 review fixes complete** (SEC-1..3, LEGAL-1..2, ANALYTICS-1, AUTH-1, PROFILE-1, IMPORT-1, SOCIAL-1, OPS-1..3, SHIP-1, then FIX-0..4 and SHIP-2 — see `docs/RELEASE-v1.0.md`). The commits are on `main` and **pushed to `origin/main`**. Nothing is deployed: no `convex deploy`, no `railway up` has been run.
+Last updated: 2026-09-05 · code state: **v1.0 launch hardening + v1.0.1 review fixes complete** (SEC-1..3, LEGAL-1..2, ANALYTICS-1, AUTH-1, PROFILE-1, IMPORT-1, SOCIAL-1, OPS-1..3, SHIP-1, then FIX-0..4 and SHIP-2 — see `docs/RELEASE-v1.0.md`). The commits are on `main` and **pushed to `origin/main`**. **Deployed (2026-09-05, verified live):** Convex prod and the Railway service `usertrack` both run `e90289b` (`/api/health?deep=1` → `"convex":"ok"`). Steps 1, 2, 9, 10, 11 and 12 Phase A are **done**; the remaining blockers are the three OAuth apps, the domain switch to the main app and the Cloudflare cache rule.
 
-**TL;DR** — the code is launch-ready; 14 human steps stand between it and production. Do the *Required* list below **in order** — each one is a link to the detailed section further down, which has the exact commands and values. Everything under *Recommended* can wait until after launch. v1.0.1 added two variables to that list (`NEXT_PUBLIC_RYBBIT_SITE_ID` in step 6, `UT_TRUST_CF_HEADERS` in step 12) and one command (`leaderboard:rerank` in step 9). The interim standalone waitlist app now lives in `main` under `apps/waitlist/`, but it is still a **separate deployable** with its own Convex project and Railway service — deploying the product never touches it (`docs/DEPLOYMENT.md` → *The interim waitlist*).
+**TL;DR** — the code is launch-ready and deployed on the Railway URL; 8 of the 14 human steps are left. `usertrack.dev` still serves the interim waitlist. Do the *Required* list below **in order** — each one is a link to the detailed section further down, which has the exact commands and values. Everything under *Recommended* can wait until after launch. v1.0.1 added two variables to that list (`NEXT_PUBLIC_RYBBIT_SITE_ID` in step 6, `UT_TRUST_CF_HEADERS` in step 12) and one command (`leaderboard:rerank` in step 9). The interim standalone waitlist app now lives in `main` under `apps/waitlist/`, but it is still a **separate deployable** with its own Convex project and Railway service — deploying the product never touches it (`docs/DEPLOYMENT.md` → *The interim waitlist*).
 
 ---
 
@@ -57,7 +57,7 @@ railway variables --service usertrack --set "UT_GATEWAY_SECRET=$SECRET"
 railway up --service usertrack --ci
 ```
 
-**Status** — * [ ] Verify (already set in v0.6; nothing to create)
+**Status** — * [x] Done (2026-09-05) — byte-identical on Convex prod and Railway.
 
 ---
 
@@ -77,7 +77,7 @@ npx convex run --prod leaderboard:rerank '{}'
 ```
 **Why it cannot wait for the cron** — the board indexes sort on materialized fields, and `saas.growth24hPct` is only written by a rerank. Every product listed before v1.0 therefore has no key on `by_public_growth24h` and sorts last, so `/fastest-growing-saas?window=24h` stays short until the first rerank after deploy. The next cron (`20 */4 * * *`) fixes it within four hours anyway; running it manually makes the first public hour correct. The command returns immediately — it starts a scheduler chain; watch `jobRuns` in the dashboard (`job = "rerank leaderboard"`, `finishedAt` set, `errors = 0`) and confirm `rankScratch` is empty afterwards.
 
-**Status** — * [ ] Pending
+**Status** — * [x] Done (2026-09-05) — prod runs `e90289b`, `jobRuns` shows `rerank leaderboard` with `errors: 0`.
 
 ---
 
@@ -87,10 +87,12 @@ npx convex run --prod leaderboard:rerank '{}'
 
 ```bash
 npx convex run --prod migrations:nativeV1
-# → {"status":"done", ...}; run it again if it reports a cursor
+# → always prints "continuing", never "done": the handler returns after the FIRST page and
+#   schedules the rest itself (snapshots → stageSnapshots → syncRuns). Call it ONCE.
+#   Check the Convex dashboard logs for the chain to finish; re-running only restarts it.
 ```
 
-**Status** — * [ ] Pending (skip if it already reports `done`)
+**Status** — * [x] Done (2026-09-05).
 
 ---
 
@@ -101,7 +103,7 @@ railway up --service usertrack --ci
 ```
 Then, **once**: Railway → project `usertrack` → service `usertrack` → Settings → Deploy → **Health check path = `/api/health`** (OPS-3 moved it from `/leaderboard`; `railway.toml` already says so, but a dashboard-set path overrides the file). `/api/health` answers without reading Convex, so a Convex blip no longer restarts the service.
 
-**Status** — * [ ] Pending
+**Status** — * [x] Deployed (2026-09-05, service `usertrack` ● Online, EU West). · * [ ] Confirm the dashboard health-check path is `/api/health` (not visible from the CLI).
 
 ---
 
@@ -142,7 +144,7 @@ then reachable directly and anyone can forge those headers. Unset it again if yo
 
 Everything else (OG images, badges, embed snippets, MCP config snippets, email links, the OpenAPI server URL) renders `NEXT_PUBLIC_SITE_URL` / `SITE_URL` and becomes correct automatically.
 
-**Status** — * [ ] Phase A pending · * [ ] Phase B pending · * [ ] Phase C pending (`UT_TRUST_CF_HEADERS=1` when the record is proxied)
+**Status** — * [x] Phase A done (2026-09-04, `usertrack.dev` + `www` → `usertrack-waitlist`, proxied, cert VALID) · * [ ] Phase B pending · * [ ] Phase C pending (`UT_TRUST_CF_HEADERS=1` — the record is already proxied, so set it the moment Phase B lands)
 
 ---
 
@@ -389,7 +391,7 @@ Resend dashboard → https://resend.com/domains · Cloudflare dashboard → DNS 
 Convex dashboard → usertrack → **Production** → Settings → Environment Variables (or the CLI above)
 
 **Status**
-* [ ] **Required** — blocks email+password sign-in (SEC-1)
+* [x] Done (2026-09-05) — `RESEND_API_KEY` is set on Convex prod; DKIM, SPF and the bounce MX for `mail.usertrack.dev` resolve.
 
 ---
 
@@ -460,7 +462,7 @@ Google Cloud Console → https://console.cloud.google.com
 Convex dashboard → usertrack → Development *and* Production → Settings → Environment Variables
 
 **Status**
-* [ ] Pending
+* [x] Done (2026-09-05) — client + secret set on Convex prod, `auth:providers` returns `google: true`. Redirect URIs cover the Railway host, `usertrack.dev` and localhost, so the domain switch needs no change here.
 
 ---
 
@@ -520,7 +522,7 @@ GitHub → Settings → Developer settings → OAuth Apps → New OAuth App (htt
 `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` (Convex dev + prod). X: no new variable.
 
 **Status**
-* [ ] Pending
+* [x] GitHub done (2026-09-05) — `auth:providers` returns `github: true`; the app's redirect URIs already cover the Railway host, `usertrack.dev` and localhost (the current GitHub UI allows up to 10, so the domain switch needs no change here). · * [ ] X pending — no X app exists yet, `X_CLIENT_ID` is unset on Convex prod, so "Connect X" is off too (this section's claim that the app already exists is wrong).
 
 ---
 
