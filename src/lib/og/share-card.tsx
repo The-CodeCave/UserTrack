@@ -1,4 +1,4 @@
-import { fetchQuery } from "convex/nextjs";
+import { publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { OgFrame, OgRangeChart, OgEyebrow, OgLogo, OgBadge, OgChip, OgCheck, ogImage, ogWordmark, remoteImage, truncate, PINK, MUTED, DIM, INK, HOST } from "@/lib/og/frame";
 import { parseShareKind, shareCopy, SHARE_SIZES, GRAPH_KINDS, type ShareEvent } from "@/lib/share";
@@ -9,18 +9,18 @@ export async function loadShare(slug: string, kindRaw: string) {
   const parsed = parseShareKind(kindRaw);
   if (!parsed) return null;
   if (parsed.milestoneId) {
-    const r = await fetchQuery(api.public.milestone, { slug, id: parsed.milestoneId });
+    const r = await publicQuery(api.public.milestone, { slug, id: parsed.milestoneId });
     return r ? { s: r.saas, m: r.milestone as ShareEvent, kind: parsed.kind } : null;
   }
   if (parsed.eventId) {
-    const r = await fetchQuery(api.public.event, { slug, id: parsed.eventId });
+    const r = await publicQuery(api.public.event, { slug, id: parsed.eventId });
     return r ? { s: r.saas, m: { ...r.event, eyebrow: "GROWTH SPIKE" } as ShareEvent, kind: parsed.kind } : null;
   }
-  const s = await fetchQuery(api.public.saasBySlug, { slug });
+  const s = await publicQuery(api.public.saasBySlug, { slug });
   if (!s) return null;
   if (parsed.kind === "benchmark") {
     // Only the public top-quarter statement exists; without one there is no benchmark card.
-    const b = await fetchQuery(api.public.benchmarkHighlight, { slug });
+    const b = await publicQuery(api.public.benchmarkHighlight, { slug });
     if (!b) return null;
     return { s, m: { title: b.statement.replace(/^Top /, "Top "), copy: `Compared with ${formatCompact(b.sampleSize)} verified products on UserTrack · refreshed daily`, kind: "benchmark", achievedAt: Date.now(), eyebrow: "BENCHMARK" } as ShareEvent, kind: parsed.kind };
   }
@@ -29,7 +29,7 @@ export async function loadShare(slug: string, kindRaw: string) {
 
 // Series for the card's chart: totals for the selected range; falls back to the 30-day sparkline.
 async function chartSeries(slug: string, range: CardConfig["range"], spark: number[]) {
-  const r = range === "30d" ? null : await fetchQuery(api.public.series, { slug, range }).catch(() => null);
+  const r = range === "30d" ? null : await publicQuery(api.public.series, { slug, range }).catch(() => null);
   const pts = r ?? null;
   if (pts && pts.length >= 2) return { values: pts.map((p) => p.total), dates: [pts[0].t, pts[pts.length - 1].t] as [number, number] };
   const values = spark;
@@ -39,7 +39,7 @@ async function chartSeries(slug: string, range: CardConfig["range"], spark: numb
 // One renderer for the share page's opengraph-image and its downloadable /card PNG (1200×630 or 1080×1080).
 export async function renderShareCard(slug: string, kind: string, cfg: CardConfig = DEFAULT_CARD) {
   const d = await loadShare(slug, kind);
-  const base = d?.s ? await fetchQuery(api.public.saasBySlug, { slug }) : null;
+  const base = d?.s ? await publicQuery(api.public.saasBySlug, { slug }) : null;
   const c = d && base ? shareCopy(base, d.kind, d.m) : { eyebrow: "USERTRACK", value: "Not found", sub: "" };
   const logo = cfg.logo ? await remoteImage(base?.logoUrl) : null;
   const square = cfg.size === "square";
@@ -104,10 +104,10 @@ export async function renderShareCard(slug: string, kind: string, cfg: CardConfi
 
 // Founder card: aggregate across public projects. /u/<username>/card[?style=…&size=square&range=…]
 export async function renderFounderCard(username: string, cfg: CardConfig = DEFAULT_CARD) {
-  const p = await fetchQuery(api.public.profileByUsername, { username });
+  const p = await publicQuery(api.public.profileByUsername, { username });
   const square = cfg.size === "square";
   const dim = SHARE_SIZES[cfg.size];
-  const h = p && cfg.chart ? await fetchQuery(api.public.founderHistory, { username, range: cfg.range === "7d" ? "7d" : cfg.range }) : null;
+  const h = p && cfg.chart ? await publicQuery(api.public.founderHistory, { username, range: cfg.range === "7d" ? "7d" : cfg.range }) : null;
   const projects = p?.saas.slice(0, square ? 3 : 4) ?? [];
   const [avatar, ...logos] = await Promise.all([remoteImage(p?.avatarUrl), ...projects.map((s) => (cfg.logo ? remoteImage(s.logoUrl) : Promise.resolve(null)))]);
   const a = p?.aggregates;

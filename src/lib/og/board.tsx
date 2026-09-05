@@ -1,4 +1,4 @@
-import { fetchQuery } from "convex/nextjs";
+import { publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { OgFrame, OgEyebrow, OgChip, OgLogo, OgSpark, OgCheck, ogImage, ogWordmark, remoteImage, truncate, LINE, PINK, INK, MUTED, DIM, HOST } from "@/lib/og/frame";
 import { formatCompact, formatDelta, formatPct, formatRate } from "@/lib/format";
@@ -12,7 +12,7 @@ type Row = Awaited<ReturnType<typeof rows>>[number];
 const WINDOW_LABEL: Record<Window, string> = { "24h": "24 hours", "7d": "7 days", "30d": "30 days" };
 
 const rows = (board: Board, window: Window, category?: string, platform?: Platform) =>
-  fetchQuery(api.public.board, { board, window, verifiedOnly: false, category, platform, limit: 4 });
+  publicQuery(api.public.board, { board, window, verifiedOnly: false, category, platform, limit: 4 });
 
 // The number that decides the ranking, per board — mirrors the on-page primary metric.
 function metric(s: Row, board: Board, w: Window): { value: string; label: string } {
