@@ -2,6 +2,8 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { encryptConfig } from "./lib/secrets";
+import { getProvider } from "./providers";
 
 // v0.5 lifecycle: revenue role → conversion, Stripe config gets a conversion mode, legacy show* toggles → visibility,
 // payingUsers → convertedUsers, and amounts (mrr / currency) are cleared everywhere. Never touches snapshots.
@@ -56,5 +58,22 @@ export const nativeV1 = internalMutation({
     else if (table === "snapshots") await ctx.scheduler.runAfter(0, internal.migrations.nativeV1, { table: "stageSnapshots" });
     else if (table === "stageSnapshots") await ctx.scheduler.runAfter(0, internal.migrations.nativeV1, { table: "syncRuns" });
     return page.isDone && table === "syncRuns" ? "done" : "continuing";
+  },
+});
+
+// v0.8 credential encryption: every stored provider config is rewritten with its secret fields as AES-256-GCM
+// ciphertext, and the display view is materialized while the plaintext is still readable. Idempotent — already
+// encrypted values are left alone. Requires CONFIG_ENCRYPTION_KEY; throws (and changes nothing) without it.
+export const encryptSecretsV1 = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let encrypted = 0;
+    for (const i of await ctx.db.query("integrations").collect()) {
+      const config = await encryptConfig(i.provider, i.config);
+      if (config === i.config && i.publicConfig) continue;
+      await ctx.db.patch(i._id, { config, publicConfig: i.publicConfig ?? getProvider(i.provider).publicConfig(i.config) });
+      encrypted++;
+    }
+    return { integrations: encrypted };
   },
 });

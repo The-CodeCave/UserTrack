@@ -8,6 +8,7 @@ import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { DEFAULT_MCP_SCOPES, displayPrefix, PLANS, sha256Hex } from "./lib/tokens";
 import { dayKey } from "./lib/time";
+import { decryptConfig, decryptValue, isEncrypted } from "./lib/secrets";
 
 // Better Auth users are faked: verified (publishing is gated on it), without an email so `account` reports none.
 vi.mock("./auth", () => ({ authComponent: { getAnyUserById: async (_ctx: unknown, id: string) => ({ _id: id, emailVerified: true }), safeGetAuthUser: async () => null } }));
@@ -19,6 +20,7 @@ const betterAuthModules = import.meta.glob("../node_modules/@convex-dev/better-a
 
 const GATEWAY = "test-gateway-secret";
 process.env.UT_GATEWAY_SECRET = GATEWAY;
+process.env.CONFIG_ENCRYPTION_KEY = Buffer.from(new Uint8Array(32).fill(3)).toString("base64");
 const SECRET = "ut_mcp_" + "a".repeat(40);
 const API_SECRET = "ut_api_" + "b".repeat(40);
 const BOB_SECRET = "ut_mcp_" + "c".repeat(40);
@@ -280,6 +282,33 @@ describe("gateway integrations", () => {
     expect(r.nextTool).toBe("usertrack_verify_integration");
     const full = await t.query(api.gateway.project, { auth, projectId: acme });
     expect(full.setup).toMatchObject({ hasUsersSource: true, usersSourceStatus: "running", nextStep: "wait_for_first_sync" });
+  });
+
+  it("stores a credential as ciphertext and still shows the public view", async () => {
+    const { t, acme } = await seed();
+    const secretKey = "sk_live_" + "z".repeat(24);
+    const r = await t.mutation(api.gateway.configureIntegration, { auth, projectId: acme, provider: "clerk", config: { secretKey } });
+    expect(r.integration.publicConfig).toEqual({ key: `${secretKey.slice(0, 8)}\u2026${secretKey.slice(-4)}` });
+    const stored = await t.run(async (ctx) => (await ctx.db.query("integrations").first())!);
+    const cfg = stored.config as { secretKey: string };
+    expect(cfg.secretKey).not.toBe(secretKey);
+    expect(isEncrypted(cfg.secretKey)).toBe(true);
+    expect(JSON.stringify(stored)).not.toContain(secretKey);
+    expect(await decryptConfig("clerk", cfg)).toEqual({ secretKey });
+  });
+
+  it("returns the native secret once and stores only its ciphertext", async () => {
+    const { t, acme } = await seed();
+    const r = await t.mutation(api.gateway.createIntegrationTool, { auth, projectId: acme, provider: "native" });
+    expect(r.secret).toBeTruthy();
+    const stored = await t.run(async (ctx) => (await ctx.db.query("integrations").first())!);
+    const cfg = stored.config as { secret: string; secretPrefix: string; url: string };
+    expect(isEncrypted(cfg.secret)).toBe(true);
+    expect(JSON.stringify(stored)).not.toContain(r.secret);
+    expect(await decryptValue(cfg.secret)).toBe(r.secret);
+    expect(stored.publicConfig).toMatchObject({ url: cfg.url, secret: `${cfg.secretPrefix}\u2026` });
+    const again = await t.mutation(api.gateway.createIntegrationTool, { auth, projectId: acme, provider: "native" });
+    expect(again.secret).toBeNull();
   });
 
   it("rejects a provider/role mismatch and missing scope", async () => {

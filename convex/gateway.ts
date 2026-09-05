@@ -339,7 +339,7 @@ export const configureIntegration = mutation({
       const id = await connectIntegration(ctx, saas, role, provider, config);
       await audit(ctx, { profileId: profile._id, tokenId: token._id, action: "configure_integration", saasId: saas._id, ok: true, detail: `${provider}/${role}` });
       const integration = integrationView((await ctx.db.get(id))!);
-      return { integration, message: "Configuration stored (secrets kept server-side, never returned). First sync started — call usertrack_verify_integration in ~5 seconds.", nextTool: "usertrack_verify_integration" };
+      return { integration, message: "Configuration stored (credentials AES-256-GCM encrypted at rest, never returned). First sync started — call usertrack_verify_integration in ~5 seconds.", nextTool: "usertrack_verify_integration" };
     }),
 });
 

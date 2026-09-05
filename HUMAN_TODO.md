@@ -796,3 +796,24 @@ npx convex data --prod publicStats          # one row, key "public"
 **Status**
 * [ ] Recommended right after the deploy
 
+
+---
+
+### Encrypt the stored provider credentials (SEC-4)
+
+Provider credentials (`integrations.config`) are now AES-256-GCM ciphertext (`convex/lib/secrets.ts`). New and rotated credentials are encrypted on write; rows written before this change stay readable plaintext until the migration runs, so nothing breaks in between.
+
+`CONFIG_ENCRYPTION_KEY` is set on the Convex production deployment (32 bytes, base64). **Losing it is unrecoverable** — every founder would have to re-enter their credentials. Keep a copy in the password manager.
+
+Run once, after the deploy (idempotent, safe to repeat):
+
+```bash
+export PATH=/opt/homebrew/bin:$PATH
+npx convex run --prod migrations:encryptSecretsV1 '{}'   # → { integrations: <n> }
+```
+
+Verify afterwards: `npx convex data --prod integrations` — every `config.serviceKey` / `secretKey` / `secret` / `connectionString` must start with `enc.v1.`, and each row must carry a `publicConfig`.
+
+**Status**
+* [x] `CONFIG_ENCRYPTION_KEY` set on Convex prod
+* [ ] `migrations:encryptSecretsV1` run on prod

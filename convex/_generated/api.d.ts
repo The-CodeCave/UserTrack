@@ -63,6 +63,7 @@ import type * as lib_nativeProtocol from "../lib/nativeProtocol.js";
 import type * as lib_nativeSetup from "../lib/nativeSetup.js";
 import type * as lib_rateLimits from "../lib/rateLimits.js";
 import type * as lib_retention from "../lib/retention.js";
+import type * as lib_secrets from "../lib/secrets.js";
 import type * as lib_shareRules from "../lib/shareRules.js";
 import type * as lib_spikes from "../lib/spikes.js";
 import type * as lib_ssrf from "../lib/ssrf.js";
@@ -174,6 +175,7 @@ declare const fullApi: ApiFromModules<{
   "lib/nativeSetup": typeof lib_nativeSetup;
   "lib/rateLimits": typeof lib_rateLimits;
   "lib/retention": typeof lib_retention;
+  "lib/secrets": typeof lib_secrets;
   "lib/shareRules": typeof lib_shareRules;
   "lib/spikes": typeof lib_spikes;
   "lib/ssrf": typeof lib_ssrf;

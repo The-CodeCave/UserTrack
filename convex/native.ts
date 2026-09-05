@@ -11,6 +11,8 @@ import { defaultBasePath, normalizeBaseUrl, sourceLabel } from "./providers/nati
 import { EVENTS_PATH, EVENT_TYPES, generateIntegrationSecret, HEADER_NONCE, HEADER_SIGNATURE, HEADER_TIMESTAMP, LEGACY_EVENTS_PATH, NATIVE_PACKAGE, NATIVE_SOURCES, type NativeSource, normalizeSource, sha256Hex, verify } from "./lib/nativeProtocol";
 import { DAY } from "./lib/time";
 import { gatewayMatches } from "./lib/gateway";
+import { decryptValue, encryptConfig } from "./lib/secrets";
+import { native as nativeProvider } from "./providers/native";
 
 const EVENT_RETENTION_DAYS = 30;
 const PRUNE_BATCH = 500;
@@ -34,20 +36,24 @@ export async function createNativeIntegration(ctx: MutationCtx, saas: Doc<"saas"
   const projectId = String(saas._id);
   if (current && isNative(current) && !input.rotate) {
     const cfg = current.config as { url: string; source?: string; secretPrefix: string };
-    if (cfg.url !== base.url || cfg.source !== source || current.provider !== "native") await ctx.db.patch(current._id, { provider: "native", config: { ...current.config, url: base.url, source } });
+    if (cfg.url !== base.url || cfg.source !== source || current.provider !== "native") {
+      const config = { ...current.config, url: base.url, source };
+      await ctx.db.patch(current._id, { provider: "native", config, publicConfig: nativeProvider.publicConfig(config) });
+    }
     return { integrationId: current._id, projectId, source, secret: "", secretPrefix: cfg.secretPrefix, url: base.url, created: false, rotated: false };
   }
   const { secret, prefix } = generateIntegrationSecret();
   const credential = { secret, secretHash: await sha256Hex(secret), secretPrefix: prefix, projectId, createdAt: now };
   const config = { url: base.url, source, ...credential };
-  const doc = { saasId: saas._id, provider: "native" as const, role: "users" as const, config, status: "error" as const, trust: "pending" as const, lastError: `Waiting for deployment — install ${NATIVE_PACKAGE[source]}, deploy, then verify.`, consecutiveFailures: 0, awaitingVerification: true, connectedAt: undefined, backfilledAt: undefined, verifiedAt: undefined, pluginVersion: undefined, protocolVersion: undefined };
+  const stored = await encryptConfig("native", config);
+  const doc = { saasId: saas._id, provider: "native" as const, role: "users" as const, config: stored, publicConfig: nativeProvider.publicConfig(config), status: "error" as const, trust: "pending" as const, lastError: `Waiting for deployment — install ${NATIVE_PACKAGE[source]}, deploy, then verify.`, consecutiveFailures: 0, awaitingVerification: true, connectedAt: undefined, backfilledAt: undefined, verifiedAt: undefined, pluginVersion: undefined, protocolVersion: undefined };
   let id: Id<"integrations">;
   if (current) {
     await ctx.db.patch(current._id, doc);
     id = current._id;
     if (!isNative(current)) for (const stage of stagesOf("users")) await ctx.scheduler.runAfter(0, internal.cohorts.purgeStage, { saasId: saas._id, stage });
   } else id = await ctx.db.insert("integrations", doc);
-  for (const sibling of all) if (sibling._id !== id && isNative(sibling)) await ctx.db.patch(sibling._id, { provider: "native", config: { ...sibling.config, url: base.url, source, ...credential } });
+  for (const sibling of all) if (sibling._id !== id && isNative(sibling)) await ctx.db.patch(sibling._id, { provider: "native", config: { ...sibling.config, ...stored }, publicConfig: nativeProvider.publicConfig(config) });
   await ctx.db.patch(saas._id, { trust: "pending" });
   return { integrationId: id, projectId, source, secret, secretPrefix: prefix, url: base.url, created: !current || !isNative(current), rotated: Boolean(current && isNative(current)) };
 }
@@ -97,7 +103,7 @@ export const ingestEvent = action({
     const signedPath = path === LEGACY_EVENTS_PATH ? LEGACY_EVENTS_PATH : EVENTS_PATH;
     const target = await ctx.runQuery(internal.native.integrationForEvents, { projectId });
     if (!target) return { ok: false, status: 404, error: "unknown project or no native integration" };
-    const sig = await verify(target.secret, { [HEADER_TIMESTAMP]: headers.timestamp, [HEADER_NONCE]: headers.nonce, [HEADER_SIGNATURE]: headers.signature }, { method: "REQUEST", path: signedPath, body });
+    const sig = await verify(await decryptValue(target.secret), { [HEADER_TIMESTAMP]: headers.timestamp, [HEADER_NONCE]: headers.nonce, [HEADER_SIGNATURE]: headers.signature }, { method: "REQUEST", path: signedPath, body });
     if (!sig.ok) return { ok: false, status: 401, error: sig.reason === "stale" ? "stale timestamp" : "invalid signature" };
     let event: { protocolVersion?: number; eventId?: string; type?: string; subject?: string; occurredAt?: string; projectId?: string };
     try {

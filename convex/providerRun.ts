@@ -1,10 +1,12 @@
-// Runtime dispatch for provider fetches. Fetch-based providers run in the default (V8) runtime; database
+// Runtime dispatch for provider fetches, and the single place stored credentials are decrypted (inline configs pass
+// through untouched). Fetch-based providers run in the default (V8) runtime; database
 // providers declare `runtime() === "node"` and are executed by convex/node/postgres.ts. Nothing else branches on kind.
 import { ConvexError } from "convex/values";
 import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getProvider, ProviderError, type History, type ProviderMetrics, type Role } from "./providers";
 import { BLOCKED_HOST_ERROR, resolvePublicHost } from "./lib/ssrf";
+import { decryptConfig } from "./lib/secrets";
 
 function toProviderError(e: unknown): never {
   if (e instanceof ConvexError) {
@@ -22,8 +24,9 @@ export async function assertPublicHosts(hosts: string[]) {
   }
 }
 
-export async function fetchMetrics(ctx: ActionCtx, kind: string, config: unknown, role: Role): Promise<ProviderMetrics> {
+export async function fetchMetrics(ctx: ActionCtx, kind: string, storedConfig: unknown, role: Role): Promise<ProviderMetrics> {
   const p = getProvider(kind);
+  const config = await decryptConfig(kind, storedConfig);
   if (p.runtime?.(config) !== "node") {
     await assertPublicHosts(p.hosts?.(config) ?? []);
     return p.fetch(config, role);
@@ -35,8 +38,9 @@ export async function fetchMetrics(ctx: ActionCtx, kind: string, config: unknown
   }
 }
 
-export async function fetchHistory(ctx: ActionCtx, kind: string, config: unknown, role: Role, days: number): Promise<History | null> {
+export async function fetchHistory(ctx: ActionCtx, kind: string, storedConfig: unknown, role: Role, days: number): Promise<History | null> {
   const p = getProvider(kind);
+  const config = await decryptConfig(kind, storedConfig);
   if (p.runtime?.(config) !== "node") {
     if (!p.fetchHistory) return null;
     await assertPublicHosts(p.hosts?.(config) ?? []);

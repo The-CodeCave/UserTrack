@@ -279,8 +279,12 @@ export default defineSchema({
     provider: providerKind,
     // undefined = "users" for rows created before roles existed.
     role: v.optional(integrationRole),
-    // Provider-specific config incl. secrets. NEVER returned to clients; read only in actions.
+    // Provider-specific config. Credential fields (convex/lib/secrets.ts) are AES-256-GCM ciphertext; the rest is
+    // structural and stays readable. NEVER returned to clients; decrypted only in actions.
     config: v.any(),
+    // Secret-free display view, computed while the plaintext credential is still in hand (publicConfig cannot be
+    // derived from ciphertext). Absent on rows written before encryption — integrationView falls back to the provider.
+    publicConfig: v.optional(v.record(v.string(), v.string())),
     status: syncStatus,
     trust: trustLevel,
     lastError: v.optional(v.string()),

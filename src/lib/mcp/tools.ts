@@ -139,7 +139,7 @@ export const TOOLS: Tool[] = [
   tool({
     name: "usertrack_get_supported_integrations",
     title: "Supported integrations",
-    description: "Catalog of supported data sources (native SDK for Better Auth / Prisma / Drizzle / Convex / Auth.js / custom apps, Supabase, Clerk, Firebase, Auth0, PostgreSQL read-only, PostHog, Plausible, GA4, Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee, JSON endpoint, manual) with roles (users | activation | traffic | conversion), trust level, required credentials and what is read. Pass what you detected to get a lifecycle recommendation.",
+    description: "Catalog of supported data sources (native SDK for Better Auth / Prisma / Drizzle / Convex / Auth.js / custom apps, Supabase, Clerk, Firebase, Auth0, PostgreSQL read-only, PostHog, Plausible, GA4, Stripe, RevenueCat, Paddle, Lemon Squeezy, Chargebee, JSON endpoint, manual) with roles (users | activation | traffic | conversion), trust level, required credentials and what is read. Any credential handed over is stored AES-256-GCM encrypted and never returned. Pass what you detected to get a lifecycle recommendation.",
     scope: "integrations:read",
     readOnly: true,
     input: detectInput,
@@ -163,7 +163,7 @@ export const TOOLS: Tool[] = [
   tool({
     name: "usertrack_configure_integration",
     title: "Configure integration",
-    description: "Store a data-source configuration for a project and start the first sync. Secrets are validated, stored server-side and never returned to the dashboard, the API or an agent. Re-running replaces the source for that role (idempotent).",
+    description: "Store a data-source configuration for a project and start the first sync. Credentials are validated, encrypted with AES-256-GCM before they reach the database and decrypted only inside the server process for a provider read — they are never returned to the dashboard, the API or an agent, and are unreadable in a database dump. Re-running replaces the source for that role (idempotent).",
     scope: "integrations:write",
     readOnly: false,
     input: {
@@ -389,7 +389,7 @@ const TOOLS_NATIVE: Tool[] = [
   tool({
     name: "usertrack_create_integration",
     title: "Create native integration",
-    description: "Create the native SDK integration for a project and receive its credential: USERTRACK_PROJECT_ID and the USERTRACK_SECRET (ut_int_…). The secret is returned ONLY in this response — put it into the app's environment immediately, never print, log or commit it. Idempotent: an existing integration is returned without a secret (secret: null); pass rotate: true to issue a new secret (the old one stops working). Then install the package (usertrack_get_native_setup), deploy and call usertrack_verify_integration. Activation and conversion roles reported by the same handler are attached automatically after the first sync.",
+    description: "Create the native SDK integration for a project and receive its credential: USERTRACK_PROJECT_ID and the USERTRACK_SECRET (ut_int_…). The secret is returned ONLY in this response — put it into the app's environment immediately, never print, log or commit it. UserTrack keeps its own copy AES-256-GCM encrypted and can never show it again. Idempotent: an existing integration is returned without a secret (secret: null); pass rotate: true to issue a new secret (the old one stops working). Then install the package (usertrack_get_native_setup), deploy and call usertrack_verify_integration. Activation and conversion roles reported by the same handler are attached automatically after the first sync.",
     scope: "integrations:write",
     readOnly: false,
     input: {

@@ -81,7 +81,7 @@ export const INTEGRATION_CATALOG: CatalogEntry[] = [
       { key: "table", label: "Table with one row per activated user", secret: false, roles: ["activation"], whereToFind: "A table that only gets a row once a user really used the product (e.g. projects_owners).", envVarHints: [] },
       { key: "createdAtColumn", label: "created_at column", secret: false, optional: true, whereToFind: "Timestamp column on that table; unlocks 24h/7d/30d counts and 30-day history.", envVarHints: [] },
     ],
-    permissions: ["Database mode: create a read-only role and grant SELECT on auth.users (or the activation table): CREATE ROLE usertrack_ro LOGIN PASSWORD '…'; GRANT USAGE ON SCHEMA auth TO usertrack_ro; GRANT SELECT ON auth.users TO usertrack_ro; — then use it in the pooler connection string.", "API mode: the service role key must stay server-side; UserTrack stores it server-side and never returns it."],
+    permissions: ["Database mode: create a read-only role and grant SELECT on auth.users (or the activation table): CREATE ROLE usertrack_ro LOGIN PASSWORD '…'; GRANT USAGE ON SCHEMA auth TO usertrack_ro; GRANT SELECT ON auth.users TO usertrack_ro; — then use it in the pooler connection string.", "API mode: the service role key must stay server-side; UserTrack stores it AES-256-GCM encrypted and never returns it — but it is still an admin key, so prefer the read-only database role when the founder can create one."],
     reads: "Database mode: SELECT count(*) … WHERE created_at >= $1 on auth.users (deleted_at IS NULL) plus one GROUP BY day query for history. API mode: HEAD count=exact / admin/users?per_page=1 — counts only, never row data.",
     neverSent: NEVER,
   },
@@ -620,6 +620,7 @@ export interface SetupStep {
 const SECURITY_RULES = [
   "Use the least privilege credential listed in requirements; never a full-access or admin key when a read-only one exists.",
   "Credentials go straight into usertrack_configure_integration; never print, log, or commit them, and never paste them into chat.",
+  "On UserTrack's side a credential is encrypted with AES-256-GCM before it is written to the database and decrypted only inside the server process at the moment of a read; it is never returned to the dashboard, the API or an agent, and a database dump without the key is worthless.",
   "UserTrack stores only aggregate counts and timestamps. Do not send emails, names, passwords, session tokens or per-user rows.",
   "Do not modify authentication, billing or database code beyond adding a read-only count endpoint when the endpoint provider is used.",
   "If a credential is missing, ask the founder for it — do not guess, and do not create new keys without telling them.",
@@ -694,7 +695,7 @@ export function integrationSetup(input: { provider: string; role?: Role; framewo
     steps.push({ id: "manual:ask", title: "Confirm the number with the founder", detail: "Manual numbers are labelled self-reported and never ranked. Prefer any verified provider if one exists.", action: "ask_user" });
   }
   if (entry.provider !== "native") steps.push(
-    { id: "configure", title: "Submit the configuration to UserTrack", detail: `Call usertrack_configure_integration with { projectId: "${projectRef}", provider: "${entry.provider}", role: "${role}", config: { ${requirements.map((r) => `${r.key}: …`).join(", ")} } }. UserTrack validates the shape, stores secrets server-side (never returned) and starts the first sync immediately.`, action: "call_tool", tool: "usertrack_configure_integration" },
+    { id: "configure", title: "Submit the configuration to UserTrack", detail: `Call usertrack_configure_integration with { projectId: "${projectRef}", provider: "${entry.provider}", role: "${role}", config: { ${requirements.map((r) => `${r.key}: …`).join(", ")} } }. UserTrack validates the shape, encrypts the credential (AES-256-GCM) before storing it, never returns it, and starts the first sync immediately.`, action: "call_tool", tool: "usertrack_configure_integration" },
     { id: "verify", title: "Verify the connection", detail: `Call usertrack_verify_integration with { projectId: "${projectRef}", role: "${role}" }. It performs a live read and returns the detected count, the verification level and an actionable error if anything is wrong. Wait ~5 seconds after configuring; retry at most 3 times.`, action: "verify", tool: "usertrack_verify_integration" },
     { id: "publish", title: "Publish and share", detail: `Once verified, call usertrack_update_project with { projectId: "${projectRef}", isPublic: true }, then usertrack_get_share_url and hand the public URL to the founder.`, action: "call_tool", tool: "usertrack_update_project" },
   );

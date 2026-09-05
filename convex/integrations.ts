@@ -167,7 +167,7 @@ export const verifyStored = action({
       const safe = { ...metrics };
       delete safe.identities;
       await ctx.runMutation(internal.integrations.markVerified, { integrationId: integration._id });
-      return { ok: true as const, detected: detectedCount(metrics, role), metrics: safe, trust, verification: verificationLevel(integration.provider, trust, capabilities, role as Role), capabilities, durationMs: Date.now() - started, publicConfig: p.publicConfig(integration.config) };
+      return { ok: true as const, detected: detectedCount(metrics, role), metrics: safe, trust, verification: verificationLevel(integration.provider, trust, capabilities, role as Role), capabilities, durationMs: Date.now() - started, publicConfig: integration.publicConfig ?? p.publicConfig(integration.config) };
     } catch (e) {
       const err = e as Error;
       await ctx.runMutation(internal.integrations.recordVerifyFailure, { integrationId: integration._id, error: err.message.slice(0, 300) });

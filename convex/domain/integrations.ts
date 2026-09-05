@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { describeProvider, getProvider, historyLimit, normalizeProviderKind, normalizeRole, providerLabel, verificationLevel, ROLE_STAGE, type ProviderMetrics, type Role } from "../providers";
 import { dayKey } from "../lib/time";
+import { encryptConfig } from "../lib/secrets";
 import { DomainError } from "./projects";
 
 export const SYNC_COOLDOWN_MS = 60_000;
@@ -33,7 +34,7 @@ export function integrationView(i: Doc<"integrations">) {
     lastFailureAt: i.lastFailureAt,
     consecutiveFailures: i.consecutiveFailures ?? 0,
     connectedAt: i.connectedAt ?? i._creationTime,
-    publicConfig: getProvider(i.provider).publicConfig(i.config),
+    publicConfig: i.publicConfig ?? getProvider(i.provider).publicConfig(i.config),
     awaitingVerification: i.awaitingVerification ?? false,
     verifiedAt: i.verifiedAt,
     pluginVersion: i.pluginVersion,
@@ -57,7 +58,8 @@ export async function connectIntegration(ctx: MutationCtx, saas: Doc<"saas">, ro
     saasId,
     provider: p.kind,
     role,
-    config: validated.config,
+    config: await encryptConfig(p.kind, validated.config),
+    publicConfig: p.publicConfig(validated.config),
     status: "running" as const,
     trust: p.trust(validated.config, saas.websiteUrl),
     lastError: undefined,
@@ -90,7 +92,7 @@ export async function recordReported(ctx: MutationCtx, integration: Doc<"integra
   const all = await listIntegrations(ctx, integration.saasId);
   for (const role of reported.roles) {
     if (role === "users" || all.some((i) => normalizeRole(i.role) === role)) continue;
-    const id = await ctx.db.insert("integrations", { saasId: integration.saasId, provider: "native", role, config: integration.config, status: "running", trust: "verified", consecutiveFailures: 0, connectedAt: Date.now() });
+    const id = await ctx.db.insert("integrations", { saasId: integration.saasId, provider: "native", role, config: integration.config, publicConfig: integration.publicConfig, status: "running", trust: "verified", consecutiveFailures: 0, connectedAt: Date.now() });
     await ctx.scheduler.runAfter(0, internal.sync.runOne, { integrationId: id, attempt: 1 });
   }
 }
