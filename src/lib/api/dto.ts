@@ -58,6 +58,7 @@ export interface SaasRow {
   trendingScore7d?: number;
   foundedAt?: number;
   followerCount?: number;
+  streakDays?: number;
   owner?: { username: string; displayName: string; xFollowers?: number } | null;
   markets?: string[];
   techStack?: string[];
@@ -162,6 +163,7 @@ export function metricsDto(r: SaasRow) {
       activationRatePercentage: r.activationRatePct,
       trendingRank: r.trendingRank,
       overallRank: r.rank,
+      streakDays: r.streakDays ?? 0,
     },
     updatedAt: iso(r.lastSyncedAt),
     urls: { page: `${SITE_URL}/s/${r.slug}`, badge: `${SITE_URL}/api/badge/${r.slug}.svg` },

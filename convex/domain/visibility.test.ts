@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_VISIBILITY, publicLogo, stripPrivate, visibilityOf } from "./visibility";
 
-const doc = { convertedUsers: 447, trialUsers: 80, signupToConvertedPct: 6.8, trialToConvertedPct: 42.3, activatedUsers: 3601, activationRatePct: 54.7, visitors30d: 81240, mrr: 1234, currency: "USD", ownerId: "p1", totalUsers: 6581 } as never;
+const doc = { convertedUsers: 447, trialUsers: 80, signupToConvertedPct: 6.8, trialToConvertedPct: 42.3, activatedUsers: 3601, activationRatePct: 54.7, visitors30d: 81240, mrr: 1234, currency: "USD", ownerId: "p1", totalUsers: 6581, streakDays: 12, bestStreakDays: 30 } as never;
 
 describe("visibility", () => {
   it("defaults keep growth public and conversion private", () => {
@@ -25,6 +25,12 @@ describe("visibility", () => {
     expect(out.ownerId).toBeUndefined();
     expect(out.activationRatePct).toBe(54.7);
     expect(out.totalUsers).toBe(6581);
+    expect(out.streakDays).toBe(12);
+  });
+  it("hides the growth streak with the growth switch", () => {
+    const out = stripPrivate(doc, visibilityOf({ visibility: { growth: false } })) as Record<string, unknown>;
+    expect(out.streakDays).toBeUndefined();
+    expect(out.bestStreakDays).toBeUndefined();
   });
   it("public rate, private count", () => {
     const out = stripPrivate(doc, visibilityOf({ visibility: { conversionRate: true } })) as Record<string, unknown>;

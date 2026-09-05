@@ -169,7 +169,7 @@ curl https://usertrack.dev/api/v1/saas/acme
 
 ## `GET /api/v1/saas/{slug}/metrics`
 
-Compact current metrics: the numbers a badge, widget or newsletter needs. Field names are spelled out (`growth30dPercentage`, `overallRank`) so the payload reads well without the full object.
+Compact current metrics: the numbers a badge, widget or newsletter needs. Field names are spelled out (`growth30dPercentage`, `overallRank`) so the payload reads well without the full object. `streakDays` is the number of consecutive closed UTC days with new users (today excluded); it is `0` when there is no streak or the founder hides growth.
 
 ```bash
 curl https://usertrack.dev/api/v1/saas/acme/metrics
@@ -191,7 +191,8 @@ curl https://usertrack.dev/api/v1/saas/acme/metrics
       "activatedUsers": 4870,
       "activationRatePercentage": 39,
       "trendingRank": 9,
-      "overallRank": 4
+      "overallRank": 4,
+      "streakDays": 12
     },
     "updatedAt": "2026-09-02T08:00:00.000Z",
     "urls": { "page": "https://usertrack.dev/s/acme", "badge": "https://usertrack.dev/api/badge/acme.svg" }

@@ -7,6 +7,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { DEFAULT_LOCK_TTL_MS, PAGE, lockTtlMs } from "./jobs";
 import { deciles } from "./lib/benchmarks";
+import { dayKey } from "./lib/time";
 
 vi.mock("./email/users", () => ({ findAuthUser: async () => null }));
 
@@ -81,6 +82,23 @@ describe("paged jobs — identical results", () => {
     const history = await tx.run((ctx) => ctx.db.query("benchmarkHistory").collect());
     expect(history).toHaveLength(120);
     await expectRun(tx, "benchmark standings", 120, PAGE.benchmarks);
+  });
+});
+
+describe("daily sweep — growth streak", () => {
+  it("materializes the current streak and only ever raises the best", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    const [id] = await seedProjects(tx, owner, 1);
+    await tx.run(async (ctx) => {
+      await ctx.db.patch(id, { bestStreakDays: 9 });
+      for (let i = 0; i <= 5; i++) await ctx.db.insert("dailyMetrics", { saasId: id, day: dayKey(Date.now() - i * DAY), totalUsers: 1000 - i, newUsers: i === 0 ? 0 : 1 });
+    });
+    await tx.mutation(internal.daily.run, {});
+    expect(await tx.run((ctx) => ctx.db.get(id))).toMatchObject({ streakDays: 5, bestStreakDays: 9 });
+    await tx.run((ctx) => ctx.db.patch(id, { bestStreakDays: 2 }));
+    await tx.mutation(internal.daily.run, {});
+    expect(await tx.run((ctx) => ctx.db.get(id))).toMatchObject({ streakDays: 5, bestStreakDays: 5 });
   });
 });
 

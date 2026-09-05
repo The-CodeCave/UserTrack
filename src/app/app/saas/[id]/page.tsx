@@ -14,6 +14,7 @@ import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { MetricCard } from "@/components/blueprint/metric-card";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
+import { StreakChip } from "@/components/blueprint/streak-chip";
 import { SaasForm } from "@/components/app/saas-form";
 import { ConnectSource, SourceStatus } from "@/components/app/connect-source";
 import { BenchmarkCards } from "@/components/app/benchmark-cards";
@@ -83,13 +84,15 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
   const shareKinds = availableShareKinds({ ...saas, signupToConvertedPct: saas.visibility.conversionRate ? saas.signupToConvertedPct : undefined });
   const share = (kind: ShareKind, label: string, graph = false) => ({ page: shareUrl(saas.slug, kind), slug: saas.slug, kind, label: `${saas.name} · ${label}`, trust: saas.trust, graph, text: shareCopy(saas, kind).text });
   const canShare = saas.isPublic;
+  const streak = saas.streakDays ?? 0, atRisk = streak >= 3 && saas.newUsers24h === 0;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <SectionLabel><Link href="/app/saas" className="hover:text-foreground">My SaaS</Link> / {saas.name}</SectionLabel>
-          <h1 className="mt-2 flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight">{saas.name} <TrustBadge trust={saas.trust} label={saas.trustLabel} /></h1>
+          <h1 className="mt-2 flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight">{saas.name} <TrustBadge trust={saas.trust} label={saas.trustLabel} />{streak > 0 && <StreakChip days={streak} best={saas.bestStreakDays} atRisk={atRisk} />}</h1>
+          {atRisk && <p className="mt-1 font-mono text-[11px] text-muted-foreground">No signups in the last 24h — streak at risk</p>}
           {(saas.appStoreUrl || saas.playStoreUrl) && (
             <div className="mt-2 flex flex-wrap gap-2">
               {saas.appStoreUrl && <a href={saas.appStoreUrl} target="_blank" rel="noreferrer" className={chip}><Apple className="size-3.5" /> App Store</a>}

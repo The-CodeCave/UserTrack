@@ -55,6 +55,8 @@ const GATED: Record<Exclude<VisibilityKey, "totalUsers" | "growth" | "benchmarks
   convertedCount: ["convertedUsers", "newConverted24h", "newConverted7d", "newConverted30d", "convertedPrev30d", "payingUsers"],
   traffic: ["visitors30d", "sessions30d", "visitorsPrev30d"],
 };
+// Derived from daily new-user counts, so the streak follows the growth switch.
+const GROWTH_GATED: (keyof Doc<"saas">)[] = ["streakDays", "bestStreakDays"];
 // Never public regardless of settings.
 const ALWAYS_PRIVATE: (keyof Doc<"saas">)[] = ["ownerId", "mrr", "currency", "showRevenue", "logoStorageId"];
 // Anonymous mode: everything that identifies the founder or the company leaves the row; the owner is nulled by the caller.
@@ -68,6 +70,7 @@ export function stripPrivate<T extends Partial<Doc<"saas">>>(s: T, vis: Visibili
   const out = { ...s };
   for (const k of ALWAYS_PRIVATE) delete out[k];
   if (isAnonymous(out)) for (const k of ANONYMOUS_HIDDEN) delete out[k];
+  if (!vis.growth) for (const k of GROWTH_GATED) delete out[k];
   for (const key of Object.keys(GATED) as (keyof typeof GATED)[]) {
     if (vis[key]) continue;
     for (const f of GATED[key]) delete out[f];

@@ -8,6 +8,7 @@ import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { MovementTag } from "@/components/blueprint/movement";
+import { StreakChip } from "@/components/blueprint/streak-chip";
 import { BenchmarkCards } from "@/components/app/benchmark-cards";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -66,6 +67,7 @@ export default function OverviewPage() {
                     <div className="min-w-0">
                       <div className="truncate font-medium">{s.name}</div>
                       <div className="font-mono text-[11px] text-muted-foreground">{s.isPublic ? "public" : "draft"}{s.rank ? ` · #${s.rank}` : ""}{s.trendingRank ? ` · trending #${s.trendingRank}` : ""}</div>
+                      {(s.streakDays ?? 0) >= 3 && <StreakChip days={s.streakDays!} className="mt-1.5" />}
                     </div>
                     <TrustBadge trust={s.trust} />
                   </div>

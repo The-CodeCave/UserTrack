@@ -285,6 +285,7 @@ export function projectSummary(s: Doc<"saas">) {
       newUsers30d: s.newUsers30d,
       growth7dPct: s.growth7dPct,
       growth30dPct: s.growth30dPct,
+      streakDays: s.streakDays ?? 0,
       activatedUsers: s.activatedUsers,
       activationRatePct: s.activationRatePct,
       trialUsers: s.trialUsers,

@@ -238,6 +238,7 @@ export default defineSchema({
     // Social
     followerCount: v.optional(v.number()),
     streakDays: v.optional(v.number()),
+    bestStreakDays: v.optional(v.number()),
     // Distinct third-party hosts that embed a widget (materialized from embedSites).
     embedSiteCount: v.optional(v.number()),
   })

@@ -40,6 +40,7 @@ export const run = internalMutation({
           await addMilestones(ctx, s._id, dailyMilestones(rows, s.name, s.growth30dPct, existing));
           const streak = streakDays(rows);
           if (streak !== (s.streakDays ?? 0)) await ctx.db.patch(s._id, { streakDays: streak });
+          if (streak > (s.bestStreakDays ?? 0)) await ctx.db.patch(s._id, { bestStreakDays: streak });
           // Rank at the end of the last closed day, for monthly rank deltas.
           const yesterday = rows.find((r) => r.day === dayKey(now - DAY));
           if (yesterday && s.rank !== undefined && yesterday.rank !== s.rank) await ctx.db.patch(yesterday._id, { rank: s.rank });
