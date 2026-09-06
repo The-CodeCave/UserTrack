@@ -2,7 +2,7 @@
 
 Everything the agent could not complete autonomously because it needs an external account, credential, DNS access or a human decision. Developer work is **not** listed here — it is done, tested and documented.
 
-Last updated: 2026-09-05 · code state: **v1.0 launch hardening + v1.0.1 review fixes complete** (SEC-1..3, LEGAL-1..2, ANALYTICS-1, AUTH-1, PROFILE-1, IMPORT-1, SOCIAL-1, OPS-1..3, SHIP-1, then FIX-0..4 and SHIP-2 — see `docs/RELEASE-v1.0.md`). The commits are on `main` and **pushed to `origin/main`**. **Deployed (2026-09-05, verified live):** Convex prod and the Railway service `usertrack` both run `04eb0d5` (`/api/health?deep=1` → `"convex":"ok"`). That commit fixes AUTH-FIX: `/api/auth/*` had been answering 500 for *every* request on production (social **and** email+password) because the proxy cloned the incoming request, which throws on Node 24 — Railpack's default — while local dev ran Node 22. `engines.node` / `.nvmrc` now pin 24.x. Steps 1, 2, 9, 10, 11 and 12 Phase A are **done**; the remaining blockers are the three OAuth apps, the domain switch to the main app and the Cloudflare cache rule.
+Last updated: 2026-09-06 · code state: **v1.0 launch hardening + v1.0.1 review fixes complete** (SEC-1..3, LEGAL-1..2, ANALYTICS-1, AUTH-1, PROFILE-1, IMPORT-1, SOCIAL-1, OPS-1..3, SHIP-1, then FIX-0..4 and SHIP-2 — see `docs/RELEASE-v1.0.md`). The commits are on `main` and **pushed to `origin/main`**. **Deployed (2026-09-05, verified live):** Convex prod and the Railway service `usertrack` both run `04eb0d5` (`/api/health?deep=1` → `"convex":"ok"`). **Deployed (2026-09-06, verified live):** both now run `d8ec527` (ONB-1 — onboarding autofill; `/api/health?deep=1` → `{"version":"d8ec527","convex":"ok"}`, all crons 0 errors). ONB-1 added one optional field (`profiles.avatarStorageId`) — Convex reported *Schema validation complete* against the live rows, so no migration is needed. It also adds **one new human decision**, listed under *Recommended*: the X avatar pull falls back to `unavatar.io` unless the X app's plan exposes `users/by/username`. That commit fixes AUTH-FIX: `/api/auth/*` had been answering 500 for *every* request on production (social **and** email+password) because the proxy cloned the incoming request, which throws on Node 24 — Railpack's default — while local dev ran Node 22. `engines.node` / `.nvmrc` now pin 24.x. Steps 1, 2, 9, 10, 11 and 12 Phase A are **done**; the remaining blockers are the three OAuth apps, the domain switch to the main app and the Cloudflare cache rule.
 
 **TL;DR** — the code is launch-ready and deployed on the Railway URL; 8 of the 14 human steps are left. `usertrack.dev` still serves the interim waitlist. Do the *Required* list below **in order** — each one is a link to the detailed section further down, which has the exact commands and values. Everything under *Recommended* can wait until after launch. v1.0.1 added two variables to that list (`NEXT_PUBLIC_RYBBIT_SITE_ID` in step 6, `UT_TRUST_CF_HEADERS` in step 12) and one command (`leaderboard:rerank` in step 9). The interim standalone waitlist app now lives in `main` under `apps/waitlist/`, but it is still a **separate deployable** with its own Convex project and Railway service — deploying the product never touches it (`docs/DEPLOYMENT.md` → *The interim waitlist*).
 
@@ -38,6 +38,7 @@ Last updated: 2026-09-05 · code state: **v1.0 launch hardening + v1.0.1 review 
 | **npm publishes** (`@usertrack/protocol` → `@usertrack/node` → `@usertrack/better-auth`) | Until then founders install the SDK from a `pnpm pack` tarball. Order matters: the plugin depends on the other two. | `packages/node/HUMAN_TODO.md`, `packages/better-auth/HUMAN_TODO.md` |
 | **Search Console + directory submissions** | Only worth doing once the domain resolves. | *Search Console: submit the new public pages*, *Submit the UserTrack MCP server to agent directories* |
 | **Decide on the demo listings** | The 5 `demo-*` products stay in production until `npx convex run --prod seed:clear`. | *Decide what to do with the demo listings* |
+| **Decide on the X avatar fallback (`unavatar.io`)** | The onboarding avatar pull tries X's own API first and falls back to `unavatar.io`, a third party that then sees the handle. Either enable the X endpoint on the app or accept/replace the fallback — and name it in `/privacy` if it stays. | *X avatar autofill — API access or the unavatar fallback (ONB-1)* |
 
 ---
 
@@ -525,6 +526,23 @@ GitHub → Settings → Developer settings → OAuth Apps → New OAuth App (htt
 * [x] GitHub done (2026-09-05) — `auth:providers` returns `github: true`; the app's redirect URIs already cover the Railway host, `usertrack.dev` and localhost (the current GitHub UI allows up to 10, so the domain switch needs no change here). · * [ ] X pending — no X app exists yet, `X_CLIENT_ID` is unset on Convex prod, so "Connect X" is off too (this section's claim that the app already exists is wrong).
 
 ---
+
+### X avatar autofill — API access or the unavatar fallback (ONB-1)
+
+**What it is.** On the profile form, typing an X handle fills the profile picture by itself (`convex/enrich.ts` → `enrich.xAvatar`). It resolves the picture in two steps:
+
+1. **X's own API** — an app-only bearer minted from the existing `X_CLIENT_ID` / `X_CLIENT_SECRET` (the same Connect X app), then `GET /2/users/by/username/<handle>?user.fields=profile_image_url`.
+2. **`https://unavatar.io/x/<handle>`** — used only when step 1 is unavailable or fails.
+
+Either way the image is copied into Convex storage, so nothing is hot-linked and the avatar survives the founder changing it on X.
+
+**Why it needs a human.** `users/by/username` and app-only client-credentials are **not available on every X plan**. On the Free tier step 1 fails and every pull goes through `unavatar.io` — which means a third party learns which handles our founders type, and it is not currently named in `/privacy`. Pick one:
+
+- **Enable the X endpoint** on the app (paid tier that includes `users/by/username`). Nothing to configure — the code already prefers it and the fallback becomes dead weight. Verify with a real sign-up: the toast says "Profile picture pulled from @handle" either way, so check the Convex logs for which branch ran.
+- **Keep `unavatar.io`** and add it to `/privacy` as a processor (what is sent: the handle, nothing else; no account of ours, no key).
+- **Drop the fallback** — return `unavatarUrl` → `null` in `convex/lib/xApi.ts`. The pull then simply reports "No public profile picture found" when X is unreachable; upload and paste-a-link still work, so onboarding is never blocked.
+
+Nothing here blocks launch: with no X access at all the founder uploads a file or pastes a link, exactly as before.
 
 ### Legal pages — lawyer review + effective date (LEGAL-1)
 
