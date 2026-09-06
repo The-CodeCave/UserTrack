@@ -90,11 +90,20 @@ if (phase === "founder" || phase === "all") {
   await d.goto(`${base}/app/saas/${id}#settings`, { waitUntil: "domcontentloaded" });
   await d.waitForSelector("#valueProposition", { timeout: 30000 });
   await d.locator("#settings").scrollIntoViewIfNeeded();
-  const chip = (label) => d.locator("#settings button[aria-pressed=false]", { hasText: new RegExp(`^${label}$`, "i") }).first();
-  for (const m of ["Analytics", "Developer tools", "AI"]) await chip(m).click();
-  const search = d.locator("input[aria-label='Search Tech stack']");
-  for (const t of ["Next.js", "Convex", "TypeScript", "Tailwind CSS", "Stripe", "Resend"]) { await search.fill(t); await d.waitForTimeout(150); await chip(t.replace(".", "\\.")).click(); }
-  for (const c of ["SEO", "X", "Product Hunt"]) await chip(c).click();
+  // Markets, tech stack and marketing channels are searchable dropdowns: open, type, click the match.
+  const rx = (s) => new RegExp(`^${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+  const pick = async (testId, label, items, custom) => {
+    const box = d.locator(`[data-testid=${testId}]`);
+    await box.scrollIntoViewIfNeeded();
+    await box.locator("button[aria-haspopup=listbox]").click();
+    const search = d.locator(`input[aria-label='Search ${label}']`);
+    for (const t of items) { await search.fill(t); await d.waitForTimeout(150); await box.locator("[role=option]", { hasText: rx(t) }).first().click(); }
+    if (custom) { await search.fill(custom); await d.waitForTimeout(150); await box.locator("button", { hasText: /as free text/ }).click(); }
+    await d.keyboard.press("Escape");
+  };
+  await pick("markets-select", "Markets", ["Analytics", "Developer tools", "AI"]);
+  await pick("stack-select", "Tech stack", ["Next.js", "Convex", "TypeScript", "Tailwind CSS", "Stripe", "Resend"]);
+  await pick("channels-select", "Marketing channels", ["SEO", "X", "Product Hunt"]);
   await d.click("#settings button:has-text('Add cofounder')");
   await d.fill("#cofounder-name-0", "Grace Hopper"); await d.fill("#cofounder-x-0", "@gracehopper"); await d.fill("#cofounder-github-0", "gracehopper");
   await d.selectOption("#country", "DE"); await d.click("#settings button:has-text('Bootstrapped')"); await d.selectOption("#teamSize", "2-5"); await d.fill("#foundedAt", "2024-03");

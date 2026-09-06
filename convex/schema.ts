@@ -90,6 +90,8 @@ export default defineSchema({
     username: v.string(),
     displayName: v.string(),
     avatarUrl: v.optional(v.string()),
+    // Uploaded or imported avatar (profiles.generateAvatarUploadUrl, enrich.xAvatar); wins over a pasted avatarUrl.
+    avatarStorageId: v.optional(v.id("_storage")),
     bio: v.optional(v.string()),
     website: v.optional(v.string()),
     x: v.optional(v.string()),

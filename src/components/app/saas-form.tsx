@@ -2,9 +2,10 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, Upload, Link2 } from "lucide-react";
+import { Loader2, Plus, Sparkles, Trash2, Upload, Link2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Doc, Id } from "../../../convex/_generated/dataModel";
 import { track } from "@/lib/analytics";
@@ -17,13 +18,14 @@ import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { SaasLogo } from "@/components/public/saas-card";
 import { StackIcon } from "@/components/public/stack-chip";
-import { ChipSelect } from "@/components/app/chip-select";
+import { ComboSelect } from "@/components/app/combo-select";
 import { CATEGORIES } from "@/lib/categories";
 import { COUNTRIES, countryFlag } from "@/lib/countries";
 import { FUNDING, MARKETING_CHANNELS, MARKETS, PROFILE_LIMITS, TEAM_SIZES, type Funding, type TeamSize } from "@/lib/profile-options";
 import { TECH_STACK, TECH_STACK_MAX, normalizeStackEntry } from "@/lib/tech-stack";
 import { xHandleError } from "@/lib/social";
 import { cn } from "@/lib/utils";
+import type { SiteImport } from "@convex/enrich";
 import type { PlatformValue } from "./platform-picker";
 import { TrustmrrImport, type ImportResult, type PrefillKey } from "./trustmrr-import";
 
@@ -48,6 +50,7 @@ export function SaasForm({
   const create = useMutation(api.saas.create);
   const update = useMutation(api.saas.update);
   const uploadUrl = useMutation(api.saas.generateLogoUploadUrl);
+  const inspectSite = useAction(api.enrich.site);
   const me = useQuery(api.profiles.me);
   const [saving, setSaving] = useState(false);
   const [markets, setMarkets] = useState<string[]>(initial?.markets ?? []);
@@ -63,6 +66,9 @@ export function SaasForm({
   const [logo, setLogo] = useState<{ url?: string; storageId?: Id<"_storage">; preview?: string }>({ url: initial?.logoUrl });
   const [logoMode, setLogoMode] = useState<"upload" | "url">(initial?.logoUrl && !initial.logoStorageId ? "url" : "upload");
   const [uploading, setUploading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState<string | null>(null);
+  const autoScanned = useRef(false);
   const file = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [defaults, setDefaults] = useState<Record<string, string | undefined>>(() => ({
@@ -114,6 +120,46 @@ export function SaasForm({
     setHighlight(hit);
     setFormKey((k) => k + 1);
     toast.success(hit.size ? `${hit.size} field${hit.size === 1 ? "" : "s"} filled from TrustMRR — review and save` : "Nothing to fill: every field already has a value");
+  }
+
+  // Reads the public <head> of the founder's own site and fills whatever is still empty. Nothing is saved until submit.
+  async function scanSite(raw: string, auto: boolean) {
+    const url = raw.trim();
+    if (!url || scanning) return;
+    setScanning(true);
+    try {
+      const site: SiteImport = await inspectSite({ url });
+      const cur = currentText();
+      const next: Record<string, string | undefined> = { ...defaults };
+      for (const k of TEXT_KEYS) next[k] = cur(k);
+      const hit = new Set<string>();
+      const take = (k: "name" | "description" | "valueProposition" | "websiteUrl", value?: string) => {
+        if (!value || cur(k)) return;
+        next[k] = value;
+        hit.add(k);
+      };
+      take("websiteUrl", site.url);
+      take("name", site.name);
+      take("description", site.description);
+      take("valueProposition", site.valueProposition);
+      if (!logo.url && !logo.storageId && site.logoUrl) {
+        setLogo({ storageId: site.logoStorageId, url: site.logoUrl });
+        setLogoMode(site.logoStorageId ? "upload" : "url");
+        hit.add("logoUrl");
+      }
+      setDefaults(next);
+      setHighlight(hit);
+      setFormKey((k) => k + 1);
+      setScanned(hit.size ? `${hit.size} field${hit.size === 1 ? "" : "s"} filled from your site` : "Your site had nothing new to add");
+      track("site_autofill", { fields: [...hit].join(","), auto });
+      if (hit.size && !auto) toast.success("Filled from your website — review and save");
+    } catch (e) {
+      const msg = e instanceof ConvexError ? (e.data as { message?: string }).message : undefined;
+      setScanned(null);
+      if (!auto) toast.error(msg ?? "Could not read that website");
+    } finally {
+      setScanning(false);
+    }
   }
 
   async function onFile(f: File | undefined) {
@@ -179,6 +225,19 @@ export function SaasForm({
     <form ref={formRef} key={formKey} onSubmit={onSubmit} className="space-y-8">
       <section className="space-y-4">
         <TrustmrrImport label={<SectionLabel>Product</SectionLabel>} filled={filledKeys} onApply={applyPrefill} linkedSlug={trustmrrSlug || undefined} onUnlink={() => setTrustmrrSlug("")} />
+        <div className="space-y-1.5">
+          <Label htmlFor="websiteUrl" className="text-label">Website URL</Label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input id="websiteUrl" name="websiteUrl" defaultValue={defaults.websiteUrl} placeholder="https://acme.com" type="url" required
+              className={cn("h-11 flex-1 bg-background", hl("websiteUrl"))}
+              onBlur={(e) => { if (!initial && !autoScanned.current && e.target.value.trim() && !currentText()("name")) { autoScanned.current = true; void scanSite(e.target.value, true); } }} />
+            <Button type="button" variant="outline" className="h-11 shrink-0 bg-background" disabled={scanning}
+              onClick={() => { autoScanned.current = true; void scanSite(String(new FormData(formRef.current!).get("websiteUrl") ?? ""), false); }} data-testid="site-autofill">
+              {scanning ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />} {scanning ? "Reading…" : "Autofill"}
+            </Button>
+          </div>
+          <p className="font-mono text-[11px] text-muted-foreground">{scanned ?? "Paste your live URL and we read the name, description and icon straight off the page."}</p>
+        </div>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
           <div className="flex shrink-0 items-center gap-3 sm:flex-col sm:items-start">
             <div className={hl("logoUrl")}><SaasLogo name={initial?.name ?? "?"} logoUrl={logoSrc} size={72} /></div>
@@ -196,7 +255,6 @@ export function SaasForm({
             <Limited label="Description" name="description" max={PROFILE_LIMITS.description} defaultValue={defaults.description} placeholder="Product analytics for indie SaaS." required textarea rows={3} className={hl("description")} />
           </div>
         </div>
-        <Field label="Website URL" name="websiteUrl" defaultValue={defaults.websiteUrl} placeholder="https://acme.com" type="url" required className={hl("websiteUrl")} />
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="category" className="text-label">Category</Label>
@@ -221,9 +279,9 @@ export function SaasForm({
       </section>
 
       <section className="space-y-6">
-        <div className={cn(hl("markets"), "ring-offset-4 ring-offset-background")}><ChipSelect label="Markets" hint="Which spaces your product plays in." options={MARKETS} value={markets} onChange={setMarkets} max={PROFILE_LIMITS.markets} /></div>
-        <div className={cn(hl("techStack"), "ring-offset-4 ring-offset-background")}><ChipSelect label="Tech stack" hint="Searchable. Anything not in the list is stored as plain text." options={TECH_STACK} value={stack} onChange={setStack} max={TECH_STACK_MAX} searchable icon={(slug) => <StackIcon slug={slug} />} onCustom={normalizeStackEntry} /></div>
-        <div className={cn(hl("marketingChannels"), "ring-offset-4 ring-offset-background")}><ChipSelect label="Marketing channels" hint="Where your users come from." options={MARKETING_CHANNELS} value={channels} onChange={setChannels} max={PROFILE_LIMITS.marketingChannels} /></div>
+        <div className={cn(hl("markets"), "ring-offset-4 ring-offset-background")}><ComboSelect label="Markets" hint="Which spaces your product plays in." options={MARKETS} value={markets} onChange={setMarkets} max={PROFILE_LIMITS.markets} testId="markets-select" /></div>
+        <div className={cn(hl("techStack"), "ring-offset-4 ring-offset-background")}><ComboSelect label="Tech stack" hint="Search the catalog; anything not in it is stored as plain text." options={TECH_STACK} value={stack} onChange={setStack} max={TECH_STACK_MAX} placeholder="Search frameworks, databases, hosting…" icon={(slug) => <StackIcon slug={slug} />} onCustom={normalizeStackEntry} testId="stack-select" /></div>
+        <div className={cn(hl("marketingChannels"), "ring-offset-4 ring-offset-background")}><ComboSelect label="Marketing channels" hint="Where your users come from." options={MARKETING_CHANNELS} value={channels} onChange={setChannels} max={PROFILE_LIMITS.marketingChannels} testId="channels-select" /></div>
       </section>
 
       <section className={cn("space-y-3", hl("cofounders"), "ring-offset-4 ring-offset-background")}>

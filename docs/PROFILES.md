@@ -113,6 +113,20 @@ The page shows an `anonymous` chip and an "An anonymous founder" card instead of
 
 `saas.generateLogoUploadUrl` (signed-in) → browser `POST`s the file to Convex storage → `saas.create` / `saas.update` receive `logoStorageId`, check the system row (≤1 MB, `image/png`, `image/jpeg`, `image/webp`; SVG is refused rather than sanitised) and store `logoUrl = ctx.storage.getUrl(id)`. A new upload deletes the previous file; pasting a URL or removing the logo deletes it too; project deletion (`removeProjectRows`) and account purge remove it. A refused upload cannot be deleted inside the failing mutation (the throw rolls the write back), so the form validates type + size before uploading. The form offers **Upload** / **Use URL** / **Remove** next to the current logo.
 
+### Autofill from the website / X (`convex/enrich.ts`)
+
+**TL;DR** — a founder types their live URL and the new-project form fills itself; a founder types their X handle and the avatar fills itself. Nothing is written until the form is submitted.
+
+- **`enrich.site({ url })`** — fetches the page (8 s timeout, 512 KB cap) and parses the `<head>` (`convex/lib/siteMeta.ts`, unit-tested): `og:site_name` / `application-name` / `<title>` → `name`, `description` / `og:description` → `description`, the title's tagline segment → `valueProposition`, the best `<link rel=*icon*>` → logo. `publicUrl` refuses non-http(s), loopback, RFC1918 and metadata hosts, and redirects are followed by hand (max 3) so every hop is re-checked — `fetch`'s own redirect handling would walk from a public domain to an internal address.
+- **`enrich.xAvatar({ handle })`** — resolves the profile picture for an X handle. Uses an app-only bearer (`X_CLIENT_ID` / `X_CLIENT_SECRET`) when the deployment's X plan allows `users/by/username`, otherwise a keyless public source. Typing a handle on the profile form pulls it once per handle by itself; **From X** re-runs it on demand.
+- **Images are copied into Convex storage**, validated by the same rules as an upload (`convex/lib/uploads.ts`: ≤1 MB, PNG / JPG / WebP), so a pulled avatar or favicon survives the origin changing it. Icons we cannot fetch and store are not offered at all rather than hot-linked, which is why the icon ranking prefers a raster `apple-touch-icon` over an SVG or `.ico`.
+- **Filling** — only empty fields are touched; filled ones are highlighted so the founder can see what changed. The website field auto-scans once on blur when the form is still empty; the **Autofill** button re-runs it any time.
+- **Limits** — 20 lookups per user per 10 minutes (SEC-2 limiter, keyed by user id so it also covers onboarding before a profile row exists).
+
+### Avatar upload
+
+`profiles.generateAvatarUploadUrl` (signed-in) → browser `POST`s the file to Convex storage → `profiles.upsert` receives `avatarStorageId`, validates it with `storedImageUrl` and stores `avatarUrl = ctx.storage.getUrl(id)`. Same lifecycle as the project logo: a new upload or an X pull deletes the previous file, pasting a URL or removing the avatar deletes it too. The picker offers **Upload** (click or drop on the circle) / **From X** / **Link** / **Remove**.
+
 ### Import from TrustMRR (IMPORT-1)
 
 **TL;DR** — a founder pastes `trustmrr.com/startup/<slug>` (or the slug) on the new / edit project form, sees a diff-style preview and applies it; empty fields are filled, nothing is overwritten unless "Overwrite existing values" is ticked, nothing is saved until the form is submitted. Revenue is never read.

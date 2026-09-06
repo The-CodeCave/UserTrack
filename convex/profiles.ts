@@ -7,6 +7,7 @@ import { sanitizeAttribution } from "../src/lib/attribution";
 import { setPreferences } from "./email/prefs";
 import { socialPrefs } from "./schema";
 import { requireVerifiedToPublish } from "./domain/projects";
+import { storedImageUrl } from "./lib/uploads";
 import { fillEmpty, followerPatch, prefillFor, takePrefill } from "./authProfile";
 
 export async function getProfileForUser(ctx: QueryCtx | MutationCtx) {
@@ -59,10 +60,22 @@ export function canonicalX(raw?: string) {
   return h;
 }
 
+// Short-lived URL for a direct browser -> Convex storage POST, so an avatar can be a file instead of a hosted link.
+export const generateAvatarUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { user } = await getProfileForUser(ctx);
+    if (!user) throw new Error("Not signed in");
+    return ctx.storage.generateUploadUrl();
+  },
+});
+
 const profileFields = {
   username: v.string(),
   displayName: v.string(),
   avatarUrl: v.optional(v.string()),
+  // Uploaded file or an avatar imported from X; replaces avatarUrl when set.
+  avatarStorageId: v.optional(v.id("_storage")),
   bio: v.optional(v.string()),
   website: v.optional(v.string()),
   x: v.optional(v.string()),
@@ -76,7 +89,7 @@ const attribution = v.object({ ref: v.optional(v.string()), source: v.optional(v
 
 export const upsert = mutation({
   args: { ...profileFields, timezone: v.optional(v.string()), attribution: v.optional(attribution) },
-  handler: async (ctx, { timezone, attribution, ...args }) => {
+  handler: async (ctx, { timezone, attribution, avatarStorageId, ...args }) => {
     const { user, profile } = await getProfileForUser(ctx);
     if (!user) throw new Error("Not signed in");
     if (!isValidHandle(args.username)) throw new Error("Invalid username");
@@ -89,14 +102,18 @@ export const upsert = mutation({
       .withIndex("by_username", (q) => q.eq("username", args.username))
       .unique();
     if (clash && clash._id !== profile?._id) throw new Error("Username already taken");
+    const avatar = avatarStorageId ? await storedImageUrl(ctx, avatarStorageId, "Avatar", profile?.avatarStorageId) : null;
+    // A pasted URL (or a cleared avatar) replaces the stored file, which is dropped from storage.
+    if (!avatar && profile?.avatarStorageId && args.avatarUrl !== profile.avatarUrl) await ctx.storage.delete(profile.avatarStorageId);
     const data = {
       ...args,
+      avatarStorageId: avatar?.storageId,
       displayName: args.displayName.trim(),
       x: canonicalX(args.x),
       github: handle(args.github),
       linkedin: handle(args.linkedin),
       website: args.website?.trim() || undefined,
-      avatarUrl: args.avatarUrl?.trim() || undefined,
+      avatarUrl: avatar?.url ?? args.avatarUrl?.trim() ?? undefined,
       location: args.location?.trim().slice(0, 60) || undefined,
       bio: args.bio?.trim().slice(0, 160) || undefined,
     };

@@ -1,15 +1,23 @@
 // Mobile App onboarding smoke: platform → identity (Firebase + Sign in with Apple) → RevenueCat → PostHog → recommendation → activation → conversion step. Screenshots to /tmp/ut-shots.
 import { chromium } from "playwright-core";
+import { execSync } from "node:child_process";
 const base = process.argv[2] ?? "http://localhost:3005";
 const mobile = process.argv[3] === "mobile";
 const tag = Date.now().toString(36);
+const email = `mob-${tag}@example.com`;
 const out = (n) => `/tmp/ut-shots/mob-${mobile ? "m" : "d"}-${n}.png`;
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 const page = await browser.newPage({ viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 }, deviceScaleFactor: 2, colorScheme: "dark" });
 const shot = async (n) => { await page.waitForTimeout(500); await page.screenshot({ path: out(n), fullPage: true }); console.log("✓", n); };
 await page.goto(`${base}/sign-up`);
-await page.fill("#name", "Mobile Tester"); await page.fill("#email", `mob-${tag}@example.com`); await page.fill("#password", "supersecret123");
+await page.fill("#name", "Mobile Tester"); await page.fill("#email", email); await page.fill("#password", "supersecret123");
 await page.click("button[type=submit]");
+// Sign-up stops at "check your inbox"; there is no mail in dev, so verify through the component adapter and sign in.
+await page.waitForSelector("[data-testid=check-inbox]", { timeout: 30000 });
+const where = JSON.stringify({ input: { model: "user", where: [{ field: "email", operator: "eq", value: email }], update: { emailVerified: true } } });
+execSync(`npx convex run --component betterAuth adapter:updateOne '${where}'`, { stdio: "inherit" });
+await page.goto(`${base}/sign-in`);
+await page.fill("#email", email); await page.fill("#password", "supersecret123"); await page.click("button[type=submit]");
 await page.waitForSelector("#displayName", { timeout: 30000 });
 await page.fill("#username", `mob-${tag}`); await page.click("button[type=submit]");
 await page.click("text=Connect manually", { timeout: 30000 });

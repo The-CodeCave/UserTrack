@@ -13,10 +13,8 @@ import { CATEGORIES } from "../src/lib/categories";
 import { publicTrustLabel } from "./lib/trust";
 import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, funnelFor, funnelHistoryFor } from "./domain/funnel";
 import { VISIBILITY_KEYS, visibilityOf } from "./domain/visibility";
+import { storedImageUrl } from "./lib/uploads";
 import { cofounder, funding, projectType, teamSize, visibility } from "./schema";
-
-const LOGO_MAX_BYTES = 1_048_576;
-const LOGO_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 export async function requireOwnedSaas(ctx: QueryCtx | MutationCtx, id: Id<"saas">) {
   const { user, profile } = await requireProfile(ctx);
@@ -74,16 +72,9 @@ export const generateLogoUploadUrl = mutation({
   },
 });
 
-// Validates the uploaded file (≤ 1 MB, png / jpeg / webp — SVG is refused) and turns it into a served logoUrl.
-// A refused upload cannot be deleted here (the throw rolls the mutation back); the client validates first, so orphans are rare.
 async function uploadedLogo(ctx: MutationCtx, storageId: Id<"_storage">, previous?: Id<"_storage">) {
-  const meta = await ctx.db.system.get(storageId);
-  if (!meta) throw new Error("Upload not found");
-  if (meta.size > LOGO_MAX_BYTES || !LOGO_TYPES.has(meta.contentType ?? "")) throw new Error("Logo must be a PNG, JPG or WebP file up to 1 MB");
-  const logoUrl = await ctx.storage.getUrl(storageId);
-  if (!logoUrl) throw new Error("Upload not found");
-  if (previous && previous !== storageId) await ctx.storage.delete(previous);
-  return { logoUrl, logoStorageId: storageId };
+  const { url, storageId: id } = await storedImageUrl(ctx, storageId, "Logo", previous);
+  return { logoUrl: url, logoStorageId: id };
 }
 
 export const create = mutation({

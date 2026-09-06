@@ -43,6 +43,8 @@ export type Events = {
   project_updated: { fields: string };
   project_published: undefined;
   project_unpublished: undefined;
+  site_autofill: { fields: string; auto: boolean };
+  avatar_autofill: { source: "x" | "upload" };
   trustmrr_import_started: undefined;
   trustmrr_import_succeeded: { unmappedCount: number };
   trustmrr_import_failed: { reason: string };
@@ -106,6 +108,8 @@ export const EVENTS = {
   project_updated: "project_updated",
   project_published: "project_published",
   project_unpublished: "project_unpublished",
+  site_autofill: "site_autofill",
+  avatar_autofill: "avatar_autofill",
   trustmrr_import_started: "trustmrr_import_started",
   trustmrr_import_succeeded: "trustmrr_import_succeeded",
   trustmrr_import_failed: "trustmrr_import_failed",

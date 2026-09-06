@@ -11,6 +11,12 @@ export const FOLLOWERS_PAGE_SIZE = 50;
 export interface XMe { data?: { id: string; username: string; name?: string; profile_image_url?: string; public_metrics?: { followers_count?: number } } }
 export const followersOf = (me: XMe) => (typeof me.data?.public_metrics?.followers_count === "number" ? me.data.public_metrics.followers_count : undefined);
 export const X_TWEETS_URL = "https://api.x.com/2/tweets";
+// Public profile lookup used by the onboarding avatar autofill (app-only bearer), plus its keyless fallback.
+export const X_USER_BY_USERNAME = (handle: string) => `https://api.x.com/2/users/by/username/${encodeURIComponent(handle)}?user.fields=profile_image_url`;
+export const appTokenBody = () => new URLSearchParams({ grant_type: "client_credentials" });
+export const unavatarUrl = (handle: string) => `https://unavatar.io/x/${encodeURIComponent(handle)}?fallback=false`;
+// X serves a 48px "_normal" crop by default; the 400px variant is the same file at a usable size.
+export const xAvatarSize = (url: string) => url.replace("_normal", "_400x400");
 export const OAUTH_STATE_TTL_MS = 10 * 60_000;
 
 export const callbackPath = "/api/social/x/callback";

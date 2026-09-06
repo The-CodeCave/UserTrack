@@ -25,6 +25,7 @@ import { EmbedBadge } from "@/components/public/embed-badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Confetti } from "@/components/ui/confetti";
 import { saasUrl, shareUrl } from "@/lib/site";
 import { embedKinds } from "@/lib/embed";
 import { availableShareKinds, shareCopy, type ShareKind } from "@/lib/share";
@@ -92,6 +93,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
+      <Confetti whenParam="created" />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <SectionLabel><Link href="/app/saas" className="hover:text-foreground">My SaaS</Link> / {saas.name}</SectionLabel>

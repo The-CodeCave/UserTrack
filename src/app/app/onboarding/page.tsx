@@ -21,6 +21,7 @@ import { AiSetup, SetupChooser } from "@/components/app/ai-setup";
 import { PlatformStep } from "@/components/app/platform-picker";
 import { StackQuestions } from "@/components/app/stack-questions";
 import { Button } from "@/components/ui/button";
+import { Confetti } from "@/components/ui/confetti";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCompact, formatDelta, formatRate } from "@/lib/format";
 import { NO_REVENUE_NOTE, providerLabel, type ProviderKind } from "@/lib/providers-ui";
@@ -289,6 +290,7 @@ function Celebrate({ slug, id, hasActivation }: { slug: string; id: Id<"saas">; 
   const [copied, setCopied] = useState(false);
   return (
     <Panel className="pink-glow p-6 text-center">
+      <Confetti />
       <PartyPopper className="mx-auto size-8 text-pink" />
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">You&apos;re on the board</h1>
       <p className="mt-1 text-sm text-muted-foreground">Share your growth page. It comes with a custom preview image.</p>

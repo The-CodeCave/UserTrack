@@ -45,7 +45,7 @@ function NewSaas() {
             <>
               <div className="text-label mb-4">{platform ? "Step 2 of 2 · Product details" : "Step 1 of 2 · What are you tracking?"}</div>
               {platform ? (
-                <SaasForm platform={platform} submitLabel="Create & connect source" onSaved={(id) => router.push(`/app/saas/${id}`)} />
+                <SaasForm platform={platform} submitLabel="Create & connect source" onSaved={(id) => router.push(`/app/saas/${id}?created=1`)} />
               ) : (
                 <PlatformStep onSubmit={(v) => { setPlatform(v); void track({ event: "platform_selected" }); }} />
               )}

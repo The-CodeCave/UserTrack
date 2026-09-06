@@ -13,6 +13,7 @@ import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { Button } from "@/components/ui/button";
+import { Confetti } from "@/components/ui/confetti";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCompact, timeAgo } from "@/lib/format";
@@ -326,6 +327,7 @@ function Done({ project }: { project: AiSetupProject }) {
     : "Ranked after a healthy sync history";
   return (
     <Panel className="pink-glow p-6">
+      <Confetti />
       <motion.div initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 400, damping: 22 }}>
         <Sparkles className="size-8 text-pink" />
       </motion.div>

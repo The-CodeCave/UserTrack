@@ -9,12 +9,13 @@ import type { Doc } from "../../../convex/_generated/dataModel";
 import { slugify } from "@/lib/slug";
 import { normalizeXHandle, xHandleError } from "@/lib/social";
 import { readAttribution } from "@/lib/attribution";
+import { AvatarPicker, type AvatarValue } from "@/components/app/avatar-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-type Initial = Partial<Pick<Doc<"profiles">, "username" | "displayName" | "avatarUrl" | "bio" | "website" | "x" | "github" | "linkedin" | "location">>;
+type Initial = Partial<Pick<Doc<"profiles">, "username" | "displayName" | "avatarUrl" | "avatarStorageId" | "bio" | "website" | "x" | "github" | "linkedin" | "location">>;
 
 export function ProfileForm({
   initial,
@@ -35,6 +36,7 @@ export function ProfileForm({
   const [touched, setTouched] = useState(Boolean(initial?.username));
   const [saving, setSaving] = useState(false);
   const [x, setX] = useState(initial?.x ?? "");
+  const [avatar, setAvatar] = useState<AvatarValue>({ url: initial?.avatarUrl, storageId: initial?.avatarStorageId });
   const xError = xHandleError(x);
   const check = useQuery(api.profiles.usernameAvailable, username.length >= 3 ? { username } : "skip");
 
@@ -50,7 +52,7 @@ export function ProfileForm({
     setSaving(true);
     try {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
-      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: normalizeXHandle(x) || undefined, github: opt("github"), linkedin: opt("linkedin"), avatarUrl: opt("avatarUrl"), location: opt("location"), timezone, attribution: readAttribution() ?? undefined });
+      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: normalizeXHandle(x) || undefined, github: opt("github"), linkedin: opt("linkedin"), avatarUrl: avatar.storageId ? undefined : avatar.url?.trim() || undefined, avatarStorageId: avatar.storageId, location: opt("location"), timezone, attribution: readAttribution() ?? undefined });
       toast.success("Profile saved");
       onSaved?.();
     } catch (err) {
@@ -64,6 +66,15 @@ export function ProfileForm({
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
+      <div className="space-y-1.5">
+        <Label htmlFor="x" className="text-label">X handle {compact && <span className="normal-case tracking-normal">(optional)</span>}</Label>
+        <div className="relative">
+          <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center font-mono text-sm text-muted-foreground">@</span>
+          <Input id="x" value={x} onChange={(e) => setX(e.target.value)} placeholder="yourhandle" aria-invalid={Boolean(xError)} className="h-11 bg-background pl-8 font-mono" />
+        </div>
+        <p className={xError ? "font-mono text-[11px] text-destructive" : "font-mono text-[11px] text-muted-foreground"}>{xError ?? (normalizeXHandle(x) ? `Shown as @${normalizeXHandle(x)} — we fetch your picture from there` : "@name, name or your x.com URL")}</p>
+      </div>
+      <AvatarPicker value={avatar} onChange={setAvatar} xHandle={x} name={displayName} autoPull />
       <div className="space-y-1.5">
         <Label htmlFor="displayName" className="text-label">Name</Label>
         <Input id="displayName" value={displayName} onChange={(e) => onName(e.target.value)} placeholder="Ada Lovelace" required minLength={2} className="h-11 bg-background" />
@@ -86,17 +97,6 @@ export function ProfileForm({
       <div className="space-y-1.5">
         <Label htmlFor="bio" className="text-label">Bio {compact && <span className="normal-case tracking-normal">(optional)</span>}</Label>
         <Textarea id="bio" name="bio" defaultValue={initial?.bio} placeholder="Building in public since 2024." maxLength={160} rows={2} className="bg-background" />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="x" className="text-label">X handle {compact && <span className="normal-case tracking-normal">(optional)</span>}</Label>
-          <div className="relative">
-            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center font-mono text-sm text-muted-foreground">@</span>
-            <Input id="x" value={x} onChange={(e) => setX(e.target.value)} placeholder="yourhandle" aria-invalid={Boolean(xError)} className="h-11 bg-background pl-8 font-mono" />
-          </div>
-          <p className={xError ? "font-mono text-[11px] text-destructive" : "font-mono text-[11px] text-muted-foreground"}>{xError ?? (normalizeXHandle(x) ? `Shown as @${normalizeXHandle(x)}` : "@name, name or your x.com URL")}</p>
-        </div>
-        <Field label={<>Avatar URL {compact && <span className="normal-case tracking-normal">(optional)</span>}</>} name="avatarUrl" defaultValue={initial?.avatarUrl} placeholder="https://…/me.png" type="url" />
       </div>
       {!compact && (
         <div className="grid gap-4 sm:grid-cols-2">
