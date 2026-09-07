@@ -37,7 +37,6 @@ Last updated: 2026-09-07 · code state: **v1.0 launch hardening + v1.0.1 review 
 | **Convex → Sentry log stream** | Backend function errors land in the same project. | *Optional: Convex → Sentry log stream (OPS-3)* |
 | **npm publishes** (`@usertrack/protocol` → `@usertrack/node` → `@usertrack/better-auth`) | Until then founders install the SDK from a `pnpm pack` tarball. Order matters: the plugin depends on the other two. | `packages/node/HUMAN_TODO.md`, `packages/better-auth/HUMAN_TODO.md` |
 | **Search Console + directory submissions** | Only worth doing once the domain resolves. | *Search Console: submit the new public pages*, *Submit the UserTrack MCP server to agent directories* |
-| **Decide on the demo listings** | The 5 `demo-*` products stay in production until `npx convex run --prod seed:clear`. | *Decide what to do with the demo listings* |
 | **Optional: X API plan with `users/by/username`** | Not a blocker — the avatar autofill already works for free. It would only remove the `unavatar.io` hop (whose free tier is 25 lookups/day across the whole deployment) and keep X lookups first-party. | *X avatar autofill — the free path, and what a paid X plan would change (ONB-1)* |
 
 ---
@@ -157,7 +156,7 @@ curl -s https://usertrack.dev/api/health                       # {"ok":true,"ver
 curl -s "https://usertrack.dev/api/health?deep=1"              # + "convex":"ok" and a jobs array
 curl -sI https://usertrack.dev/leaderboard                     # HSTS · CSP · X-Frame-Options: DENY · Cache-Control: public, s-maxage=300
 curl -sI https://usertrack.dev/api/v1/leaderboard              # x-ratelimit-limit / -remaining / -window
-curl -sI https://usertrack.dev/api/badge/demo-northwind.svg    # frame-ancestors * (badges must stay embeddable)
+curl -sI https://usertrack.dev/api/badge/cvscore.svg           # frame-ancestors * (badges must stay embeddable)
 ```
 Then, in the browser:
 1. **Sign-up e2e**: create a real account with email+password → the verification mail arrives (Resend → Emails shows *Delivered*) → the link signs you in → onboarding → publish → `/s/<slug>` renders with an `og:image`.
@@ -723,17 +722,14 @@ Convex dashboard → usertrack → Production → Data → `saas` (filter name "
 
 ---
 
-### Decide what to do with the demo listings
+### The demo listings (removed 2026-09-07)
 
-**Why this is needed**
-Production still contains the 5 labelled demo products (owner `@demo`) seeded for the MVP so the board is not empty. They are marked "Demo", never ranked, excluded from trending ranks, benchmarks, milestones, **all emails**, and the API's `demo: false` filter is available. Keep them until the first real listings arrive, or remove them now.
+**Decision taken** — the 5 labelled demo products (owner `@demo`) were dropped from production with `npx convex run --prod seed:clear` once CVScore became a real listing. `seed:clear` deletes the demo profile and every row each product owned, then re-ranks; a second run answers `"nothing to clear"`. Verified live: `/discover`, `/leaderboard`, `/trending` and `sitemap.xml` list only `cvscore`, `/s/demo-*` and `/u/demo` all 404, `/api/health?deep=1` stays `"convex":"ok"` with every cron at 0 errors.
 
-**Steps**
-1. To remove: `npx convex run --prod seed:clear`
-2. To keep: nothing to do.
+Production now shows **one** product. Discover drops empty sections and the landing board fills the rest with the "this could be your SaaS" ghost row, so nothing renders broken — but the boards will look thin until more founders list. Nothing re-seeds on its own: `seed:run` has no cron and no caller, so this only comes back if someone runs it by hand. If you ever want the sample board back for a screenshot or demo, `npx convex run --prod seed:run` recreates it (idempotent, skips if `@demo` already exists).
 
 **Status**
-* [ ] Decide
+* [x] Done — no action left
 
 ---
 
