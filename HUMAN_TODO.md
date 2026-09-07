@@ -38,7 +38,7 @@ Last updated: 2026-09-06 · code state: **v1.0 launch hardening + v1.0.1 review 
 | **npm publishes** (`@usertrack/protocol` → `@usertrack/node` → `@usertrack/better-auth`) | Until then founders install the SDK from a `pnpm pack` tarball. Order matters: the plugin depends on the other two. | `packages/node/HUMAN_TODO.md`, `packages/better-auth/HUMAN_TODO.md` |
 | **Search Console + directory submissions** | Only worth doing once the domain resolves. | *Search Console: submit the new public pages*, *Submit the UserTrack MCP server to agent directories* |
 | **Decide on the demo listings** | The 5 `demo-*` products stay in production until `npx convex run --prod seed:clear`. | *Decide what to do with the demo listings* |
-| **Decide on the X avatar fallback (`unavatar.io`)** | The onboarding avatar pull tries X's own API first and falls back to `unavatar.io`, a third party that then sees the handle. Either enable the X endpoint on the app or accept/replace the fallback — and name it in `/privacy` if it stays. | *X avatar autofill — API access or the unavatar fallback (ONB-1)* |
+| **Optional: X API plan with `users/by/username`** | Not a blocker — the avatar autofill already works for free. It would only remove the `unavatar.io` hop (whose free tier is 25 lookups/day across the whole deployment) and keep X lookups first-party. | *X avatar autofill — the free path, and what a paid X plan would change (ONB-1)* |
 
 ---
 
@@ -527,27 +527,29 @@ GitHub → Settings → Developer settings → OAuth Apps → New OAuth App (htt
 
 ---
 
-### X avatar autofill — API access or the unavatar fallback (ONB-1)
+### X avatar autofill — the free path, and what a paid X plan would change (ONB-1)
 
-**What it is.** On the profile form, typing an X handle fills the profile picture by itself (`convex/enrich.ts` → `enrich.xAvatar`). It resolves the picture in two steps:
+**Decided (2026-09-07): the free path is live.** Nothing here is required. This section only records how it works and what money would buy.
 
-1. **X's own API** — an app-only bearer minted from the existing `X_CLIENT_ID` / `X_CLIENT_SECRET` (the same Connect X app), then `GET /2/users/by/username/<handle>?user.fields=profile_image_url`.
-2. **`https://unavatar.io/x/<handle>`** — used only when step 1 is unavailable or fails.
+Typing an X or GitHub handle fills the profile picture automatically; pressing **Fetch** additionally tries Gravatar. All lookups are keyless and free, run **server-side** (the founder's IP never reaches these services), and the image is copied into Convex storage so it survives the origin changing it. Sources are tried in order:
 
-Either way the image is copied into Convex storage, so nothing is hot-linked and the avatar survives the founder changing it on X.
+| Order | Source | Cost | Limit |
+|---|---|---|---|
+| 1 | X API `users/by/username` | needs a paid X plan | used only if the plan allows it; otherwise skipped silently |
+| 2 | `unavatar.io/x/<handle>` | free | **25 lookups per day for the whole deployment** (per IP, `x-pricing-tier: free`) |
+| 3 | `github.com/<handle>.png` | free | no published quota |
+| 4 | Gravatar by SHA-256 of the email, on explicit click only | free | no published quota |
 
-**Why it needs a human.** `users/by/username` and app-only client-credentials are **not available on every X plan**. On the Free tier step 1 fails and every pull goes through `unavatar.io` — which means a third party learns which handles our founders type, and it is not currently named in `/privacy`. Pick one:
+**Why the order matters.** unavatar's 25/day is the one real ceiling, and it is shared by every founder signing up that day. It is deliberately *not* the backbone: when it is spent, GitHub and Gravatar still answer, and a founder with neither can always upload a file. So the worst case is "no picture was suggested", never a broken signup.
 
-- **Enable the X endpoint** on the app (paid tier that includes `users/by/username`). Nothing to configure — the code already prefers it and the fallback becomes dead weight. Verify with a real sign-up: the toast says "Profile picture pulled from @handle" either way, so check the Convex logs for which branch ran.
-- **Keep `unavatar.io`** and add it to `/privacy` as a processor (what is sent: the handle, nothing else; no account of ours, no key).
-- **Drop the fallback** — return `unavatarUrl` → `null` in `convex/lib/xApi.ts`. The pull then simply reports "No public profile picture found" when X is unreachable; upload and paste-a-link still work, so onboarding is never blocked.
+**What a paid X plan (Basic, currently ~$200/month) would change.** Step 1 starts answering, so X lookups become first-party and the unavatar row disappears from `/privacy` in practice. Purely an improvement in privacy surface and headroom — **not** needed for the feature to work. If you do subscribe, nothing needs configuring: the code already prefers step 1 whenever `X_CLIENT_ID` / `X_CLIENT_SECRET` can mint an app-only token.
 
-Nothing here blocks launch: with no X access at all the founder uploads a file or pastes a link, exactly as before.
+**Privacy.** `/privacy` section 3.11 documents all four sources, the German summary names them, and section 5 lists `unavatar.io` and Automattic (Gravatar) as third parties with no Art. 28 contract — they receive a public handle, or a hash, from our server and nothing else. That characterisation is part of what the lawyer review below should confirm.
 
 ### Legal pages — lawyer review + effective date (LEGAL-1)
 
 **Why this is needed**
-`/impressum`, `/privacy` and `/terms` exist and are linked from every footer and the sign-up form (agent-written, based on the code and on https://thecodecave.de/impressum). Google's OAuth consent screen needs the two URLs to leave "Testing" (see the Google item above). The texts have **not** been reviewed by a lawyer.
+`/impressum`, `/privacy` and `/terms` exist and are linked from every footer and the sign-up form (agent-written, based on the code and on https://thecodecave.de/impressum). Google's OAuth consent screen needs the two URLs to leave "Testing" (see the Google item above). The texts have **not** been reviewed by a lawyer. **v1.0.2 added privacy section 3.11 (profile-picture and website autofill)**, a German summary paragraph and two third-party rows in section 5 (`unavatar.io`, Automattic/Gravatar); `EFFECTIVE_DATE` moved to 2026-09-07 for that change. Please include the Art. 6(1)(f) basis for the autofill and the "third party, no Art. 28 contract" characterisation in the review.
 
 **Steps**
 1. Have a lawyer review `src/app/(public)/impressum/page.tsx`, `src/app/(public)/privacy/page.tsx`, `src/app/(public)/terms/page.tsx` — in particular the liability clause (§ 521 BGB-style), the Köln venue, the CC BY 4.0 licence for public growth data and the processor list (Convex, Railway, Resend, Cloudflare, Google, GitHub, X, self-hosted Rybbit). Sign the DPAs / SCCs with Convex, Railway and Resend if not yet done.

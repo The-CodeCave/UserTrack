@@ -36,6 +36,8 @@ export function ProfileForm({
   const [touched, setTouched] = useState(Boolean(initial?.username));
   const [saving, setSaving] = useState(false);
   const [x, setX] = useState(initial?.x ?? "");
+  // Controlled so the avatar fetch can use it; a GitHub sign-in prefills it even though the field is hidden in compact mode.
+  const [github, setGithub] = useState(initial?.github ?? "");
   const [avatar, setAvatar] = useState<AvatarValue>({ url: initial?.avatarUrl, storageId: initial?.avatarStorageId });
   const xError = xHandleError(x);
   const check = useQuery(api.profiles.usernameAvailable, username.length >= 3 ? { username } : "skip");
@@ -52,7 +54,7 @@ export function ProfileForm({
     setSaving(true);
     try {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
-      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: normalizeXHandle(x) || undefined, github: opt("github"), linkedin: opt("linkedin"), avatarUrl: avatar.storageId ? undefined : avatar.url?.trim() || undefined, avatarStorageId: avatar.storageId, location: opt("location"), timezone, attribution: readAttribution() ?? undefined });
+      await upsert({ displayName: displayName.trim(), username, bio: opt("bio"), website: opt("website"), x: normalizeXHandle(x) || undefined, github: github.trim() || undefined, linkedin: opt("linkedin"), avatarUrl: avatar.storageId ? undefined : avatar.url?.trim() || undefined, avatarStorageId: avatar.storageId, location: opt("location"), timezone, attribution: readAttribution() ?? undefined });
       toast.success("Profile saved");
       onSaved?.();
     } catch (err) {
@@ -74,7 +76,7 @@ export function ProfileForm({
         </div>
         <p className={xError ? "font-mono text-[11px] text-destructive" : "font-mono text-[11px] text-muted-foreground"}>{xError ?? (normalizeXHandle(x) ? `Shown as @${normalizeXHandle(x)} — we fetch your picture from there` : "@name, name or your x.com URL")}</p>
       </div>
-      <AvatarPicker value={avatar} onChange={setAvatar} xHandle={x} name={displayName} autoPull />
+      <AvatarPicker value={avatar} onChange={setAvatar} xHandle={x} githubHandle={github} name={displayName} autoPull />
       <div className="space-y-1.5">
         <Label htmlFor="displayName" className="text-label">Name</Label>
         <Input id="displayName" value={displayName} onChange={(e) => onName(e.target.value)} placeholder="Ada Lovelace" required minLength={2} className="h-11 bg-background" />
@@ -102,7 +104,7 @@ export function ProfileForm({
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Website" name="website" defaultValue={initial?.website} placeholder="https://yourdomain.com" type="url" />
           <Field label="Location" name="location" defaultValue={initial?.location} placeholder="Berlin, DE" maxLength={60} />
-          <Field label="GitHub" name="github" defaultValue={initial?.github} placeholder="ada" />
+          <Field label="GitHub" name="github" value={github} onChange={(e) => setGithub(e.target.value)} placeholder="ada" />
           <Field label="LinkedIn" name="linkedin" defaultValue={initial?.linkedin} placeholder="ada-lovelace" />
         </div>
       )}

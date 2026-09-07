@@ -1,6 +1,7 @@
 // Onboarding autofill: read public sources so a founder types a URL or a handle instead of a form.
-// `site` reads the <head> of their own website, `xAvatar` resolves an X profile picture. Nothing is saved to a project
-// or profile here — the form decides what to apply — but images are copied into Convex storage so they keep working.
+// `site` reads the <head> of their own website, `avatar` resolves a profile picture from the handles they already gave
+// us. Nothing is saved to a project or profile here — the form decides what to apply — but images are copied into
+// Convex storage so they keep working when the origin changes them.
 import { ConvexError, v } from "convex/values";
 import { RateLimiter } from "@convex-dev/rate-limiter";
 import { action, internalMutation, internalQuery, type ActionCtx } from "./_generated/server";
@@ -10,7 +11,9 @@ import { authComponent } from "./auth";
 import { RATE_LIMITS } from "./lib/rateLimits";
 import { IMAGE_MAX_BYTES, IMAGE_TYPES } from "./lib/uploads";
 import { parseSiteMeta, publicUrl } from "./lib/siteMeta";
-import { X_USER_BY_USERNAME, appTokenBody, unavatarUrl, xAvatarSize } from "./lib/xApi";
+import { X_USER_BY_USERNAME, appTokenBody } from "./lib/xApi";
+import { type AvatarCandidate, type AvatarSource, githubAvatarUrl, gravatarKey, gravatarUrl, sha256Hex, unavatarUrl, xAvatarSize } from "./lib/avatarSources";
+import { isValidHandle } from "../src/lib/slug";
 import { isValidXHandle, normalizeXHandle } from "../src/lib/social";
 
 const limiter = new RateLimiter(components.rateLimiter, RATE_LIMITS);
@@ -32,16 +35,17 @@ export interface SiteImport {
 export interface AvatarImport {
   url: string;
   storageId?: Id<"_storage">;
+  source: AvatarSource;
 }
 
 const fail = (code: string, message: string) => new ConvexError({ code, message });
 
-export const meUserId = internalQuery({
+export const meIdentity = internalQuery({
   args: {},
   handler: async (ctx) => {
     const user = await authComponent.safeGetAuthUser(ctx);
     if (!user) throw new Error("Not signed in");
-    return user._id;
+    return { id: user._id, email: user.email ?? null };
   },
 });
 
@@ -54,9 +58,10 @@ export const takeSlot = internalMutation({
 });
 
 async function budget(ctx: ActionCtx) {
-  const userId: string = await ctx.runQuery(internal.enrich.meUserId, {});
-  const slot = await ctx.runMutation(internal.enrich.takeSlot, { userId });
+  const me: { id: string; email: string | null } = await ctx.runQuery(internal.enrich.meIdentity, {});
+  const slot = await ctx.runMutation(internal.enrich.takeSlot, { userId: me.id });
   if (!slot.ok) throw fail("rate_limited", `Too many lookups; try again in ${Math.max(1, Math.ceil(slot.retryAfterMs / 60_000))} min`);
+  return me;
 }
 
 // Follows redirects by hand so every hop is re-checked against the public-host rules; `fetch` would follow a redirect
@@ -144,34 +149,53 @@ async function xAppBearer(): Promise<string | null> {
   }
 }
 
-async function xAvatarSource(handle: string): Promise<string> {
+// X's own API needs a plan that includes `users/by/username`; without it this returns null and the keyless
+// unavatar route is used instead.
+async function xApiAvatar(handle: string): Promise<string | null> {
   const bearer = await xAppBearer();
-  if (bearer) {
-    try {
-      const res = await fetch(X_USER_BY_USERNAME(handle), { headers: { Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
-      if (res.ok) {
-        const { data } = (await res.json()) as { data?: { profile_image_url?: string } };
-        if (data?.profile_image_url) return xAvatarSize(data.profile_image_url);
-      }
-    } catch {
-      // fall through to the keyless source
-    }
+  if (!bearer) return null;
+  try {
+    const res = await fetch(X_USER_BY_USERNAME(handle), { headers: { Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS) });
+    if (!res.ok) return null;
+    const { data } = (await res.json()) as { data?: { profile_image_url?: string } };
+    return data?.profile_image_url ? xAvatarSize(data.profile_image_url) : null;
+  } catch {
+    return null;
   }
-  return unavatarUrl(handle);
 }
 
-// Profile picture behind an X handle or x.com URL, copied into storage so it survives the founder changing it on X.
-export const xAvatar = action({
-  args: { handle: v.string() },
-  handler: async (ctx, { handle }): Promise<AvatarImport> => {
-    const h = normalizeXHandle(handle);
-    if (!isValidXHandle(h)) throw fail("bad_request", "Enter an X handle like @ada or a x.com profile link");
-    await budget(ctx);
-    const source = publicUrl(await xAvatarSource(h));
-    const storageId = source ? await storeImage(ctx, source) : null;
-    if (!storageId) throw fail("not_found", `No public profile picture found for @${h}`);
-    const url = await ctx.storage.getUrl(storageId);
-    if (!url) throw fail("not_found", `No public profile picture found for @${h}`);
-    return { url, storageId };
+// Every free source we can try for this founder, best first. unavatar's free tier is only 25 lookups a day across our
+// whole deployment, so GitHub and Gravatar are not a nicety — they are what keeps the feature working once it is spent.
+async function avatarCandidates(i: { x?: string; github?: string; email?: string | null }): Promise<AvatarCandidate[]> {
+  const out: AvatarCandidate[] = [];
+  if (i.x) {
+    const viaApi = await xApiAvatar(i.x);
+    out.push({ source: "x", url: viaApi ?? unavatarUrl(i.x) });
+  }
+  if (i.github) out.push({ source: "github", url: githubAvatarUrl(i.github) });
+  if (i.email) out.push({ source: "gravatar", url: gravatarUrl(await sha256Hex(gravatarKey(i.email))) });
+  return out;
+}
+
+// Profile picture from the handles the founder already gave us, copied into storage so it survives the origin
+// changing it. Tries X, then GitHub, then Gravatar, and reports which one answered.
+export const avatar = action({
+  args: { x: v.optional(v.string()), github: v.optional(v.string()), includeEmail: v.optional(v.boolean()) },
+  handler: async (ctx, args): Promise<AvatarImport> => {
+    const x = args.x ? normalizeXHandle(args.x) : "";
+    if (args.x && !isValidXHandle(x)) throw fail("bad_request", "Enter an X handle like @ada or a x.com profile link");
+    const github = args.github?.trim().replace(/^@/, "") ?? "";
+    const me = await budget(ctx);
+    // Gravatar is only consulted on an explicit request: a handle the founder typed is intent, their account address is not.
+    const candidates = await avatarCandidates({ x: x || undefined, github: isValidHandle(github) ? github : undefined, email: args.includeEmail ? me.email : null });
+    if (candidates.length === 0) throw fail("bad_request", "Add your X or GitHub handle first");
+    for (const candidate of candidates) {
+      const url = publicUrl(candidate.url);
+      const storageId = url ? await storeImage(ctx, url) : null;
+      if (!storageId) continue;
+      const stored = await ctx.storage.getUrl(storageId);
+      if (stored) return { url: stored, storageId, source: candidate.source };
+    }
+    throw fail("not_found", "No public profile picture found — upload one instead");
   },
 });

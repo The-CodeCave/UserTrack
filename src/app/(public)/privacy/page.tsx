@@ -41,6 +41,7 @@ export default function PrivacyPage() {
         <h2 className="mb-3 text-base font-semibold tracking-tight text-foreground">Kurzfassung auf Deutsch</h2>
         <p><strong>Verantwortlicher:</strong> {OPERATOR.name}, {OPERATOR.street}, {OPERATOR.city}, {OPERATOR.country}, vertreten durch die Geschäftsführer {OPERATOR.directors.join(" und ")}. <strong>Kontakt:</strong> <a href={`mailto:${OPERATOR.email}`}>{OPERATOR.email}</a>, {OPERATOR.phone}. Ein Datenschutzbeauftragter ist nicht bestellt, da keine gesetzliche Pflicht besteht.</p>
         <p><strong>Betroffenenrechte:</strong> Sie haben das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch (Art. 21), sowie das Recht, eine erteilte Einwilligung jederzeit mit Wirkung für die Zukunft zu widerrufen (Art. 7 Abs. 3). Konto löschen und Daten exportieren können Sie selbst unter <a href="/app/settings#data-privacy">/app/settings#data-privacy</a>; alle anderen Anfragen richten Sie an {OPERATOR.email}. Beschwerden nehmen die {SUPERVISORY_AUTHORITY.name} ({SUPERVISORY_AUTHORITY.address}) oder jede andere Aufsichtsbehörde entgegen.</p>
+        <p><strong>Automatisches Ausfüllen:</strong> Auf Wunsch holt UserTrack Ihr Profilbild anhand des von Ihnen eingegebenen X- oder GitHub-Handles (über X bzw. <code className="font-mono text-foreground">github.com</code>, ersatzweise <code className="font-mono text-foreground">unavatar.io</code>) und liest beim Anlegen eines Produkts die öffentliche Startseite der von Ihnen angegebenen URL aus. Nur wenn Sie ausdrücklich auf „Fetch“ klicken, fragen wir zusätzlich Gravatar mit einem <strong>SHA-256-Hash</strong> Ihrer E-Mail-Adresse ab — niemals mit der Adresse selbst. Alle diese Abrufe erfolgen von unserem Server, Ihre IP-Adresse wird dabei nicht übermittelt. Sie können stattdessen jederzeit eine Datei hochladen (Abschnitt 3.11).</p>
         <p><strong>Cookies und Analyse:</strong> UserTrack setzt nur das technisch notwendige Sitzungs-Cookie des Logins und nutzt eine selbst betriebene, cookielose Reichweitenmessung ohne Tracking über Websites hinweg. Ein Einwilligungsbanner ist deshalb nicht erforderlich.</p>
       </section>
 
@@ -74,7 +75,16 @@ export default function PrivacyPage() {
         <p>If you connect X, we store the X user id, handle, name, avatar URL, the access and refresh tokens with their scopes, the connection status, the last post made and, if you enable auto-posting, the posts published on your behalf. Tokens are used only to post what you opted in to and to refresh the handle and avatar.</p>
         <h3>3.10 Server logs and abuse prevention</h3>
         <p>Our hosting providers keep request logs (IP address, user agent, requested URL, response status, timestamp) for a short period for security and debugging. Anonymous API, badge, embed and card requests are rate-limited per IP address; the counters live for at most ten minutes. We do not build visitor profiles from these logs.</p>
-        <h3>3.11 Analytics</h3>
+        <h3>3.11 Profile-picture and website autofill</h3>
+        <p>To save you filling in forms, UserTrack can fetch a few public details on your behalf. All of these requests are made <strong>by our server, not by your browser</strong>, so your IP address, cookies and user agent are never disclosed to the services below; the fetched image is copied into our own storage and the service is not contacted again.</p>
+        <ul>
+          <li><strong>From an X handle</strong> — when you type your X handle we look up that public profile picture. Where our X API plan allows it the request goes to X directly; otherwise it is resolved through <code className="font-mono text-foreground">unavatar.io</code>. Only the handle is sent.</li>
+          <li><strong>From a GitHub handle</strong> — we request <code className="font-mono text-foreground">github.com/&lt;handle&gt;.png</code>. Only the handle is sent.</li>
+          <li><strong>From your email address (only when you press “Fetch”)</strong> — we ask Gravatar whether a picture exists for your address. What is transmitted is a <strong>SHA-256 hash</strong> of the address, never the address itself. This one is never done automatically, because your account address is something you gave us for the account, not for a lookup elsewhere.</li>
+          <li><strong>From your product’s website</strong> — when you add a product we read the public HTML of the URL <em>you</em> entered to prefill its name, description and icon. No personal data of yours is sent; the site owner sees a request from our server identified as <code className="font-mono text-foreground">UserTrackBot</code>.</li>
+        </ul>
+        <p>None of this is required: you can always upload a file or paste a link instead, and a picture we fetched can be removed at any time.</p>
+        <h3>3.12 Analytics</h3>
         <p>Cookieless page-view statistics as described in section 8. No account data is sent to the analytics service.</p>
       </Section>
 
@@ -84,9 +94,10 @@ export default function PrivacyPage() {
           <tbody>
             <tr><td>Providing the account, the dashboard, syncs, public growth pages, API, MCP, webhooks, embeds and transactional email (welcome, verification, password reset, sync failures)</td><td>3.1 – 3.4, 3.6 – 3.8, transactional part of 3.5</td><td>Art. 6(1)(b) GDPR — performance of the contract described in the <a href="/terms">Terms</a></td></tr>
             <tr><td>Security, abuse and fraud prevention (rate limiting, trust scores, audit log, email-verification, bounce suppression), debugging</td><td>3.6, 3.10, sync logs, trust signals</td><td>Art. 6(1)(f) GDPR — our legitimate interest in a reliable, un-gamed leaderboard and a secure service</td></tr>
-            <tr><td>Cookieless reach measurement</td><td>3.11</td><td>Art. 6(1)(f) GDPR — legitimate interest in understanding which pages are used; no cookies or device fingerprints, so § 25 TDDDG consent is not required</td></tr>
+            <tr><td>Cookieless reach measurement</td><td>3.12</td><td>Art. 6(1)(f) GDPR — legitimate interest in understanding which pages are used; no cookies or device fingerprints, so § 25 TDDDG consent is not required</td></tr>
             <tr><td>Product nudges, growth emails, weekly digest, monthly report, followed-product alerts</td><td>3.5 (non-transactional)</td><td>Art. 6(1)(a) GDPR — consent via the notification preferences; withdraw any time at <a href="/app/settings/notifications">/app/settings/notifications</a> or the unsubscribe link</td></tr>
             <tr><td>Posting to your X account, importing handle and avatar from X</td><td>3.9</td><td>Art. 6(1)(a) GDPR — consent when you connect X and enable a posting category; disconnect at any time</td></tr>
+            <tr><td>Prefilling your profile picture and your product details from sources you point us at (section 3.11)</td><td>3.2, 3.3; a hash of 3.1 only when you press “Fetch”</td><td>Art. 6(1)(f) GDPR — legitimate interest in an onboarding that does not make you retype public information; every lookup is optional and triggered by you, and the result can be removed</td></tr>
             <tr><td>Publishing founder profile and growth data</td><td>3.2 – 3.4 (public projections only)</td><td>Art. 6(1)(b) GDPR — publication is the core of the service you request; visibility controls in section 9</td></tr>
           </tbody>
         </table>
@@ -102,7 +113,9 @@ export default function PrivacyPage() {
             <tr><td>Resend, Inc.</td><td>Transactional and notification email delivery</td><td>USA — SCCs</td></tr>
             <tr><td>Cloudflare, Inc.</td><td>DNS, CDN and DDoS protection in front of usertrack.dev</td><td>Global edge, EU data localisation — SCCs</td></tr>
             <tr><td>Google LLC</td><td>Sign in with Google (only when you choose it)</td><td>USA — SCCs / DPF; Google acts as independent controller for its own account data</td></tr>
-            <tr><td>GitHub, Inc. · X Corp.</td><td>Sign in with GitHub / X (only when you choose it; a GitHub or X sign-in imports your handle and avatar into your founder profile, which you can edit); X additionally for the optional account connection and posting</td><td>USA — SCCs; independent controllers for their platforms</td></tr>
+            <tr><td>GitHub, Inc. · X Corp.</td><td>Sign in with GitHub / X (only when you choose it; a GitHub or X sign-in imports your handle and avatar into your founder profile, which you can edit); GitHub additionally serves the public avatar for a handle you type (section 3.11); X additionally for the optional account connection and posting</td><td>USA — SCCs; independent controllers for their platforms</td></tr>
+            <tr><td>unavatar.io</td><td>Resolves the public profile picture behind an X handle when our X plan does not allow the direct lookup (section 3.11); receives the handle only, from our server</td><td>Global edge — no account and no contract with us; used only for the lookups you trigger</td></tr>
+            <tr><td>Automattic, Inc. (Gravatar)</td><td>Answers whether a profile picture exists for a SHA-256 hash of your email address — only when you press “Fetch” (section 3.11)</td><td>USA — independent controller for Gravatar; no account and no contract with us</td></tr>
             <tr><td>The CodeCave GmbH (self-hosted Rybbit)</td><td>Cookieless web analytics operated by us on EU infrastructure</td><td>EU — no third-party access</td></tr>
           </tbody>
         </table>

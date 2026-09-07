@@ -49,6 +49,7 @@ import type * as leaderboard from "../leaderboard.js";
 import type * as lib_analytics from "../lib/analytics.js";
 import type * as lib_authProviders from "../lib/authProviders.js";
 import type * as lib_authRateLimits from "../lib/authRateLimits.js";
+import type * as lib_avatarSources from "../lib/avatarSources.js";
 import type * as lib_benchmarks from "../lib/benchmarks.js";
 import type * as lib_boardRules from "../lib/boardRules.js";
 import type * as lib_domain from "../lib/domain.js";
@@ -164,6 +165,7 @@ declare const fullApi: ApiFromModules<{
   "lib/analytics": typeof lib_analytics;
   "lib/authProviders": typeof lib_authProviders;
   "lib/authRateLimits": typeof lib_authRateLimits;
+  "lib/avatarSources": typeof lib_avatarSources;
   "lib/benchmarks": typeof lib_benchmarks;
   "lib/boardRules": typeof lib_boardRules;
   "lib/domain": typeof lib_domain;

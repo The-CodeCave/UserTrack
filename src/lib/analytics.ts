@@ -44,7 +44,7 @@ export type Events = {
   project_published: undefined;
   project_unpublished: undefined;
   site_autofill: { fields: string; auto: boolean };
-  avatar_autofill: { source: "x" | "upload" };
+  avatar_autofill: { source: "x" | "github" | "gravatar" | "upload" };
   trustmrr_import_started: undefined;
   trustmrr_import_succeeded: { unmappedCount: number };
   trustmrr_import_failed: { reason: string };

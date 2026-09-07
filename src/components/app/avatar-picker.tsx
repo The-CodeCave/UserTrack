@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import { toast } from "sonner";
-import { Link2, Loader2, Upload, User } from "lucide-react";
+import { ImageDown, Link2, Loader2, Upload, User } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { XIcon } from "@/components/auth/provider-icons";
+import { GitHubIcon, XIcon } from "@/components/auth/provider-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,21 +22,28 @@ const TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || null;
 
-// Avatar as a file, pulled from X, or a pasted link — in that order of convenience. The X pull copies the picture into
-// our own storage, so it keeps working when the founder changes it on X.
-export function AvatarPicker({ value, onChange, xHandle, name, autoPull }: {
-  value: AvatarValue; onChange: (v: AvatarValue) => void; xHandle?: string; name?: string; autoPull?: boolean;
+const SOURCE_LABEL = { x: "X", github: "GitHub", gravatar: "Gravatar" } as const;
+
+// Avatar as a file, fetched from the handles the founder already typed, or a pasted link — in that order of
+// convenience. A fetched picture is copied into our own storage, so it keeps working when the origin changes it.
+export function AvatarPicker({ value, onChange, xHandle, githubHandle, name, autoPull }: {
+  value: AvatarValue; onChange: (v: AvatarValue) => void; xHandle?: string; githubHandle?: string; name?: string; autoPull?: boolean;
 }) {
   const uploadUrl = useMutation(api.profiles.generateAvatarUploadUrl);
-  const pullX = useAction(api.enrich.xAvatar);
-  const [busy, setBusy] = useState<"upload" | "x" | null>(null);
+  const fetchAvatar = useAction(api.enrich.avatar);
+  const [busy, setBusy] = useState<"upload" | "fetch" | null>(null);
   const [showUrl, setShowUrl] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [pulled, setPulled] = useState(false);
+  const [pulled, setPulled] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const tried = useRef(new Set<string>());
   const handle = normalizeXHandle(xHandle);
-  const canPullX = Boolean(handle) && !xHandleError(xHandle);
+  const github = githubHandle?.trim().replace(/^@/, "") ?? "";
+  const xReady = Boolean(handle) && !xHandleError(xHandle);
+  // Gravatar needs nothing but the address we already have, so there is always something to try.
+  const fetchLabel = xReady ? "From X" : github ? "From GitHub" : "Fetch";
+  const FetchIcon = xReady ? XIcon : github ? GitHubIcon : ImageDown;
+  const key = `${xReady ? handle : ""}|${github}`;
   const src = value.preview ?? value.url;
 
   async function onFile(f: File | undefined) {
@@ -58,34 +65,35 @@ export function AvatarPicker({ value, onChange, xHandle, name, autoPull }: {
     }
   }
 
-  async function fromX() {
-    if (!canPullX) return;
-    setBusy("x");
+  // `silent` is the automatic attempt: a founder who simply has no picture anywhere should not be told off for it.
+  async function pull(silent: boolean) {
+    setBusy("fetch");
     try {
-      const a = await pullX({ handle });
+      const a = await fetchAvatar({ x: xReady ? handle : undefined, github: github || undefined, includeEmail: !silent });
       onChange({ url: a.url, storageId: a.storageId });
       setShowUrl(false);
-      setPulled(true);
-      track("avatar_autofill", { source: "x" });
-      toast.success(`Profile picture pulled from @${handle}`);
+      setPulled(SOURCE_LABEL[a.source]);
+      track("avatar_autofill", { source: a.source });
+      toast.success(`Profile picture pulled from ${SOURCE_LABEL[a.source]}`);
     } catch (e) {
-      toast.error(e instanceof ConvexError ? (e.data as { message?: string }).message ?? "Could not fetch that profile picture" : "Could not fetch that profile picture");
+      if (!silent) toast.error(e instanceof ConvexError ? (e.data as { message?: string }).message ?? "Could not fetch a profile picture" : "Could not fetch a profile picture");
     } finally {
       setBusy(null);
     }
   }
 
-  // A typed handle fills an empty avatar by itself, once per handle, so signing up is "type @you" and nothing else.
+  // Fills an empty avatar by itself, once per combination of handles, so signing up is "type @you" and nothing else.
+  // Only runs when a handle was actually typed — the automatic path never reaches out on the account address alone.
   useEffect(() => {
-    if (!autoPull || !canPullX || src || busy || tried.current.has(handle)) return;
+    if (!autoPull || src || busy || (!xReady && !github) || tried.current.has(key)) return;
     const t = setTimeout(() => {
-      if (tried.current.has(handle)) return;
-      tried.current.add(handle);
-      void fromX();
+      if (tried.current.has(key)) return;
+      tried.current.add(key);
+      void pull(true);
     }, 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPull, canPullX, handle, src, busy]);
+  }, [autoPull, key, src, busy, xReady, github]);
 
   return (
     <div className="space-y-2">
@@ -117,15 +125,15 @@ export function AvatarPicker({ value, onChange, xHandle, name, autoPull }: {
             <Button type="button" size="sm" variant="outline" disabled={busy !== null} onClick={() => file.current?.click()}>
               {busy === "upload" ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />} Upload
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={busy !== null || !canPullX} onClick={fromX} data-testid="avatar-from-x"
-              title={canPullX ? `Fetch the picture on @${handle}` : "Add your X handle first"}>
-              {busy === "x" ? <Loader2 className="size-3.5 animate-spin" /> : <XIcon />} From X
+            <Button type="button" size="sm" variant="outline" disabled={busy !== null} onClick={() => void pull(false)} data-testid="avatar-fetch"
+              title={xReady ? `Fetch the picture on @${handle}` : github ? `Fetch the picture on github.com/${github}` : "Fetch the picture linked to your email address"}>
+              {busy === "fetch" ? <Loader2 className="size-3.5 animate-spin" /> : <FetchIcon className="size-3.5" />} {fetchLabel}
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setShowUrl((s) => !s)}><Link2 className="size-3.5" /> Link</Button>
             {src && <Button type="button" size="sm" variant="ghost" onClick={() => { onChange({}); setShowUrl(false); }}>Remove</Button>}
           </div>
           <p className="font-mono text-[11px] text-muted-foreground">
-            {pulled ? `Pulled from @${handle} — swap it any time.` : "Drop a file on the circle, or pull it from X. PNG, JPG, WebP · max 1 MB."}
+            {pulled ? `Pulled from ${pulled} — swap it any time.` : "Drop a file on the circle, or fetch it from X, GitHub or Gravatar. PNG, JPG, WebP · max 1 MB."}
           </p>
           {showUrl && (
             <Input value={value.storageId ? "" : value.url ?? ""} onChange={(e) => onChange({ url: e.target.value })} placeholder="https://…/me.png" type="url" aria-label="Avatar URL" className="h-10 bg-background" />
