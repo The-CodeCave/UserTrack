@@ -137,34 +137,39 @@ export function DemoTag() {
 }
 
 // Compact card: logo, name, badges, users · category, growth line, sparkline and the board metric; follow chip sits beside the link.
+// Container-query driven: below 24rem of card width the metric column drops onto its own row instead of squeezing the text.
 export function MiniSaasCard({ s, metric }: { s: SaasRow; metric?: { label: string; value: string } }) {
   const trusted = s.trust === "verified" && s.trustLabel !== "Data under review";
   return (
-    <div className="relative">
+    <div className="@container relative">
       <Link href={`/s/${s.slug}`} className="group block">
-        <Panel className="flex h-full items-center gap-3 p-3 pr-12 transition-colors group-hover:border-line-strong">
-          <SaasLogo name={s.name} logoUrl={s.logoUrl} size={36} />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-medium">
-              <span className="min-w-0 truncate">{s.name}</span>
-              {s.isDemo && <DemoTag />}
-              {trusted && <TrustBadge trust={s.trust} label={s.trustLabel} className="shrink-0" />}
-              {s.trendingRank && <span className="shrink-0 border border-new/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-new">#{s.trendingRank} trending</span>}
+        <Panel className="flex h-full flex-col gap-2 p-3 transition-colors group-hover:border-line-strong @[24rem]:flex-row @[24rem]:items-center @[24rem]:gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3 pr-9 @[24rem]:pr-0">
+            <SaasLogo name={s.name} logoUrl={s.logoUrl} size={36} />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-medium">
+                <span className="min-w-0 truncate">{s.name}</span>
+                {s.isDemo && <DemoTag />}
+                {trusted && <TrustBadge trust={s.trust} label={s.trustLabel} className="shrink-0" />}
+                {s.trendingRank && <span className="shrink-0 border border-new/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-new">#{s.trendingRank} trending</span>}
+              </div>
+              <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[11px] text-muted-foreground">
+                <span className="min-w-0 truncate">{formatCompact(s.totalUsers)} users · {categoryLabel(s.category)}</span>
+                {s.movement && <MovementTag m={s.movement} className="shrink-0" />}
+              </div>
+              <div className="truncate font-mono text-[11px] text-muted-foreground"><span className="text-foreground">{formatDelta(s.newUsers30d)}</span> · 30d · {formatPct(s.growth30dPct)}</div>
             </div>
-            <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
-              <span className="min-w-0 truncate">{formatCompact(s.totalUsers)} users · {categoryLabel(s.category)}</span>
-              {s.movement && <MovementTag m={s.movement} className="shrink-0" />}
-            </div>
-            <div className="truncate font-mono text-[11px] text-muted-foreground"><span className="text-foreground">{formatDelta(s.newUsers30d)}</span> · 30d · {formatPct(s.growth30dPct)}</div>
           </div>
-          <Sparkline values={s.spark} width={72} height={24} className="hidden shrink-0 text-foreground sm:block" />
-          <div className="shrink-0 text-right">
-            <div className="font-semibold">{metric?.value ?? formatDelta(s.newUsers7d)}</div>
-            <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{metric?.label ?? "7d"}</div>
+          <div className="flex shrink-0 items-center justify-end gap-3 @[24rem]:pr-8">
+            <Sparkline values={s.spark} width={72} height={24} className="shrink-0 text-foreground" />
+            <div className="shrink-0 text-right">
+              <div className="font-semibold">{metric?.value ?? formatDelta(s.newUsers7d)}</div>
+              <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{metric?.label ?? "7d"}</div>
+            </div>
           </div>
         </Panel>
       </Link>
-      <FollowChip targetType="saas" targetId={s._id} className="absolute right-3 top-1/2 -translate-y-1/2" />
+      <FollowChip targetType="saas" targetId={s._id} className="absolute right-3 top-3 @[24rem]:top-1/2 @[24rem]:-translate-y-1/2" />
     </div>
   );
 }

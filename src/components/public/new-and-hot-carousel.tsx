@@ -10,7 +10,7 @@ export function NewAndHotCarousel({ items }: { items: SaasRow[] }) {
         <SectionLabel>New & hot</SectionLabel>
         <div className="-mx-4 mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
           {items.map((s) => (
-            <div key={s._id} className="w-72 shrink-0 snap-start">
+            <div key={s._id} className="w-[min(21rem,82vw)] shrink-0 snap-start">
               <MiniSaasCard s={s} />
             </div>
           ))}

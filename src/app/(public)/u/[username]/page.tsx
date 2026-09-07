@@ -112,7 +112,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
         {p.saas.length === 0 && <Panel className="p-6 text-sm text-muted-foreground sm:col-span-2">No public products yet.</Panel>}
         {p.saas.map((s) => (
           <Link key={s._id} href={`/s/${s.slug}`} className="group">
-            <Panel className="h-full p-4 transition-colors group-hover:border-line-strong">
+            <Panel className="@container h-full p-4 transition-colors group-hover:border-line-strong">
               <div className="flex items-center gap-3">
                 <SaasLogo name={s.name} logoUrl={s.logoUrl} size={40} />
                 <div className="min-w-0 flex-1">
@@ -126,9 +126,9 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                 {s.trendingRank && <span className="inline-flex items-center gap-1 border border-pink/60 px-1.5 py-0.5 text-pink"><Flame className="size-3" />#{s.trendingRank} trending</span>}
               </div>
               <div className="mt-4 flex items-end justify-between gap-3">
-                <div><div className="text-label">Users</div><div className="tabular text-2xl font-semibold">{formatCompact(s.totalUsers)}</div></div>
-                <Sparkline values={s.spark} className="text-foreground" />
-                <div className="text-right"><div className="text-label">30d</div><div className="font-mono text-sm text-pink">{formatDelta(s.newUsers30d)}</div><div className="font-mono text-[10px] text-muted-foreground">{formatPct(s.growth30dPct)}</div></div>
+                <div className="min-w-0"><div className="text-label">Users</div><div className="tabular text-2xl font-semibold">{formatCompact(s.totalUsers)}</div></div>
+                <Sparkline values={s.spark} className="hidden shrink-0 text-foreground @[20rem]:block" />
+                <div className="shrink-0 text-right"><div className="text-label">30d</div><div className="font-mono text-sm text-pink">{formatDelta(s.newUsers30d)}</div><div className="font-mono text-[10px] text-muted-foreground">{formatPct(s.growth30dPct)}</div></div>
               </div>
             </Panel>
           </Link>
