@@ -11,6 +11,7 @@ import { MetricCard } from "@/components/blueprint/metric-card";
 import { TrustBadge, trustTitle } from "@/components/blueprint/trust-badge";
 import { MovementTag } from "@/components/blueprint/movement";
 import { StreakChip } from "@/components/blueprint/streak-chip";
+import { TrackedA } from "@/components/analytics/analytics";
 import { SaasLogo, DemoTag, MiniSaasCard } from "@/components/public/saas-card";
 import { SaasGrowth } from "@/components/public/saas-growth";
 import { RankHistoryChart } from "@/components/charts/rank-history-chart";
@@ -107,16 +108,16 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
             </div>
             <p className="mt-2 max-w-xl text-muted-foreground">{s.description}</p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-              {s.websiteUrl && <a href={s.websiteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-foreground">{new URL(s.websiteUrl).hostname} <ExternalLink className="size-3" /></a>}
-              {s.trustmrrSlug && <a href={`https://trustmrr.com/startup/${s.trustmrrSlug}`} target="_blank" rel="noreferrer nofollow" className="inline-flex items-center gap-1 hover:text-foreground">Also on TrustMRR <ExternalLink className="size-3" /></a>}
+              {s.websiteUrl && <TrackedA event="outbound_click" props={{ target: "website" }} href={s.websiteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-foreground">{new URL(s.websiteUrl).hostname} <ExternalLink className="size-3" /></TrackedA>}
+              {s.trustmrrSlug && <TrackedA event="outbound_click" props={{ target: "trustmrr" }} href={`https://trustmrr.com/startup/${s.trustmrrSlug}`} target="_blank" rel="noreferrer nofollow" className="inline-flex items-center gap-1 hover:text-foreground">Also on TrustMRR <ExternalLink className="size-3" /></TrackedA>}
               {s.anonymous && <span className="inline-flex items-center gap-1" title="The founder chose anonymous mode: identity, logo and links are hidden."><EyeOff className="size-3" /> anonymous</span>}
               {s.category && <Link href={`/categories/${s.category}`} className="hover:text-foreground">{categoryLabel(s.category)}</Link>}
               {s.tags.map((t) => <span key={t}>#{t}</span>)}
             </div>
             {storeLinks && (s.appStoreUrl || s.playStoreUrl) && (
               <div className="mt-3 flex flex-wrap gap-2">
-                {s.appStoreUrl && <a href={s.appStoreUrl} target="_blank" rel="noreferrer" className={storeChip}><Apple className="size-3.5" /> App Store</a>}
-                {s.playStoreUrl && <a href={s.playStoreUrl} target="_blank" rel="noreferrer" className={storeChip}><Play className="size-3.5" /> Google Play</a>}
+                {s.appStoreUrl && <TrackedA event="outbound_click" props={{ target: "app_store" }} href={s.appStoreUrl} target="_blank" rel="noreferrer" className={storeChip}><Apple className="size-3.5" /> App Store</TrackedA>}
+                {s.playStoreUrl && <TrackedA event="outbound_click" props={{ target: "play_store" }} href={s.playStoreUrl} target="_blank" rel="noreferrer" className={storeChip}><Play className="size-3.5" /> Google Play</TrackedA>}
               </div>
             )}
           </div>
@@ -327,8 +328,8 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
                     {s.cofounders!.map((c, i) => (
                       <li key={i} className="flex flex-wrap items-center gap-x-2">
                         <span className="text-foreground/80">{c.name ?? c.x ?? c.github}</span>
-                        {c.x && <a href={xProfileUrl(c.x)} target="_blank" rel="noreferrer" className="hover:text-foreground">@{c.x}</a>}
-                        {c.github && <a href={`https://github.com/${c.github}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 hover:text-foreground"><GitHubIcon className="size-3" />{c.github}</a>}
+                        {c.x && <TrackedA event="outbound_click" props={{ target: "x" }} href={xProfileUrl(c.x)} target="_blank" rel="noreferrer" className="hover:text-foreground">@{c.x}</TrackedA>}
+                        {c.github && <TrackedA event="outbound_click" props={{ target: "github" }} href={`https://github.com/${c.github}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 hover:text-foreground"><GitHubIcon className="size-3" />{c.github}</TrackedA>}
                       </li>
                     ))}
                   </ul>

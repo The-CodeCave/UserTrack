@@ -1,6 +1,6 @@
 # Analytics (Rybbit)
 
-**TL;DR** — UserTrack tracks product usage with a self-hosted, cookieless [Rybbit](https://rybbit.com) instance (`https://rybbit.internal.thecodecave.de`, site `753f44fa9c50`). No consent banner: no cookies, no session replay, IP hashed daily. The browser sends page views + a **typed event catalog** (`src/lib/analytics.ts`), route handlers and Convex actions send a handful of **server-side events** (`/api/track`), signed-in founders are linked by their **pseudonymous Better Auth id** (never an email). Goals and funnels can only be created in the Rybbit dashboard — the table at the end lists what to create.
+**TL;DR** — UserTrack tracks product usage with a self-hosted, cookieless [Rybbit](https://rybbit.com) instance (`https://rybbit.internal.thecodecave.de`, site `753f44fa9c50`). No consent banner: no cookies, no session replay, IP hashed daily. The browser sends page views + a **typed event catalog** (`src/lib/analytics.ts`), route handlers and Convex actions send a handful of **server-side events** (`/api/track`), signed-in founders are linked by their **pseudonymous Better Auth id** (never an email). Goals and funnels are created via Rybbit's API — the table at the end lists what exists.
 
 ## How it is wired
 
@@ -45,9 +45,11 @@ All props are primitives. Never emails, handles, URLs of third parties or secret
 | `dataset_downloaded` | `dataset, format: json \| csv` | `/developers` dataset links |
 | `sign_up_started` | `method: email \| google \| github \| x` | Sign-up submit / Google button |
 | `sign_up_completed` | `method, ref?` | Account created (email; social completions land on the identify). `ref` is the stored first-touch `ref` (below), if any |
-| `sign_in` | `method` | Successful password sign-in, Google button on sign-in |
+| `sign_in` | `method` | Successful password sign-in; for OAuth, fired from `AnalyticsIdentity` once the redirect actually lands with a session (`withSignInMarker` tags `next`, not fired on click — an abandoned/failed OAuth attempt is not a sign-in) |
 | `email_verification_resent` | — | “Resend verification email” |
 | `sign_out` | — | App shell + settings sign-out |
+| `password_reset_requested` | — | `/forgot-password` submit, success only |
+| `password_reset_completed` | — | `/reset-password` submit, after the password is actually changed |
 | `onboarding_step` | `step, platform?` | Every `setStep` in `/app/onboarding` (`Profile … Publish`, `done`) |
 | `onboarding_completed` | — | Publish step + AI flow completion |
 | `project_created` | `source: form \| mcp \| trustmrr` | `SaasForm` (`form`); `mcp` / `trustmrr` reserved (an import prefills the form, the save is still `form`) |
@@ -64,14 +66,18 @@ All props are primitives. Never emails, handles, URLs of third parties or secret
 | `x_connected` / `x_disconnected` | — | `/app/settings/social` |
 | `x_followers_refreshed` | — | `/app/settings/social` → Refresh now (success only) |
 | `follow` / `unfollow` | `targetType: saas \| profile` | `FollowButton`, `FollowChip` |
+| `token_create_opened` | `type: api \| mcp` | API key / MCP token dialog opened |
 | `token_created` | `type: api \| mcp, origin` | Developer dialogs (`dashboard`) |
 | `token_revoked` | — | Token list |
 | `mcp_config_copied` | `client` (`claude-code \| cursor \| codex \| vscode \| generic`) | MCP token dialog, `/developers` snippet tabs |
+| `webhook_create_opened` | — | Webhook dialog opened |
 | `webhook_created` | `events` (comma-joined) | Webhook dialog |
 | `webhook_test_sent` | — | “Send test” |
+| `webhook_updated` | `action: deleted \| secret_rotated \| enabled \| disabled` | Endpoint list, success only |
 | `notification_pref_changed` | `key, value` | `/app/settings/notifications` |
 | `account_export_downloaded` | — | Settings → Data & privacy |
 | `account_deleted` | — | After the delete mutation succeeds |
+| `outbound_click` | `target: website \| trustmrr \| app_store \| play_store \| x \| github` | Public growth page (`/s/[slug]`) outbound links, via `TrackedA` |
 
 ## Server-side events
 
@@ -107,26 +113,31 @@ Every link that leaves UserTrack's own surfaces carries `ref` (read by the app) 
 
 **Why UTMs and `ref`.** Rybbit's *URL parameters off* setting strips `?ref=` (and `?next=`) from recorded paths, so paths stay clean and `ref` is only for the app; UTMs are parsed by Rybbit natively and survive that setting as the session's source / medium / campaign.
 
-## Goals & funnels to create in the dashboard
+## Goals & funnels
 
-Rybbit has no API for goals or funnels. Create these once (Rybbit → site → Goals / Funnels):
+Rybbit's site settings, goals and funnels below were created via its API (Site settings API, Goals API, Funnels API all exist — the dashboard is not the only way in).
 
-| Goal | Type | Value |
+| Goal | Type | Value | id |
+|---|---|---|---|
+| Signed up | Custom event | `sign_up_completed` | 88 |
+| Project created | Custom event | `project_created` | 89 |
+| Source connected | Custom event | `integration_connected` | 90 |
+| Page published | Custom event | `project_published` | 91 |
+| Token created | Custom event | `token_created` | 92 |
+| Webhook created | Custom event | `webhook_created` | 93 |
+| Joined the waitlist | Custom event | `waitlist_join` | 94 |
+| Onboarding completed | Custom event | `onboarding_completed` | 95 |
+| Visited sign-up | Page | `/sign-up` | 96 |
+| Reached onboarding | Page | `/app/onboarding` | 97 |
+| Viewed a growth page | Page | `/s/*` | 98 |
+
+| Funnel | Steps | id |
 |---|---|---|
-| Signed up | Custom event | `sign_up_completed` |
-| Project created | Custom event | `project_created` |
-| Source connected | Custom event | `integration_connected` |
-| Page published | Custom event | `project_published` |
-| Token created | Custom event | `token_created` |
-| Webhook created | Custom event | `webhook_created` |
-| Visited sign-up | Page | `/sign-up` |
-| Reached onboarding | Page | `/app/onboarding` |
-| Viewed a growth page | Page | `/s/*` |
+| Startseite → Waitlist | (pre-existing, waitlist app) | 35 |
+| Founder Activation | `/` (page) → `/sign-up` (page) → `onboarding_completed` → `project_created` → `integration_connected` → `project_published` | 36 |
+| Developer | `/developers` (page) → `token_created` → `mcp_tool_called` | 37 |
 
-| Funnel | Steps |
-|---|---|
-| Founder activation | `/` (page) → `/sign-up` (page) → `onboarding_completed` → `project_created` → `integration_connected` → `project_published` |
-| Developer | `/developers` (page) → `token_created` → `mcp_tool_called` |
+**The waitlist app.** `apps/waitlist` is a separate Vite app (own Railway service) that ran before the main app launched and still exists for the pre-launch page. It hardcodes `data-site-id="753f44fa9c50"` in `apps/waitlist/index.html` — the same Rybbit site as UserTrack itself — and fires `waitlist_join` / `waitlist_join_failed` straight off `window.rybbit`, bypassing the typed catalog entirely (it is a different app with its own `package.json`, not part of this Next.js build). Those two events are **intentionally not** in `EVENTS`: this codebase never fires them, and adding untyped-elsewhere strings to the catalog would be misleading.
 
 ## Verifying locally
 

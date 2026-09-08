@@ -28,6 +28,12 @@ const OAUTH_ERRORS: Record<string, string> = {
   account_already_linked_to_different_user: "That account is already linked to another UserTrack user.",
 };
 
+function withSignInMarker(path: string, method: AuthMethod) {
+  const url = new URL(path, "http://x.invalid");
+  url.searchParams.set("signedIn", method);
+  return url.pathname + url.search + url.hash;
+}
+
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -47,11 +53,12 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
 
   async function signInWith({ id, method }: (typeof SOCIAL)[number]) {
     setSocial(id);
-    track(mode === "sign-up" ? "sign_up_started" : "sign_in", { method });
+    // Sign-in fires once the redirect actually lands (AnalyticsIdentity), not on click — an abandoned OAuth popup is not a sign-in.
+    if (mode === "sign-up") track("sign_up_started", { method });
     const res = await authClient.signIn.social({
       provider: id,
-      callbackURL: next,
-      newUserCallbackURL: "/app/onboarding",
+      callbackURL: mode === "sign-in" ? withSignInMarker(next, method) : next,
+      newUserCallbackURL: `/app/onboarding?new=${method}`,
       errorCallbackURL: mode === "sign-up" ? "/sign-up" : "/sign-in",
     });
     if (res.error) {

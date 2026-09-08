@@ -580,45 +580,27 @@ Every email sets `Reply-To: hello@usertrack.dev` (`EMAIL_REPLY_TO`, already conf
 
 ---
 
-### Rybbit — site settings, goals, funnels and API key (ANALYTICS-1)
+### Rybbit — API key and env vars (ANALYTICS-1)
 
 **Why this is needed**
-The tracker, the event catalog (`docs/ANALYTICS.md`) and the server-side events are deployed. Rybbit exposes no API for site settings, goals or funnels, and the script only takes skip / mask patterns as attributes — everything else is a dashboard toggle. Until the goals exist the events are collected but no conversion rate is shown.
+The tracker, the event catalog (`docs/ANALYTICS.md`) and the server-side events are deployed. Site settings, hostname exclusion, the 11 goals and the 2 funnels have already been created via Rybbit's API — see `docs/ANALYTICS.md`. What is left needs human hands: Rybbit has no API to mint its own API key, and env vars/deploys are outside this agent's reach.
 
 **Where**
-`https://rybbit.internal.thecodecave.de` → site **usertrack.dev** (id `753f44fa9c50`) → Settings / Goals / Funnels
+`https://rybbit.internal.thecodecave.de` → site **usertrack.dev** (id `753f44fa9c50`) → Settings → API keys; Railway service `usertrack`; Convex prod deployment
 
 **Steps**
-1. **Site settings → Tracking**: SPA navigation **on**, initial page view **on**, outbound links **on**, web vitals **on**, error tracking **on**, autocapture: button clicks **on**, form submissions **on**, copy **on**, input changes **off**; URL parameters **off**; **Session replay OFF** (the privacy policy promises this); Track IP **off**; User-ID salting **on**; Block bot traffic **on**.
-2. **Traffic filtering → Hostname exclusions**: add `localhost*`. Since FIX-1 local dev / CI / preview builds send nothing at all (the production site id is only implied for a production build of `https://usertrack.dev`), so this is now belt and braces for anyone who sets `NEXT_PUBLIC_RYBBIT_SITE_ID` locally.
-3. **Goals → Create goal** (name · type · value):
-   | Name | Type | Value |
-   |---|---|---|
-   | Signed up | Custom event | `sign_up_completed` |
-   | Project created | Custom event | `project_created` |
-   | Source connected | Custom event | `integration_connected` |
-   | Page published | Custom event | `project_published` |
-   | Token created | Custom event | `token_created` |
-   | Webhook created | Custom event | `webhook_created` |
-   | Visited sign-up | Page | `/sign-up` |
-   | Reached onboarding | Page | `/app/onboarding` |
-   | Viewed a growth page | Page | `/s/*` |
-   | Joined the waitlist | Custom event | `waitlist_join` |
-
-   `waitlist_join` comes from the interim waitlist app on the `waitlist` branch (own Railway service, same Rybbit site), so the interim phase and the launched app are measured in one place. Create the goal even before the waitlist is live — an unused goal costs nothing.
-4. **Funnels → Create funnel**:
-   | Funnel | Steps |
-   |---|---|
-   | Founder activation | page `/` → page `/sign-up` → event `onboarding_completed` → event `project_created` → event `integration_connected` → event `project_published` |
-   | Developer | page `/developers` → event `token_created` → event `mcp_tool_called` |
-5. **API key** (Site settings → API keys → create, name `usertrack-server`) so server-side events bypass bot detection / domain validation:
+1. **API key** (Site settings → API keys → create, name `usertrack-server`) so server-side events bypass bot detection / domain validation.
+2. Railway service `usertrack`: set the env vars below, then **redeploy** — `NEXT_PUBLIC_*` is baked into the build at build time, so setting it without a redeploy does nothing:
    ```bash
-   railway variables --service usertrack --set "NEXT_PUBLIC_RYBBIT_SITE_ID=753f44fa9c50"   # belt and braces: FIX-1 only infers it for a production build of https://usertrack.dev
-   railway variables set RYBBIT_API_KEY=rb_xxx            # Next.js server events (api_request, mcp_tool_called, badge_rendered, embed_rendered, native_event_ingested)
-   npx convex env set --prod RYBBIT_SITE_ID 753f44fa9c50   # enables webhook_delivered + sync_completed from Convex
+   railway variables --service usertrack --set "NEXT_PUBLIC_RYBBIT_SITE_ID=753f44fa9c50" --set "RYBBIT_API_KEY=rb_xxx"
+   railway redeploy --service usertrack
+   ```
+3. Convex prod (enables `webhook_delivered` + `sync_completed`):
+   ```bash
+   npx convex env set --prod RYBBIT_SITE_ID 753f44fa9c50
    npx convex env set --prod RYBBIT_API_KEY rb_xxx
    ```
-6. Verify: open https://usertrack.dev, then Rybbit → Realtime shows the page view; `curl https://usertrack.dev/api/v1/categories` → an `api_request` event appears under Events within a minute.
+4. Verify: open https://usertrack.dev, then Rybbit → Realtime shows the page view; `curl https://usertrack.dev/api/v1/categories` → an `api_request` event appears under Events within a minute; the Goals from step 1 start showing non-zero conversions once traffic flows.
 
 **Legal note for the lawyer review (LEGAL-1 item above)**
 `identify()` stores the pseudonymous Better Auth user id in the visitor's local storage while signed in (cleared on sign-out). `/privacy` §7 + §8 describe it; counsel should confirm this stays within the consent-free § 25 TDDDG / Art. 6(1)(f) reading. If not, remove `<AnalyticsIdentity/>` from `src/app/layout.tsx` — nothing else depends on it.

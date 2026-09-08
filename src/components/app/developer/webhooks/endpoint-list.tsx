@@ -73,19 +73,19 @@ function EndpointRow({ ep, project, maxAttempts }: { ep: Endpoint; project?: str
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {confirm === "delete" ? (
             <>
-              <Button variant="destructive" size="sm" className="h-10 sm:h-8" disabled={busy !== null} onClick={() => run("delete", () => remove({ id: ep.id }), "Endpoint deleted")}>Confirm delete</Button>
+              <Button variant="destructive" size="sm" className="h-10 sm:h-8" disabled={busy !== null} onClick={() => run("delete", async () => { await remove({ id: ep.id }); track("webhook_updated", { action: "deleted" }); }, "Endpoint deleted")}>Confirm delete</Button>
               <Button variant="ghost" size="sm" className="h-10 sm:h-8" onClick={() => setConfirm(null)}>Cancel</Button>
             </>
           ) : confirm === "rotate" ? (
             <>
-              <Button variant="destructive" size="sm" className="h-10 sm:h-8" disabled={busy !== null} onClick={() => run("rotate", async () => setSecret((await rotate({ id: ep.id })).secret), "Secret rotated — update your consumer")}>Confirm rotate</Button>
+              <Button variant="destructive" size="sm" className="h-10 sm:h-8" disabled={busy !== null} onClick={() => run("rotate", async () => { setSecret((await rotate({ id: ep.id })).secret); track("webhook_updated", { action: "secret_rotated" }); }, "Secret rotated — update your consumer")}>Confirm rotate</Button>
               <Button variant="ghost" size="sm" className="h-10 sm:h-8" onClick={() => setConfirm(null)}>Cancel</Button>
             </>
           ) : (
             <>
               <Button variant="outline" size="sm" className="h-10 sm:h-8" disabled={busy !== null || !active} onClick={() => run("test", async () => { await sendTest({ id: ep.id }); track("webhook_test_sent"); }, "Test event queued")}>{busy === "test" ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />} Send test</Button>
               <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => setShowDeliveries((v) => !v)}>Deliveries {showDeliveries ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}</Button>
-              <Button variant="outline" size="sm" className="h-10 sm:h-8" disabled={busy !== null} onClick={() => run("status", () => update({ id: ep.id, status: active ? "disabled" : "active" }), active ? "Endpoint disabled" : "Endpoint enabled")}>{active ? "Disable" : "Enable"}</Button>
+              <Button variant="outline" size="sm" className="h-10 sm:h-8" disabled={busy !== null} onClick={() => run("status", async () => { await update({ id: ep.id, status: active ? "disabled" : "active" }); track("webhook_updated", { action: active ? "disabled" : "enabled" }); }, active ? "Endpoint disabled" : "Endpoint enabled")}>{active ? "Disable" : "Enable"}</Button>
               <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => setConfirm("rotate")}><KeyRound className="size-3.5" /> Rotate secret</Button>
               <Button variant="ghost" size="sm" className="h-10 text-destructive sm:h-8" onClick={() => setConfirm("delete")}>Delete</Button>
             </>

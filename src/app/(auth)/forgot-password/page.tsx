@@ -5,6 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { track } from "@/lib/analytics";
 import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ export default function ForgotPasswordPage() {
       toast.error(res.error.message ?? "Something went wrong");
       return;
     }
+    track("password_reset_requested");
     setSent(true);
   }
 

@@ -9,8 +9,10 @@ import { toast } from "sonner";
 import { Check, Copy, ExternalLink, PartyPopper } from "lucide-react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { track as analytics } from "@/lib/analytics";
+import { track as analytics, type AuthMethod } from "@/lib/analytics";
+import { readAttribution } from "@/lib/attribution";
 import { Logo } from "@/components/site/logo";
+import { HelpCallout } from "@/components/site/feedback";
 import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
@@ -32,6 +34,7 @@ import { cn } from "@/lib/utils";
 const STEPS = ["Profile", "Your SaaS", "Platform", "Stack", "Source", "Activation", "Conversion", "Publish"] as const;
 const DONE = STEPS.length;
 const AI_STEPS = ["Profile", "Set up with AI", "Live"] as const;
+const SOCIAL_METHODS: readonly AuthMethod[] = ["google", "github", "x"];
 const MODE_KEY = "ut:onboarding-mode";
 const STACK_KEY = "ut:onboarding-stack";
 type Mode = "choose" | "ai" | "manual";
@@ -84,6 +87,14 @@ export default function OnboardingPage() {
     if (me?.profile?.onboardingCompleted && override?.step !== DONE && !aiDone) router.replace("/app");
   }, [me, override, aiDone, router]);
 
+  // Social sign-ups only complete once the OAuth redirect lands here; `?new=` carries the provider.
+  useEffect(() => {
+    const m = new URLSearchParams(window.location.search).get("new") as AuthMethod | null;
+    if (!m) return;
+    window.history.replaceState(null, "", "/app/onboarding");
+    if (SOCIAL_METHODS.includes(m)) analytics("sign_up_completed", { method: m, ref: readAttribution()?.ref });
+  }, []);
+
   function setMode(m: Mode) {
     setModeState(m);
     if (m === "choose") sessionStorage.removeItem(MODE_KEY); else sessionStorage.setItem(MODE_KEY, m);
@@ -112,6 +123,7 @@ export default function OnboardingPage() {
     setAiDone(true);
     sessionStorage.removeItem(MODE_KEY);
     await complete();
+    analytics("project_created", { source: "mcp" });
     analytics("onboarding_completed");
     await track({ event: "mcp_setup_completed" });
     toast.success("You're live!");
@@ -259,6 +271,10 @@ export default function OnboardingPage() {
             {!ai && step === DONE && saas && <Celebrate slug={saas.slug} id={saas._id} hasActivation={saas.integrations.some((i) => i.role === "activation")} />}
           </motion.div>
         </AnimatePresence>
+
+        <HelpCallout surface="onboarding" className="mt-6" title="Stuck on this step?">
+          Onboarding is where most things break. If a provider will not connect, a number looks wrong or a step makes no sense — write it here and it lands in my inbox with the step you are on. I am one founder, I read all of it and usually reply the same day.
+        </HelpCallout>
       </div>
     </main>
   );

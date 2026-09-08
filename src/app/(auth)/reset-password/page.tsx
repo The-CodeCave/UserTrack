@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { track } from "@/lib/analytics";
 import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ function Inner() {
       toast.error(res.error.message ?? "This link is no longer valid");
       return;
     }
+    track("password_reset_completed");
     toast.success("Password updated — sign in with your new password");
     router.push("/sign-in");
   }

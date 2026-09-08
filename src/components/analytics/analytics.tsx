@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import { authClient } from "@/lib/auth-client";
-import { ANALYTICS_ENABLED, MASK_PATTERNS, RYBBIT_HOST, RYBBIT_SITE_ID, SKIP_PATTERNS, flushIdentity, identify, reset, track, type CtaLocation, type EventProps, type Events } from "@/lib/analytics";
+import { ANALYTICS_ENABLED, MASK_PATTERNS, RYBBIT_HOST, RYBBIT_SITE_ID, SKIP_PATTERNS, flushIdentity, identify, reset, track, type AuthMethod, type CtaLocation, type EventProps, type Events } from "@/lib/analytics";
 
 // The tracker itself. SPA navigation, outbound links, web vitals, errors and autocapture are Rybbit site settings (docs/ANALYTICS.md).
 export function AnalyticsScript() {
@@ -30,6 +30,16 @@ export function AnalyticsIdentity() {
     if (userId) identify(userId);
     else reset();
   }, [userId, isPending]);
+  // OAuth sign-in completion: `withSignInMarker` (auth-form.tsx) tags the redirect target, fired here once a session actually exists.
+  useEffect(() => {
+    if (!userId) return;
+    const params = new URLSearchParams(window.location.search);
+    const method = params.get("signedIn") as AuthMethod | null;
+    if (!method) return;
+    params.delete("signedIn");
+    window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}${window.location.hash}`);
+    track("sign_in", { method });
+  }, [userId]);
   return null;
 }
 

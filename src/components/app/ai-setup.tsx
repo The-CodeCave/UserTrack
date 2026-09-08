@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
 import { AlertTriangle, Check, ChevronDown, Copy, ExternalLink, KeyRound, PencilLine, Share2, Sparkles } from "lucide-react";
 import { api } from "@convex/_generated/api";
+import { track as analytics } from "@/lib/analytics";
 import type { Id } from "@convex/_generated/dataModel";
 import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
@@ -16,6 +17,9 @@ import { Button } from "@/components/ui/button";
 import { Confetti } from "@/components/ui/confetti";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HelpCallout, ReportProblemButton } from "@/components/site/feedback";
+import { CopyForAgent } from "@/components/site/copy-for-agent";
+import { mcpAgentPrompt } from "@/lib/llm-prompts";
 import { formatCompact, timeAgo } from "@/lib/format";
 import { AGENT_PROMPT, mcpSnippets } from "@/lib/mcp/snippets";
 import { saasUrl, shareLinkUrl } from "@/lib/site";
@@ -62,6 +66,7 @@ export function AiSetup({ onDone, onSwitchToManual }: { onDone: (project: AiSetu
     setBusy(true);
     try {
       const t = await createToken({ type: "mcp", name: "Onboarding agent", origin: "onboarding", expiresInDays: 7 });
+      analytics("token_created", { type: "mcp", origin: "onboarding" });
       await track({ event: "mcp_setup_started" });
       setSession({ tokenId: t.id, secret: t.secret });
     } catch (e) {
@@ -200,9 +205,16 @@ function TokenSetup({ secret, onCopyPrompt }: { secret: string; onCopyPrompt: ()
       <div className="border border-pink/40 bg-pink/5 p-4">
         <div className="text-label text-pink">Tell your agent:</div>
         <blockquote className="mt-2 border-l-2 border-pink pl-3 font-mono text-[13px] leading-relaxed">&ldquo;{AGENT_PROMPT}&rdquo;</blockquote>
-        <Button className="mt-3 h-10 w-full sm:w-auto" onClick={prompt.copy}>
-          {prompt.copied ? <Check /> : <Copy />} {prompt.copied ? "Copied" : "Copy prompt"}
-        </Button>
+        <CopyForAgent
+          surface="mcp-setup"
+          className="mt-3"
+          label="Copy full setup for AI agent"
+          prompt={mcpAgentPrompt({ token: secret })}
+          hint="Includes the MCP config, your token, the stack-detection plan and the safety rules."
+        />
+        <button type="button" onClick={prompt.copy} className="mt-3 inline-flex h-8 items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">
+          {prompt.copied ? <Check className="size-3.5 text-pink" /> : <Copy className="size-3.5" />} {prompt.copied ? "Copied" : "Copy the short prompt instead"}
+        </button>
       </div>
     </div>
   );
@@ -223,7 +235,10 @@ function Live({ status, secret, onCopyPrompt, onManual, onReset }: { status: Sta
 
   async function publish() {
     if (!project) return;
-    try { await setPublic({ id: project.id, isPublic: true }); } catch (e) { toast.error(errMsg(e)); }
+    try {
+      await setPublic({ id: project.id, isPublic: true });
+      analytics("project_published");
+    } catch (e) { toast.error(errMsg(e)); }
   }
 
   return (
@@ -256,6 +271,7 @@ function Live({ status, secret, onCopyPrompt, onManual, onReset }: { status: Sta
           <div className="text-label text-red-400">Integration error</div>
           <p className="mt-1 break-words font-mono text-xs leading-relaxed">{error}</p>
           <p className="mt-1.5 text-xs text-muted-foreground">Your agent sees the same error and can retry with a different configuration.</p>
+          <div className="mt-2"><ReportProblemButton surface="ai-setup-error" defaultMessage={`My agent setup failed with:\n\n${error}\n\nWhat should I do?`} /></div>
         </div>
       )}
       {project && !project.isPublic && verified && (
@@ -287,6 +303,9 @@ function Live({ status, secret, onCopyPrompt, onManual, onReset }: { status: Sta
         </button>
         <button type="button" onClick={onManual} className="h-9 text-muted-foreground hover:text-foreground">Switch to manual</button>
       </div>
+      <HelpCallout surface="ai-setup" className="mt-5" title="Agent not moving?">
+        If nothing happens for a few minutes, your agent probably could not reach the MCP server. Send me the client you use and what it printed — I will tell you the fix.
+      </HelpCallout>
       <AnimatePresence initial={false}>
         {showSetup && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">

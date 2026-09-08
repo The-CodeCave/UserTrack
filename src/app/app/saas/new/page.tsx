@@ -4,12 +4,14 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation } from "convex/react";
 import { api } from "@convex/_generated/api";
+import { track as analytics } from "@/lib/analytics";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
 import { SaasForm } from "@/components/app/saas-form";
 import { PlatformStep, type PlatformValue } from "@/components/app/platform-picker";
 import { AiSetup, SetupChooser } from "@/components/app/ai-setup";
 import { Skeleton } from "@/components/ui/skeleton";
+import { HelpCallout } from "@/components/site/feedback";
 
 type Mode = "choose" | "ai" | "manual";
 
@@ -38,7 +40,7 @@ function NewSaas() {
       <SectionLabel>New SaaS</SectionLabel>
       <h1 className="mt-2 mb-6 text-2xl font-semibold tracking-tight">Add a product</h1>
       {mode === "ai" ? (
-        <AiSetup onDone={() => track({ event: "mcp_setup_completed" })} onSwitchToManual={() => pick("manual")} />
+        <AiSetup onDone={() => { analytics("project_created", { source: "mcp" }); void track({ event: "mcp_setup_completed" }); }} onSwitchToManual={() => pick("manual")} />
       ) : (
         <Panel className="p-5">
           {mode === "manual" ? (
@@ -59,6 +61,9 @@ function NewSaas() {
           )}
         </Panel>
       )}
+      <HelpCallout surface="saas-new" className="mt-6" title="Not sure which option fits?">
+        Tell me what your stack looks like and I will tell you exactly what to connect — or fix it for you if a provider misbehaves. Every message reaches me directly.
+      </HelpCallout>
     </div>
   );
 }
