@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyBlock, SecretReveal, errMsg } from "@/components/app/developer/copy-block";
+import { CopyForAgent } from "@/components/site/copy-for-agent";
+import { nativeSdkAgentPrompt } from "@/lib/llm-prompts";
 import { CapabilityList, TestResultCard, type TestResult } from "./test-result";
 import { formatCompact, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -121,6 +123,26 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
               <Button size="sm" variant="outline" className="h-9" disabled={busy} onClick={() => onCreate(true)}><RefreshCw className={cn("size-4", busy && "animate-spin")} /> Rotate secret</Button>
             </div>
           )}
+          <CopyForAgent
+            surface="native-setup"
+            label="Copy full setup for AI agent"
+            className="border border-pink/30 bg-pink/5 p-3"
+            hint="Install, route file, env vars and deploy — your agent does all four steps."
+            prompt={nativeSdkAgentPrompt({
+              sourceLabel: label,
+              source,
+              packageName: NATIVE_PACKAGE[source],
+              installCommand: installCommands(source).npm,
+              routeTitle: files.route.title,
+              routePath: files.route.path,
+              routeCode: files.route.code,
+              envSnippet: cred ? envSnippet(cred.projectId, cred.secret) : `${ENV_PROJECT_ID}=${saasId}\n${ENV_SECRET}=<the secret shown once at creation>`,
+              pushCode: files.push?.code,
+              pushPath: files.push?.path,
+              verifyUrl: cred?.url ?? url,
+              notes: files.notes,
+            })}
+          />
           <div>
             <div className="mb-1 text-label">1 · Install {NATIVE_PACKAGE[source]}</div>
             <Tabs defaultValue="npm">

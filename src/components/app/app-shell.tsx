@@ -11,6 +11,7 @@ import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/site/logo";
 import { SiteFooter } from "@/components/site/footer";
+import { FeedbackFab } from "@/components/site/feedback";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const NAV = [
@@ -41,7 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [isLoading, isAuthenticated, me, onboarding, router]);
 
   if (isLoading || me === undefined) return <ShellSkeleton />;
-  if (onboarding) return <>{children}</>;
+  if (onboarding) return <>{children}<FeedbackFab /></>;
   if (!me?.profile?.onboardingCompleted) return <ShellSkeleton />;
 
   async function signOut() {
@@ -91,6 +92,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           );
         })}
       </nav>
+
+      <FeedbackFab className="bottom-20 md:bottom-6" />
     </div>
   );
 }

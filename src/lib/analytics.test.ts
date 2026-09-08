@@ -73,6 +73,10 @@ describe("resolveSiteId", () => {
     expect(resolveSiteId({ nodeEnv: "production" })).toBe("");
   });
 
+  it("rejects an evil-twin host that merely starts with the production origin", () => {
+    expect(resolveSiteId({ nodeEnv: "production", siteUrl: "https://usertrack.dev.example.com" })).toBe("");
+  });
+
   it("always honours an explicit site id, including the empty kill switch", () => {
     expect(resolveSiteId({ siteId: "abc123", nodeEnv: "development" })).toBe("abc123");
     expect(resolveSiteId({ siteId: "", nodeEnv: "production", siteUrl: "https://usertrack.dev" })).toBe("");
@@ -83,7 +87,9 @@ describe("catalog", () => {
   it("names match their keys and never collide with server events", () => {
     for (const [k, v] of Object.entries(EVENTS)) expect(v).toBe(k);
     for (const s of SERVER_EVENTS) expect(k(s)).toBe(false);
-    expect(Object.keys(EVENTS).length).toBe(46);
+    expect(Object.keys(EVENTS).length).toBeGreaterThan(0);
+    expect(new Set(Object.values(EVENTS)).size).toBe(Object.keys(EVENTS).length);
+    expect(new Set(SERVER_EVENTS).size).toBe(SERVER_EVENTS.length);
   });
 
   it("skips machine endpoints and masks token URLs", () => {

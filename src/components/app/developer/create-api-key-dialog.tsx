@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CopyBlock, SecretReveal, errMsg } from "./copy-block";
+import { CopyForAgent } from "@/components/site/copy-for-agent";
+import { apiKeyAgentPrompt } from "@/lib/llm-prompts";
 import { track } from "@/lib/analytics";
 
 export function CreateApiKeyDialog() {
@@ -35,7 +37,7 @@ export function CreateApiKeyDialog() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSecret(null); }}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v) track("token_create_opened", { type: "api" }); else setSecret(null); }}>
       <DialogTrigger render={<Button className="h-10" />}><Plus className="size-4" /> Create API key</DialogTrigger>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
@@ -45,6 +47,7 @@ export function CreateApiKeyDialog() {
         {secret ? (
           <div className="space-y-4">
             <SecretReveal secret={secret} />
+            <CopyForAgent surface="api-key-dialog" prompt={apiKeyAgentPrompt({ key: secret })} hint="Builds a typed, cached, server-side client against the OpenAPI spec." className="border border-pink/30 bg-pink/5 p-3" />
             <CopyBlock label="Example" text={`curl -H "Authorization: Bearer ${secret}" ${SITE_URL}/api/v1/saas`} />
             <Button variant="outline" className="h-10 w-full" onClick={() => setOpen(false)}>Done</Button>
           </div>

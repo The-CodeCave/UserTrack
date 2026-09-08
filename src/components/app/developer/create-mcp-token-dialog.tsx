@@ -15,6 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyBlock, SecretReveal, errMsg } from "./copy-block";
+import { CopyForAgent } from "@/components/site/copy-for-agent";
+import { mcpAgentPrompt } from "@/lib/llm-prompts";
 import { track } from "@/lib/analytics";
 
 const EXPIRY = [
@@ -57,7 +59,7 @@ export function CreateMcpTokenDialog() {
   const snippets = secret ? mcpSnippets(secret) : [];
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v) track("token_create_opened", { type: "mcp" }); else reset(); }}>
       <DialogTrigger render={<Button className="h-10" />}><Plus className="size-4" /> Create MCP token</DialogTrigger>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
@@ -73,7 +75,8 @@ export function CreateMcpTokenDialog() {
               </TabsList>
               {snippets.map((s) => <TabsContent key={s.id} value={s.id} className="mt-2"><CopyBlock text={s.text} hint={s.hint} onCopy={() => track("mcp_config_copied", { client: s.id })} /></TabsContent>)}
             </Tabs>
-            <CopyBlock label="Prompt for your agent" text={AGENT_PROMPT} />
+            <CopyForAgent surface="mcp-token-dialog" label="Copy full setup for AI agent" prompt={mcpAgentPrompt({ token: secret })} hint="MCP config + token + the full setup plan in one paste." className="border border-pink/30 bg-pink/5 p-3" />
+            <CopyBlock label="Short prompt for your agent" text={AGENT_PROMPT} />
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button className="h-10 flex-1" render={<Link href="/app/saas/new?mode=ai" />}><Sparkles className="size-4" /> Set up a project with AI</Button>
               <Button variant="outline" className="h-10" onClick={() => setOpen(false)}>Done</Button>

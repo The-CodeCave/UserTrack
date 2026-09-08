@@ -16,6 +16,8 @@ export const RATE_LIMITS = {
   // TrustMRR import: per founder, plus the shared budget of the single operator key (10 req/min on standard keys).
   trustmrrImport: { kind: "fixed window", rate: 5, period: 10 * MINUTE },
   trustmrrGlobal: { kind: "fixed window", rate: 10, period: MINUTE },
+  // Anonymous feedback / bug reports from the FAB on public pages (signed-in reports are throttled per profile instead).
+  feedback: { kind: "fixed window", rate: 5, period: 10 * MINUTE },
   // Onboarding autofill (website metadata, X avatar): generous enough to retype a URL, tight enough not to be a proxy.
   enrich: { kind: "fixed window", rate: 20, period: 10 * MINUTE },
 } as const satisfies Record<string, RateLimitConfig>;

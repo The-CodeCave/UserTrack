@@ -6,6 +6,8 @@ import { Check, Copy } from "lucide-react";
 import { track } from "@/lib/analytics";
 import { attributedUrl, badgeUrl, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
+import { CopyForAgent } from "@/components/site/copy-for-agent";
+import { badgeAgentPrompt } from "@/lib/llm-prompts";
 
 export const TYPES = [
   { key: "users", label: "Users" },
@@ -55,6 +57,7 @@ export function EmbedBadge({ slug, name, manageHref }: { slug: string; name: str
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt={`${name} on UserTrack`} height={height} className="max-w-none" />
       </div>
+      <CopyForAgent surface="public-badge" prompt={badgeAgentPrompt({ name, slug, kind: type, height, html, markdown: md, imageUrl: src, pageUrl: page })} className="border border-pink/30 bg-pink/5 p-3" hint="Paste into Claude Code, Cursor or Codex — it finds the right file and adds the badge." />
       <Snippet label="HTML" text={html} onCopy={() => track("badge_snippet_copied")} />
       <Snippet label="Markdown" text={md} onCopy={() => track("badge_snippet_copied")} />
     </div>

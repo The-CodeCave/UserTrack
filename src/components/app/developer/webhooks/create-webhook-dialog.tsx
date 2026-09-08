@@ -12,7 +12,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CopyBlock, SecretReveal, errMsg } from "../copy-block";
-import { nodeVerifySnippet } from "./snippets";
+import { nodeVerifySnippet, PAYLOAD_EXAMPLE } from "./snippets";
+import { CopyForAgent } from "@/components/site/copy-for-agent";
+import { webhookAgentPrompt } from "@/lib/llm-prompts";
 import { track } from "@/lib/analytics";
 
 type EventType = Exclude<WebhookEventType, "webhook.test">;
@@ -23,16 +25,19 @@ export function CreateWebhookDialog({ projects, disabled }: { projects: { id: Id
   const [busy, setBusy] = useState(false);
   const [events, setEvents] = useState<EventType[]>(WEBHOOK_EVENTS.map((e) => e.type));
   const [secret, setSecret] = useState<string | null>(null);
+  const [createdUrl, setCreatedUrl] = useState("");
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const saasId = String(fd.get("saasId") ?? "");
+    const url = String(fd.get("url") ?? "");
     if (events.length === 0) return toast.error("Pick at least one event");
     setBusy(true);
     try {
-      const r = await create({ url: String(fd.get("url") ?? ""), description: String(fd.get("description") ?? "") || undefined, events, saasId: saasId ? (saasId as Id<"saas">) : undefined });
+      const r = await create({ url, description: String(fd.get("description") ?? "") || undefined, events, saasId: saasId ? (saasId as Id<"saas">) : undefined });
       track("webhook_created", { events: events.join(",") });
+      setCreatedUrl(url);
       setSecret(r.secret);
     } catch (err) {
       toast.error(errMsg(err));
@@ -42,7 +47,7 @@ export function CreateWebhookDialog({ projects, disabled }: { projects: { id: Id
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSecret(null); }}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v) track("webhook_create_opened"); else setSecret(null); }}>
       <DialogTrigger render={<Button className="h-10" disabled={disabled} />}><Plus className="size-4" /> Add endpoint</DialogTrigger>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
@@ -52,6 +57,7 @@ export function CreateWebhookDialog({ projects, disabled }: { projects: { id: Id
         {secret ? (
           <div className="space-y-4">
             <SecretReveal secret={secret} />
+            <CopyForAgent surface="webhook-dialog" prompt={webhookAgentPrompt({ url: createdUrl, events, verifySnippet: nodeVerifySnippet(), payloadExample: PAYLOAD_EXAMPLE })} hint="Signature verification, idempotency and a test — written into this codebase." className="border border-pink/30 bg-pink/5 p-3" />
             <CopyBlock label="Verify (Node)" text={nodeVerifySnippet()} hint="Compare against the raw request body, not a re-serialized one." />
             <Button variant="outline" className="h-10 w-full" onClick={() => setOpen(false)}>Done</Button>
           </div>

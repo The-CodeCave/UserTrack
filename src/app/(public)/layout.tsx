@@ -2,6 +2,7 @@ import Link from "next/link";
 import { SiteHeader } from "@/components/site/header";
 import { SiteFooter } from "@/components/site/footer";
 import { FlashToast } from "@/components/site/flash-toast";
+import { FeedbackFab } from "@/components/site/feedback";
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -15,6 +16,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       </nav>
       <main className="flex-1">{children}</main>
       <SiteFooter />
+      <FeedbackFab />
     </>
   );
 }

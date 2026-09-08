@@ -9,7 +9,10 @@ const PROD_ORIGIN = "https://usertrack.dev";
 // deployments stay silent unless NEXT_PUBLIC_RYBBIT_SITE_ID names a site explicitly.
 export function resolveSiteId(env: { siteId?: string; nodeEnv?: string; siteUrl?: string }) {
   if (env.siteId !== undefined) return env.siteId;
-  return env.nodeEnv === "production" && (env.siteUrl ?? "").startsWith(PROD_ORIGIN) ? PROD_SITE_ID : "";
+  const url = env.siteUrl ?? "";
+  // Exact origin match only — a startsWith would also let "https://usertrack.dev.evil.example.com" through.
+  const isProdOrigin = url === PROD_ORIGIN || url.startsWith(`${PROD_ORIGIN}/`);
+  return env.nodeEnv === "production" && isProdOrigin ? PROD_SITE_ID : "";
 }
 
 export const RYBBIT_SITE_ID = resolveSiteId({ siteId: process.env.NEXT_PUBLIC_RYBBIT_SITE_ID, nodeEnv: process.env.NODE_ENV, siteUrl: process.env.NEXT_PUBLIC_SITE_URL });
@@ -21,6 +24,8 @@ export const MASK_PATTERNS = ["/email/preferences*", "/reset-password*"];
 export type AuthMethod = "email" | "google" | "github" | "x";
 export type CtaLocation = "hero" | "how-it-works" | "footer" | "pricing";
 export type FollowTarget = "saas" | "profile";
+export type WebhookAction = "deleted" | "secret_rotated" | "enabled" | "disabled";
+export type OutboundTarget = "website" | "trustmrr" | "app_store" | "play_store" | "x" | "github";
 
 // Browser events. Props are primitives only — never emails, handles or third-party URLs.
 export type Events = {
@@ -37,6 +42,8 @@ export type Events = {
   sign_in: { method: AuthMethod };
   email_verification_resent: undefined;
   sign_out: undefined;
+  password_reset_requested: undefined;
+  password_reset_completed: undefined;
   onboarding_step: { step: string; platform?: string };
   onboarding_completed: undefined;
   project_created: { source: "form" | "mcp" | "trustmrr" };
@@ -62,14 +69,21 @@ export type Events = {
   x_followers_refreshed: undefined;
   follow: { targetType: FollowTarget };
   unfollow: { targetType: FollowTarget };
+  token_create_opened: { type: string };
   token_created: { type: string; origin: string };
   token_revoked: undefined;
   mcp_config_copied: { client: string };
+  webhook_create_opened: undefined;
   webhook_created: { events: string };
   webhook_test_sent: undefined;
+  webhook_updated: { action: WebhookAction };
   notification_pref_changed: { key: string; value: string | number | boolean };
+  feedback_opened: { surface: string };
+  feedback_sent: { kind: string };
+  llm_prompt_copied: { surface: string };
   account_export_downloaded: undefined;
   account_deleted: undefined;
+  outbound_click: { target: OutboundTarget };
 };
 
 // Server-side events sent from Next.js route handlers (`src/lib/analytics-server.ts`).
@@ -102,6 +116,8 @@ export const EVENTS = {
   sign_in: "sign_in",
   email_verification_resent: "email_verification_resent",
   sign_out: "sign_out",
+  password_reset_requested: "password_reset_requested",
+  password_reset_completed: "password_reset_completed",
   onboarding_step: "onboarding_step",
   onboarding_completed: "onboarding_completed",
   project_created: "project_created",
@@ -127,14 +143,21 @@ export const EVENTS = {
   x_followers_refreshed: "x_followers_refreshed",
   follow: "follow",
   unfollow: "unfollow",
+  token_create_opened: "token_create_opened",
   token_created: "token_created",
   token_revoked: "token_revoked",
   mcp_config_copied: "mcp_config_copied",
+  webhook_create_opened: "webhook_create_opened",
   webhook_created: "webhook_created",
   webhook_test_sent: "webhook_test_sent",
+  webhook_updated: "webhook_updated",
   notification_pref_changed: "notification_pref_changed",
+  feedback_opened: "feedback_opened",
+  feedback_sent: "feedback_sent",
+  llm_prompt_copied: "llm_prompt_copied",
   account_export_downloaded: "account_export_downloaded",
   account_deleted: "account_deleted",
+  outbound_click: "outbound_click",
 } as const satisfies { [K in keyof Events]: K };
 
 export const SERVER_EVENTS = ["api_request", "mcp_tool_called", "badge_rendered", "embed_rendered", "native_event_ingested", "webhook_delivered", "sync_completed"] as const satisfies readonly (keyof ServerEvents | keyof ConvexEvents)[];

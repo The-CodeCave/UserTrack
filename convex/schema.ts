@@ -43,6 +43,9 @@ export const visibility = v.object({
   // Public benchmark statement ("Top 12% activation in AI") on the public page + API. Default on (domain/visibility.ts).
   benchmarks: v.optional(v.boolean()),
 });
+// In-app feedback / bug reports (the FAB). "other" is the catch-all so the picker never blocks a message.
+export const feedbackKind = v.union(v.literal("bug"), v.literal("idea"), v.literal("question"), v.literal("other"));
+export const feedbackStatus = v.union(v.literal("new"), v.literal("open"), v.literal("closed"));
 export const syncStatus = v.union(v.literal("ok"), v.literal("error"), v.literal("running"));
 export const trustState = v.union(v.literal("healthy"), v.literal("anomaly"), v.literal("review"), v.literal("low_confidence"));
 export const tokenType = v.union(v.literal("api"), v.literal("mcp"));
@@ -873,6 +876,23 @@ export default defineSchema({
   })
     .index("by_key", ["key"])
     .index("by_lastRequest", ["lastRequest"]),
+
+  // Founder feedback and bug reports from the in-app FAB. Signed-in rows carry the profile; anonymous rows arrive
+  // through /api/feedback (gateway secret + per-IP rate limit) and only carry what the visitor typed.
+  feedback: defineTable({
+    profileId: v.optional(v.id("profiles")),
+    userId: v.optional(v.string()),
+    kind: feedbackKind,
+    message: v.string(),
+    email: v.optional(v.string()),
+    path: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    appVersion: v.optional(v.string()),
+    status: feedbackStatus,
+    at: v.number(),
+  })
+    .index("by_status_time", ["status", "at"])
+    .index("by_profile_time", ["profileId", "at"]),
 
   // One row per run of a paged background job (convex/jobs.ts). Operators read it in the Convex dashboard and /api/health.
   jobRuns: defineTable({
