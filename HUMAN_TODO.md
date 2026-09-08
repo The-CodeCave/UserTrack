@@ -420,7 +420,7 @@ Resend dashboard → https://resend.com/webhooks
 Convex prod env
 
 **Status**
-* [x] Done (2026-09-08) — `RESEND_WEBHOOK_SECRET` is set on Convex prod. Verified live: `POST https://handsome-warthog-21.eu-west-1.convex.site/webhooks/resend` now answers `401 invalid signature` instead of `503 webhook not configured`, i.e. the endpoint is armed and verifying Svix signatures. Still open: point the Resend webhook at that URL and subscribe it to `email.delivered`, `email.bounced`, `email.complained`, `email.failed` — the handler ignores every other type.
+* [x] Done (2026-09-08) — `RESEND_WEBHOOK_SECRET` is set on Convex prod. Verified live: `POST https://handsome-warthog-21.eu-west-1.convex.site/webhooks/resend` now answers `401 invalid signature` instead of `503 webhook not configured`, i.e. the endpoint is armed and verifying Svix signatures. The Resend webhook is pointed at that URL and live. End-to-end proof (2026-09-08): `npx convex run --prod email/testSend:run '{"to":"jovanovic@thecodecave.de"}'` wrote an `emailEvents` row with `status: "sent"`, and ~3 s later the webhook flipped it to `status: "delivered"` with `deliveredAt` set — so signature verification, parsing and persistence all work. Hard bounces and spam complaints now suppress the recipient automatically; soft bounces deliberately do not. The handler only reacts to `email.delivered`, `email.bounced`, `email.complained` and `email.failed` — every other type is ignored, so subscribing to more does no harm.
 
 ---
 
