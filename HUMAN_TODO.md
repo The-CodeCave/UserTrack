@@ -420,7 +420,7 @@ Resend dashboard → https://resend.com/webhooks
 Convex prod env
 
 **Status**
-* [ ] Pending
+* [x] Done (2026-09-08) — `RESEND_WEBHOOK_SECRET` is set on Convex prod. Verified live: `POST https://handsome-warthog-21.eu-west-1.convex.site/webhooks/resend` now answers `401 invalid signature` instead of `503 webhook not configured`, i.e. the endpoint is armed and verifying Svix signatures. Still open: point the Resend webhook at that URL and subscribe it to `email.delivered`, `email.bounced`, `email.complained`, `email.failed` — the handler ignores every other type.
 
 ---
 
@@ -609,7 +609,10 @@ The tracker, the event catalog (`docs/ANALYTICS.md`) and the server-side events 
 `NEXT_PUBLIC_RYBBIT_SITE_ID=753f44fa9c50` + `RYBBIT_API_KEY` (Railway), `RYBBIT_SITE_ID=753f44fa9c50` + `RYBBIT_API_KEY` (Convex prod)
 
 **Status**
-* [ ] **Required** — without the goals the funnels in the dashboard stay empty
+* [x] Env vars done (2026-09-08) — `NEXT_PUBLIC_RYBBIT_SITE_ID` + `RYBBIT_API_KEY` on Railway (redeployed, live), `RYBBIT_SITE_ID` + `RYBBIT_HOST` + `RYBBIT_API_KEY` on Convex prod.
+* [ ] **Dedicated API key still missing** — the key currently in use is CodeRank's org key (same Rybbit instance, same org `g7aqJU09aKEPDOFoYBS7yz2AtdCWhMoi`), borrowed because Rybbit has no API to mint one. If CodeRank rotates it, UserTrack's server events go silent. Create `usertrack-server` in the dashboard and replace it in both places.
+* [ ] **Client events stay dropped until the domain switch** (step 12, phase B). Verified 2026-09-08 on the live deployment: the tracker loads and `POST /api/track` answers `200`, but Rybbit discards the event because the hostname does not match the site domain — zero rows with `hostname` containing `railway`. Server events are unaffected: with the API key an event carrying the Railway hostname *was* stored, so the key really does bypass domain validation. Nothing more to do here; the switch fixes it.
+* [ ] **Check the goals for duplicates** — the MCP `get_goals` tool is broken (Rybbit returns `meta.total` as a string, the hub's schema wants a number), so idempotency could not be verified before the 11 goals were created. `waitlist_join` is the likely duplicate.
 
 ---
 
