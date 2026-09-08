@@ -57,8 +57,9 @@ function DeleteAccountDialog() {
       await deleteAccount({ confirm: "DELETE" });
       track("account_deleted");
       await authClient.signOut().catch(() => undefined);
-      // Hard navigation: the app shell would otherwise bounce the signed-out session to /sign-in.
+      // Hard navigation: the app shell would otherwise bounce the signed-out session to /sign-in, and a deleted account must leave no client state behind.
       sessionStorage.setItem(FLASH_KEY, "Your account has been deleted");
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a router push keeps the shell mounted, which is the bug this avoids
       window.location.assign("/");
     } catch (err) {
       setBusy(false);

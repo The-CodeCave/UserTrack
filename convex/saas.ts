@@ -8,8 +8,6 @@ import { integrationView } from "./domain/integrations";
 import { markLaunched } from "./domain/events";
 import { MIN_SAMPLE } from "./lib/benchmarks";
 import { benchmarkCards, benchmarkHistoryFor, isBenchmarkEligible } from "./domain/benchmarks";
-import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
-import { CATEGORIES } from "../src/lib/categories";
 import { publicTrustLabel } from "./lib/trust";
 import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, funnelFor, funnelHistoryFor } from "./domain/funnel";
 import { VISIBILITY_KEYS, visibilityOf } from "./domain/visibility";
