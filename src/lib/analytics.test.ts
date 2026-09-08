@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EVENTS, MASK_PATTERNS, SERVER_EVENTS, SKIP_PATTERNS, cleanProps, flushIdentity, identify, reset, resolveSiteId, track, type Rybbit } from "./analytics";
+import { EVENTS, MASK_PATTERNS, SERVER_EVENTS, SKIP_PATTERNS, cleanProps, flushEvents, flushIdentity, identify, reset, resolveSiteId, track, type Rybbit } from "./analytics";
 
 const fake = (): Rybbit => ({ event: vi.fn(), pageview: vi.fn(), identify: vi.fn(), clearUserId: vi.fn(), getUserId: vi.fn(() => "old") });
 
@@ -13,6 +13,20 @@ describe("track", () => {
   it("is a no-op without window.rybbit", () => {
     expect(() => track("sign_out")).not.toThrow();
     expect(() => track("cta_click", { location: "hero" })).not.toThrow();
+  });
+
+  it("replays events fired before the script loaded", () => {
+    window.rybbit = fake();
+    flushEvents();
+    delete window.rybbit;
+    track("sign_out");
+    track("cta_click", { location: "hero" });
+    const r = fake();
+    window.rybbit = r;
+    expect(r.event).not.toHaveBeenCalled();
+    flushEvents();
+    expect(r.event).toHaveBeenNthCalledWith(1, "sign_out", undefined);
+    expect(r.event).toHaveBeenNthCalledWith(2, "cta_click", { location: "hero" });
   });
 
   it("forwards name and cleaned props once the script is present", () => {

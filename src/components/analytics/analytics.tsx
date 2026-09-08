@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import { authClient } from "@/lib/auth-client";
-import { ANALYTICS_ENABLED, MASK_PATTERNS, RYBBIT_HOST, RYBBIT_SITE_ID, SKIP_PATTERNS, flushIdentity, identify, reset, track, type AuthMethod, type CtaLocation, type EventProps, type Events } from "@/lib/analytics";
+import { ANALYTICS_ENABLED, MASK_PATTERNS, RYBBIT_HOST, RYBBIT_SITE_ID, SKIP_PATTERNS, flushEvents, flushIdentity, identify, reset, track, type AuthMethod, type CtaLocation, type EventProps, type Events } from "@/lib/analytics";
 
 // The tracker itself. SPA navigation, outbound links, web vitals, errors and autocapture are Rybbit site settings (docs/ANALYTICS.md).
 export function AnalyticsScript() {
@@ -16,7 +16,7 @@ export function AnalyticsScript() {
       data-site-id={RYBBIT_SITE_ID}
       data-skip-patterns={JSON.stringify(SKIP_PATTERNS)}
       data-mask-patterns={JSON.stringify(MASK_PATTERNS)}
-      onLoad={flushIdentity}
+      onLoad={() => { flushIdentity(); flushEvents(); }}
     />
   );
 }

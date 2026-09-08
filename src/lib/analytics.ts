@@ -190,12 +190,29 @@ export function cleanProps(props: EventProps): Record<string, string | number> |
 
 const rybbit = () => (typeof window === "undefined" ? undefined : window.rybbit);
 
+// Events fired before the script has loaded (redirect markers land on page load) are replayed, like identify.
+const pendingEvents: Array<{ name: string; props?: Record<string, string | number> }> = [];
+
 export function track<E extends keyof Events>(event: E, ...args: Args<Events[E]>) {
+  const props = cleanProps(args[0] as EventProps);
+  const r = rybbit();
+  if (!r) {
+    if (pendingEvents.length < 20) pendingEvents.push({ name: event, props });
+    return;
+  }
+  try {
+    r.event(event, props);
+  } catch {}
+}
+
+export function flushEvents() {
   const r = rybbit();
   if (!r) return;
-  try {
-    r.event(event, cleanProps(args[0] as EventProps));
-  } catch {}
+  for (const e of pendingEvents.splice(0)) {
+    try {
+      r.event(e.name, e.props);
+    } catch {}
+  }
 }
 
 // Pseudonymous Better Auth user id only, never an email. Kept until the script is ready, then replayed.
