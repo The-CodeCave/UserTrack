@@ -161,13 +161,13 @@ convex/providers/      provider adapters behind one interface (native, clerk, su
 convex/node/           postgres.ts — the only Node-runtime action ("use node", pg): read-only TCP, aggregate SQL, introspection
 convex/lib/            pure, unit-tested math: metrics, trending (v2), trust, milestones, spikes, retention, benchmarks,
                        tokens (format, SHA-256, scopes, plans), domain normalization, integrationSetup (catalog + recommendation + plans)
-src/app/(public)/      /, /leaderboard, /trending, /discover, /compare (+ /compare/og), /categories/*, SEO boards,
-                       /s/[slug] (+ share/[kind], share/[kind]/card), /u/[username], /developers, opengraph-image routes
-src/app/api/           /api/v1/* public API, /api/openapi.json, /api/badge/[slug], /api/embed/[slug].json, /api/auth (+ /forgot-password, /reset-password pages)
+src/app/(public)/      /, /preview (URL-first entry, noindex), /leaderboard, /trending, /discover, /compare (+ /compare/og), /categories/*,
+                       SEO boards, /s/[slug] (+ share/[kind], share/[kind]/card), /u/[username], /developers, opengraph-image routes
+src/app/api/           /api/v1/* public API, /api/openapi.json, /api/badge/[slug], /api/embed/[slug].json, /api/preview (anonymous site read), /api/auth (+ /forgot-password, /reset-password pages)
 src/app/embed/         /embed/[slug] — iframe document behind public/widget.js (records the embedding host)
 src/app/mcp/           /mcp — MCP endpoint (Streamable HTTP, stateless)
 src/app/app/           dashboard: overview (next actions), saas manage (anchored sections) + embed configurator, following, digest,
-                       reports, profile, settings (+ notifications), developer (keys + tokens), onboarding (5 steps, optional activation)
+                       reports, profile, settings (+ notifications), developer (keys + tokens), onboarding (prefilled from /preview where the site answered it)
 src/app/email/         /email/preferences — signed-link preference page (no login)
 src/components/        blueprint primitives, charts (growth w/ annotations, compare), public cards (funnel, discovery feed,
                        trending explain, embed badge), app forms (connect source, postgres wizard, test result, embed configurator)

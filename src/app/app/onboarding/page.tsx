@@ -11,6 +11,7 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { track as analytics, type AuthMethod } from "@/lib/analytics";
 import { readAttribution } from "@/lib/attribution";
+import { readPreviewDraft } from "@/lib/preview-draft";
 import { Logo } from "@/components/site/logo";
 import { HelpCallout } from "@/components/site/feedback";
 import { Panel } from "@/components/blueprint/panel";
@@ -44,10 +45,17 @@ function readMode(): Mode {
   const m = sessionStorage.getItem(MODE_KEY);
   return m === "ai" || m === "manual" ? m : "choose";
 }
+// The founder's own answers win; until they give any, the providers /preview read off their website stand in.
 function readStack(): StackChoices {
   if (typeof window === "undefined") return {};
-  try { return JSON.parse(sessionStorage.getItem(STACK_KEY) ?? "{}"); } catch { return {}; }
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(STACK_KEY) ?? "null");
+    if (stored && typeof stored === "object") return stored;
+  } catch {}
+  const d = readPreviewDraft();
+  return d ? { identity: d.identity, analytics: d.analytics, monetization: d.monetization } : {};
 }
+const stackAnswered = () => typeof window !== "undefined" && sessionStorage.getItem(STACK_KEY) !== null;
 const stackDone = (s: StackChoices) => Boolean(s.identity && s.analytics && s.monetization);
 
 export default function OnboardingPage() {
@@ -57,6 +65,8 @@ export default function OnboardingPage() {
   const [override, setOverride] = useState<{ step: number; saasId?: Id<"saas"> } | null>(null);
   const [mode, setModeState] = useState<Mode>(readMode);
   const [stack, setStackState] = useState<StackChoices>(readStack);
+  const [draft] = useState(readPreviewDraft);
+  const [stackFromSite] = useState(() => !stackAnswered() && Boolean(readStack().identity));
   const [aiDone, setAiDone] = useState(false);
   const first = mine?.[0];
   const saasId = override?.saasId ?? first?._id ?? null;
@@ -183,7 +193,7 @@ export default function OnboardingPage() {
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">{mode === "manual" ? "You can add more products later from the dashboard." : "Pick how you want to get on the board."}</p>
                 {mode === "manual" ? (
                   <>
-                    <SaasForm submitLabel="Continue" onSaved={(id) => setStep(2, id)} />
+                    <SaasForm fromPreview={draft} submitLabel="Continue" onSaved={(id) => setStep(2, id)} />
                     <button type="button" onClick={() => pick("ai")} className="mt-4 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">Set up with AI instead</button>
                   </>
                 ) : (
@@ -196,7 +206,7 @@ export default function OnboardingPage() {
                 <SectionLabel>Step 3 of {DONE}</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">What are you tracking?</h1>
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">Decides which sources and stack questions you see. UserTrack tracks users, never revenue.</p>
-                <PlatformStep initial={saas} onSubmit={async (v) => { await update({ ...base(saas), ...v }); void track({ event: "platform_selected" }); setStep(3); }} />
+                <PlatformStep initial={{ projectType: saas.projectType ?? draft?.projectType, appStoreUrl: saas.appStoreUrl ?? draft?.appStoreUrl, playStoreUrl: saas.playStoreUrl ?? draft?.playStoreUrl }} onSubmit={async (v) => { await update({ ...base(saas), ...v }); void track({ event: "platform_selected" }); setStep(3); }} />
               </Panel>
             )}
             {!ai && step === 3 && saas?.projectType && (
@@ -210,7 +220,7 @@ export default function OnboardingPage() {
                 <SectionLabel>Step 5 of {DONE}</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Connect a data source</h1>
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">Where your registered user count comes from. Read-only, synced every 4 hours. Verified sources get ranked.</p>
-                <Recommendation rec={rec} />
+                <Recommendation rec={rec} fromSite={stackFromSite} />
                 <ConnectSource saasId={saasId} platform={platform} recommended={rec.users ?? undefined} recommendedSource={rec.nativeSource} websiteUrl={saas?.websiteUrl} onConnected={() => setStep(5)} />
               </Panel>
             )}
@@ -280,13 +290,14 @@ export default function OnboardingPage() {
   );
 }
 
-function Recommendation({ rec }: { rec: StackRecommendation }) {
+function Recommendation({ rec, fromSite }: { rec: StackRecommendation; fromSite?: boolean }) {
   const rows: [string, ProviderKind | null | undefined][] = [["Users", rec.users], ["Activation", rec.activation], ["Reach", rec.traffic], ["Conversion", rec.conversion]];
   const picked = rows.filter((r): r is [string, ProviderKind] => Boolean(r[1]));
   if (!picked.length && !rec.notes.length) return null;
   return (
     <div className="mb-5 border border-pink/40 bg-pink/5 p-4">
       <div className="text-label text-pink">Recommended for your stack</div>
+      {fromSite && <p className="mt-1 text-xs text-muted-foreground">Read off your website — pick a different source below if this is wrong.</p>}
       {picked.length > 0 && (
         <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 font-mono text-xs sm:grid-cols-4">
           {picked.map(([label, kind]) => <div key={label}><dt className="text-muted-foreground">{label}</dt><dd>{providerLabel(kind)}</dd></div>)}

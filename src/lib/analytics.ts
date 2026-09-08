@@ -44,6 +44,10 @@ export type Events = {
   sign_out: undefined;
   password_reset_requested: undefined;
   password_reset_completed: undefined;
+  preview_started: undefined;
+  preview_ready: { detected: string };
+  preview_failed: { reason: string };
+  preview_signup_click: undefined;
   onboarding_step: { step: string; platform?: string };
   onboarding_completed: undefined;
   project_created: { source: "form" | "mcp" | "trustmrr" };
@@ -118,6 +122,10 @@ export const EVENTS = {
   sign_out: "sign_out",
   password_reset_requested: "password_reset_requested",
   password_reset_completed: "password_reset_completed",
+  preview_started: "preview_started",
+  preview_ready: "preview_ready",
+  preview_failed: "preview_failed",
+  preview_signup_click: "preview_signup_click",
   onboarding_step: "onboarding_step",
   onboarding_completed: "onboarding_completed",
   project_created: "project_created",

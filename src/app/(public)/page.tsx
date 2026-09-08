@@ -2,12 +2,12 @@ import Link from "next/link";
 import { publicQuery, publicData } from "@/lib/convex-public";
 import { ArrowRight, Plug, LineChart, Share2, ShieldCheck, Lock, Clock } from "lucide-react";
 import { api } from "@convex/_generated/api";
-import { CtaLink } from "@/components/analytics/analytics";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { LeaderboardRow } from "@/components/public/saas-card";
 import { NewAndHotCarousel } from "@/components/public/new-and-hot-carousel";
+import { PreviewForm } from "@/components/public/preview-form";
 import { DegradedNotice } from "@/components/site/degraded";
 import { formatCompact } from "@/lib/format";
 
@@ -31,9 +31,9 @@ export default async function LandingPage() {
           <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground">
             Connect your product in minutes. UserTrack pulls your user count read-only every 4 hours and gives you a public growth page, verified rankings and a chart people actually share.
           </p>
-          <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <Button size="lg" className="h-12 px-6" render={<CtaLink href="/sign-up" location="hero" />}>List your SaaS <ArrowRight className="size-4" /></Button>
-            <Button size="lg" variant="outline" className="h-12 px-6" render={<Link href="/leaderboard" />}>See the leaderboard</Button>
+          <div className="mt-6">
+            <PreviewForm />
+            <Button size="lg" variant="ghost" className="mt-3 h-11 px-6" render={<Link href="/leaderboard" />}>See the leaderboard</Button>
           </div>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
             {stats && <span className="border border-line px-2 py-1">{formatCompact(stats.trackedUsers)} users tracked</span>}
@@ -107,8 +107,8 @@ export default async function LandingPage() {
       <section className="border-t border-line">
         <div className="mx-auto max-w-6xl px-4 py-20 text-center">
           <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Put your growth on the map.</h2>
-          <p className="mx-auto mt-3 max-w-md text-muted-foreground">Free, no card, three minutes from sign-up to a shareable growth page.</p>
-          <Button size="lg" className="mt-8 h-12 px-8" render={<CtaLink href="/sign-up" location="footer" />}>Create your page <ArrowRight className="size-4" /></Button>
+          <p className="mx-auto mt-3 max-w-md text-muted-foreground">Free, no card. Type your address and see the page before you sign up.</p>
+          <div className="mt-8"><PreviewForm /></div>
         </div>
       </section>
     </div>

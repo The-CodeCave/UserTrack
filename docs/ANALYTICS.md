@@ -33,7 +33,11 @@ All props are primitives. Never emails, handles, URLs of third parties or secret
 
 | Event | Props | Fired from |
 |---|---|---|
-| `cta_click` | `location: hero \| how-it-works \| footer \| pricing` | Landing CTAs (`CtaLink`) — only `hero` and `footer` exist today |
+| `cta_click` | `location: hero \| how-it-works \| footer \| pricing` | Landing CTAs (`CtaLink`) — since the URL-first hero only the ghost / secondary links use it |
+| `preview_started` | — | `PreviewForm` submit on `/` (hero + footer) and on `/preview` itself |
+| `preview_ready` | `detected` (comma list of `identity` / `analytics` / `monetization`) | `/api/preview` answered; the props say which stack keys the founder's own `<head>` gave away |
+| `preview_failed` | `reason` (`invalid_input`, `bad_request`, `upstream`, `network`, HTTP status) | Bad input, an unreachable / bot-blocking domain, or the request itself failing |
+| `preview_signup_click` | — | "Claim this page" on `/preview` → `/sign-up?next=/app/onboarding` |
 | `board_filter_change` | `board, window, category` | `BoardFilters` (board / window links, category / size / platform selects) |
 | `search` | `termLength, results` | `SearchBox`, once per query with results |
 | `compare_opened` | — | `ComparePicker` when ≥ 2 products are selected |
@@ -136,6 +140,8 @@ Rybbit's site settings, goals and funnels below were created via its API (Site s
 | Startseite → Waitlist | (pre-existing, waitlist app) | 35 |
 | Founder Activation | `/` (page) → `/sign-up` (page) → `onboarding_completed` → `project_created` → `integration_connected` → `project_published` | 36 |
 | Developer | `/developers` (page) → `token_created` → `mcp_tool_called` | 37 |
+
+**The URL-first entry (v1.0.2).** The landing hero is no longer a sign-up button but a URL field: the visitor types their own domain, `/preview` reads that site's public `<head>` through `/api/preview` and shows the page they would get — real name, description, logo, the providers their own HTML gives away, and real category peers off the public board. **No metric of theirs is ever invented or blurred**, because "numbers you cannot type in" is the product. Only then does `/sign-up?next=/app/onboarding` appear. The step order in Rybbit is therefore `/` → `preview_started` → `preview_ready` → `preview_signup_click` → `/sign-up` → `sign_up_completed` → … , and the `Founder Activation` funnel (id 36) still measures the same tail. The three preview events are new drop-off points worth watching before touching the funnel definition — **no Rybbit configuration was changed for this**; funnel 36 is untouched and any new funnel has to be created deliberately via the API.
 
 **The waitlist app.** `apps/waitlist` is a separate Vite app (own Railway service) that ran before the main app launched and still exists for the pre-launch page. It hardcodes `data-site-id="753f44fa9c50"` in `apps/waitlist/index.html` — the same Rybbit site as UserTrack itself — and fires `waitlist_join` / `waitlist_join_failed` straight off `window.rybbit`, bypassing the typed catalog entirely (it is a different app with its own `package.json`, not part of this Next.js build). Those two events are **intentionally not** in `EVENTS`: this codebase never fires them, and adding untyped-elsewhere strings to the catalog would be misleading.
 

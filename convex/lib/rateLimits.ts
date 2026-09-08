@@ -20,6 +20,8 @@ export const RATE_LIMITS = {
   feedback: { kind: "fixed window", rate: 5, period: 10 * MINUTE },
   // Onboarding autofill (website metadata, X avatar): generous enough to retype a URL, tight enough not to be a proxy.
   enrich: { kind: "fixed window", rate: 20, period: 10 * MINUTE },
+  // Anonymous landing-page preview: a visitor may mistype their own domain a few times, nobody scrapes through us.
+  preview: { kind: "fixed window", rate: 10, period: 60 * MINUTE },
 } as const satisfies Record<string, RateLimitConfig>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

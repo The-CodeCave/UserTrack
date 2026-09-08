@@ -26,6 +26,7 @@ import { TECH_STACK, TECH_STACK_MAX, normalizeStackEntry } from "@/lib/tech-stac
 import { xHandleError } from "@/lib/social";
 import { cn } from "@/lib/utils";
 import type { SiteImport } from "@convex/enrich";
+import type { PreviewDraft } from "@/lib/preview-draft";
 import type { PlatformValue } from "./platform-picker";
 import { TrustmrrImport, type ImportResult, type PrefillKey } from "./trustmrr-import";
 
@@ -38,15 +39,21 @@ const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 export function SaasForm({
   initial,
+  fromPreview,
   platform,
   submitLabel = "Save",
   onSaved,
 }: {
   initial?: Doc<"saas"> | null;
+  fromPreview?: PreviewDraft | null;
   platform?: PlatformValue;
   submitLabel?: string;
   onSaved?: (id: Id<"saas">) => void;
 }) {
+  // What the /preview reading of the founder's own site already answered. Applied to a new project only, and
+  // highlighted like a TrustMRR import, so nothing arrives silently.
+  const fromSite: Record<string, string | undefined> = initial || !fromPreview ? {} : { name: fromPreview.name, description: fromPreview.description, websiteUrl: fromPreview.url, valueProposition: fromPreview.valueProposition, category: fromPreview.category, logoUrl: fromPreview.logoUrl };
+  const fromSiteCount = Object.values(fromSite).filter(Boolean).length;
   const create = useMutation(api.saas.create);
   const update = useMutation(api.saas.update);
   const uploadUrl = useMutation(api.saas.generateLogoUploadUrl);
@@ -63,21 +70,21 @@ export function SaasForm({
   const [anonymous, setAnonymous] = useState(initial?.anonymous ?? false);
   const [hideFromSearch, setHideFromSearch] = useState(initial?.hideFromSearch ?? false);
   const [mobile, setMobile] = useState(initial?.projectType === "mobile" || initial?.projectType === "hybrid");
-  const [logo, setLogo] = useState<{ url?: string; storageId?: Id<"_storage">; preview?: string }>({ url: initial?.logoUrl });
-  const [logoMode, setLogoMode] = useState<"upload" | "url">(initial?.logoUrl && !initial.logoStorageId ? "url" : "upload");
+  const [logo, setLogo] = useState<{ url?: string; storageId?: Id<"_storage">; preview?: string }>({ url: initial?.logoUrl ?? fromSite.logoUrl });
+  const [logoMode, setLogoMode] = useState<"upload" | "url">((initial?.logoUrl && !initial.logoStorageId) || fromSite.logoUrl ? "url" : "upload");
   const [uploading, setUploading] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [scanned, setScanned] = useState<string | null>(null);
+  const [scanned, setScanned] = useState<string | null>(fromSiteCount ? `${fromSiteCount} field${fromSiteCount === 1 ? "" : "s"} filled from your website — change anything before you save` : null);
   const autoScanned = useRef(false);
   const file = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [defaults, setDefaults] = useState<Record<string, string | undefined>>(() => ({
-    name: initial?.name, description: initial?.description, websiteUrl: initial?.websiteUrl, category: initial?.category ?? "", tags: initial?.tags.join(", "),
-    foundedAt: initial?.foundedAt ? monthValue(initial.foundedAt) : undefined, valueProposition: initial?.valueProposition, problemSolved: initial?.problemSolved,
+    name: initial?.name ?? fromSite.name, description: initial?.description ?? fromSite.description, websiteUrl: initial?.websiteUrl ?? fromSite.websiteUrl, category: initial?.category ?? fromSite.category ?? "", tags: initial?.tags.join(", "),
+    foundedAt: initial?.foundedAt ? monthValue(initial.foundedAt) : undefined, valueProposition: initial?.valueProposition ?? fromSite.valueProposition, problemSolved: initial?.problemSolved,
     audience: initial?.audience, pricingSummary: initial?.pricingSummary, additionalInfo: initial?.additionalInfo, slug: initial?.slug, appStoreUrl: initial?.appStoreUrl, playStoreUrl: initial?.playStoreUrl,
   }));
   const [formKey, setFormKey] = useState(0);
-  const [highlight, setHighlight] = useState<Set<string>>(new Set());
+  const [highlight, setHighlight] = useState<Set<string>>(() => new Set(Object.entries(fromSite).filter(([, v]) => v).map(([k]) => k)));
   const [trustmrrSlug, setTrustmrrSlug] = useState(initial?.trustmrrSlug ?? "");
   const hl = (k: string) => (highlight.has(k) ? "ring-2 ring-pink/60" : "");
 

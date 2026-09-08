@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { decodeEntities, parseSiteMeta, publicUrl, splitTitle } from "./siteMeta";
+import { CATEGORY_SLUGS } from "../../src/lib/categories";
+import { decodeEntities, detectSiteHints, parseSiteMeta, publicUrl, splitTitle, type SiteMeta } from "./siteMeta";
 
 describe("publicUrl", () => {
   it("adds https and keeps public hosts", () => {
@@ -79,5 +80,74 @@ describe("parseSiteMeta", () => {
 
   it("survives a page with no head metadata", () => {
     expect(parseSiteMeta("<html><body>hi</body></html>", "https://acme.com/")).toMatchObject({ name: undefined, description: undefined, iconUrl: "https://acme.com/favicon.ico" });
+  });
+});
+
+const meta = (over: Partial<SiteMeta> = {}): SiteMeta => ({ url: "https://acme.com/", name: "Acme", description: "A product.", ...over });
+
+describe("detectSiteHints", () => {
+  it("reads providers off script and link assets", () => {
+    const html = `<html><head>
+      <link rel="preconnect" href="https://js.stripe.com">
+      <script src="https://clerk.acme.com/npm/@clerk/clerk-js@5/dist/clerk.browser.js"></script>
+      <script src="https://eu.i.posthog.com/static/array.js"></script>
+      <script src="https://js.stripe.com/v3/"></script>
+    </head></html>`;
+    expect(detectSiteHints(html, meta())).toMatchObject({ identity: "clerk", analytics: "posthog", monetization: "stripe" });
+  });
+
+  it("recognises an initialised SDK from an inline script", () => {
+    const html = `<html><head><script>const s = Stripe("pk_live_123"); posthog.init("phc_1", {});</script></head></html>`;
+    expect(detectSiteHints(html, meta())).toMatchObject({ analytics: "posthog", monetization: "stripe" });
+  });
+
+  it("never reads a provider out of prose, a link or an image", () => {
+    const html = `<html><head><title>Acme</title></head><body>
+      <p>We use Stripe for payments, Clerk for auth and PostHog for analytics.</p>
+      <a href="https://stripe.com/partners">Powered by Stripe</a>
+      <img src="https://cdn.acme.com/supabase-logo.png" alt="Firebase and Auth0">
+    </body></html>`;
+    expect(detectSiteHints(html, meta())).toEqual({ category: undefined });
+  });
+
+  it("takes the first table hit per key, so PostHog wins over GA4", () => {
+    const html = `<html><head>
+      <script src="https://www.googletagmanager.com/gtag/js?id=G-1"></script>
+      <script src="https://eu.posthog.com/static/array.js"></script>
+    </head></html>`;
+    expect(detectSiteHints(html, meta()).analytics).toBe("posthog");
+  });
+
+  it("falls back to GA4 when it is the only analytics on the page", () => {
+    const html = `<script src="https://www.googletagmanager.com/gtm.js?id=GTM-1"></script>`;
+    expect(detectSiteHints(html, meta()).analytics).toBe("ga4");
+  });
+
+  it("resolves relative and protocol-relative assets against the page", () => {
+    const html = `<script src="//js.stripe.com/v3/"></script><script src="/_next/static/chunk.js"></script>`;
+    expect(detectSiteHints(html, meta()).monetization).toBe("stripe");
+  });
+
+  it("treats store links as a hybrid product and keeps both URLs", () => {
+    const html = `<a href="https://apps.apple.com/us/app/acme/id123">iOS</a><a href="https://play.google.com/store/apps/details?id=com.acme">Android</a>`;
+    expect(detectSiteHints(html, meta())).toMatchObject({
+      projectType: "hybrid",
+      appStoreUrl: "https://apps.apple.com/us/app/acme/id123",
+      playStoreUrl: "https://play.google.com/store/apps/details?id=com.acme",
+    });
+  });
+
+  it("guesses a category only when exactly one matches", () => {
+    expect(detectSiteHints("", meta({ description: "Project management for remote teams." })).category).toBe("productivity");
+    expect(detectSiteHints("", meta({ description: "No-code automation." })).category).toBe("no-code");
+    // "AI-powered" and "analytics" both match: two answers means no answer.
+    expect(detectSiteHints("", meta({ description: "AI-powered analytics for teams." })).category).toBeUndefined();
+    expect(detectSiteHints("", meta({ description: "The best way to ship faster." })).category).toBeUndefined();
+  });
+
+  it("only guesses categories the product actually has", () => {
+    for (const slug of ["ai", "developer-tools", "analytics", "marketing", "sales", "productivity", "fintech", "no-code", "design", "ecommerce", "education", "health", "social", "infrastructure"]) {
+      expect(CATEGORY_SLUGS.has(slug), slug).toBe(true);
+    }
   });
 });

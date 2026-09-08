@@ -110,3 +110,102 @@ export function parseSiteMeta(html: string, baseUrl: string): SiteMeta {
     iconUrl: absolute(icon, baseUrl),
   };
 }
+
+export interface SiteHints {
+  identity?: string;
+  analytics?: string;
+  monetization?: string;
+  category?: string;
+  // Store links prove apps exist next to the site we just read, so "hybrid" is the only honest guess here.
+  projectType?: "hybrid";
+  appStoreUrl?: string;
+  playStoreUrl?: string;
+}
+
+type HintKey = "identity" | "analytics" | "monetization";
+
+// Hosts that prove a provider is wired in, most specific first: the first hit per key wins, so a site running
+// PostHog *and* GA4 answers "PostHog" (the product-usage question) instead of refusing. Matched against
+// `host + pathname` of script / link / iframe assets only — "we use Stripe" in a paragraph proves nothing.
+const PROVIDER_ASSETS: [HintKey, string, RegExp][] = [
+  ["identity", "clerk", /(^|\.)clerk\.(com|accounts\.dev)\/|^clerk\.[a-z0-9.-]+\//],
+  ["identity", "supabase", /(^|\.)supabase\.(co|com)\//],
+  ["identity", "firebase", /(^|\.)firebaseapp\.com\/|(^|\.)identitytoolkit\.googleapis\.com\/|(^|\.)gstatic\.com\/firebasejs\//],
+  ["identity", "auth0", /(^|\.)auth0\.com\//],
+  ["identity", "convex", /(^|\.)convex\.(cloud|site)\//],
+  ["identity", "better_auth", /\/better-auth[@./]/],
+  ["identity", "authjs", /\/next-auth[@./]|(^|\.)authjs\.dev\//],
+  ["analytics", "posthog", /(^|\.)posthog\.com\//],
+  ["analytics", "plausible", /(^|\.)plausible\.io\//],
+  ["analytics", "amplitude", /(^|\.)amplitude\.com\//],
+  ["analytics", "mixpanel", /(^|\.)mixpanel\.com\/|(^|\.)mxpnl\.com\//],
+  ["analytics", "ga4", /(^|\.)googletagmanager\.com\/(gtag\/js|gtm\.js)|(^|\.)google-analytics\.com\//],
+  ["monetization", "stripe", /(^|\.)stripe\.com\//],
+  ["monetization", "paddle", /(^|\.)paddle\.com\//],
+  ["monetization", "lemonsqueezy", /(^|\.)lemonsqueezy\.com\/|(^|\.)lmsqueezy\.com\//],
+  ["monetization", "revenuecat", /(^|\.)revenuecat\.com\//],
+  ["monetization", "chargebee", /(^|\.)chargebee\.com\//],
+];
+
+// Globals that only appear when the SDK is actually initialised. Read from <script> bodies, never from body text.
+const PROVIDER_GLOBALS: [HintKey, string, RegExp][] = [
+  ["identity", "clerk", /__clerk|\bClerk\.load\s*\(/],
+  ["analytics", "posthog", /\bposthog\.init\s*\(/],
+  ["monetization", "stripe", /\bStripe\s*\(\s*["']pk_(test|live)_/],
+];
+
+// Only a phrase that names the category outright counts, and only when exactly one category matches: a wrong
+// guess seeds the wrong peers on the preview, so "no idea" is the better answer.
+const CATEGORY_HINTS: [string, RegExp][] = [
+  ["developer-tools", /\bdev(eloper)? tools?\b|\bfor developers\b|\bdeveloper platform\b/],
+  ["analytics", /\banalytics\b|\bbusiness intelligence\b/],
+  ["marketing", /\bmarketing (platform|automation|software)\b|\bemail marketing\b/],
+  ["sales", /\bcrm\b|\bsales (platform|software)\b/],
+  ["productivity", /\bproductivity (app|tool|software)\b|\bproject management\b/],
+  ["fintech", /\bfintech\b|\baccounting software\b|\binvoicing\b/],
+  ["no-code", /\bno[- ]code\b/],
+  ["design", /\bdesign (tool|platform|software)\b/],
+  ["ecommerce", /\be-?commerce\b|\bonline store\b/],
+  ["education", /\bed[- ]?tech\b|\bonline (course|learning)\b/],
+  ["health", /\bhealth(care)? (app|platform|software)\b/],
+  ["social", /\bcommunity (platform|software)\b/],
+  ["infrastructure", /\b(hosting|infrastructure|devops) platform\b/],
+  ["ai", /\bai[- ](powered|assistant|agent|platform)\b|\bartificial intelligence\b/],
+];
+
+const APP_STORE = /^https:\/\/apps\.apple\.com\//i;
+const PLAY_STORE = /^https:\/\/play\.google\.com\/store\/apps\//i;
+
+function guessCategory(text: string) {
+  const hits = [...new Set(CATEGORY_HINTS.filter(([, re]) => re.test(text.toLowerCase())).map(([slug]) => slug))];
+  return hits.length === 1 ? hits[0] : undefined;
+}
+
+// What the founder's own page already answers of the onboarding questionnaire. Conservative by construction:
+// every signal is an asset host, a script global or an outbound store link, never prose.
+export function detectSiteHints(html: string, meta: SiteMeta): SiteHints {
+  const assets: string[] = [];
+  const links: string[] = [];
+  for (const m of html.matchAll(/<(script|link|iframe|a)\b([^>]*?)\/?>/gi)) {
+    const a = attrs(m[2]);
+    const href = a.src ?? a.href;
+    if (!href) continue;
+    let u: URL;
+    try {
+      u = new URL(href, meta.url);
+    } catch {
+      continue;
+    }
+    if (m[1].toLowerCase() === "a") links.push(u.toString());
+    else assets.push(`${u.hostname.toLowerCase()}${u.pathname}`);
+  }
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).join("\n");
+  const hints: SiteHints = {};
+  for (const [key, value, re] of PROVIDER_ASSETS) if (!hints[key] && assets.some((a) => re.test(a))) hints[key] = value;
+  for (const [key, value, re] of PROVIDER_GLOBALS) if (!hints[key] && re.test(scripts)) hints[key] = value;
+  const appStoreUrl = links.find((l) => APP_STORE.test(l));
+  const playStoreUrl = links.find((l) => PLAY_STORE.test(l));
+  if (appStoreUrl || playStoreUrl) Object.assign(hints, { projectType: "hybrid", appStoreUrl, playStoreUrl });
+  hints.category = guessCategory(`${meta.name ?? ""} ${meta.valueProposition ?? ""} ${meta.description ?? ""}`);
+  return hints;
+}

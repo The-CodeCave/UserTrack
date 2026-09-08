@@ -1,7 +1,8 @@
 // Onboarding autofill: read public sources so a founder types a URL or a handle instead of a form.
 // `site` reads the <head> of their own website, `avatar` resolves a profile picture from the handles they already gave
 // us. Nothing is saved to a project or profile here — the form decides what to apply — but images are copied into
-// Convex storage so they keep working when the origin changes them.
+// Convex storage so they keep working when the origin changes them. `previewSite` is the same read for a visitor who
+// has no account yet — gateway-authenticated instead of signed in, and it writes nothing at all.
 import { ConvexError, v } from "convex/values";
 import { RateLimiter } from "@convex-dev/rate-limiter";
 import { action, internalMutation, internalQuery, type ActionCtx } from "./_generated/server";
@@ -10,7 +11,10 @@ import type { Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
 import { RATE_LIMITS } from "./lib/rateLimits";
 import { IMAGE_MAX_BYTES, IMAGE_TYPES } from "./lib/uploads";
-import { parseSiteMeta, publicUrl } from "./lib/siteMeta";
+import { detectSiteHints, parseSiteMeta, publicUrl, type SiteHints } from "./lib/siteMeta";
+import { requireGateway } from "./lib/gateway";
+import { normalizeDomain } from "./lib/domain";
+import { MAX_PUBLIC_SCAN } from "./public";
 import { X_USER_BY_USERNAME, appTokenBody } from "./lib/xApi";
 import { type AvatarCandidate, type AvatarSource, githubAvatarUrl, gravatarKey, gravatarUrl, sha256Hex, unavatarUrl, xAvatarSize } from "./lib/avatarSources";
 import { isValidHandle } from "../src/lib/slug";
@@ -30,6 +34,16 @@ export interface SiteImport {
   valueProposition?: string;
   logoUrl?: string;
   logoStorageId?: Id<"_storage">;
+}
+
+export interface SitePreview {
+  url: string;
+  name?: string;
+  description?: string;
+  valueProposition?: string;
+  logoUrl?: string;
+  hints: SiteHints;
+  claimed: { slug: string; name: string } | null;
 }
 
 export interface AvatarImport {
@@ -96,6 +110,24 @@ async function storeImage(ctx: ActionCtx, url: URL): Promise<Id<"_storage"> | nu
   }
 }
 
+// Address a project is stored under: origin plus the path, without a trailing slash.
+const siteUrlOf = (u: URL) => u.origin + (u.pathname === "/" ? "" : u.pathname);
+
+// Fetch + parse of a founder's page, shared by the signed-in importer and the anonymous preview. Reads only —
+// the callers decide what, if anything, is stored. Callers own the URL check so it runs before their budget.
+async function readSite(target: URL) {
+  let hit: Awaited<ReturnType<typeof guardedFetch>>;
+  try {
+    hit = await guardedFetch(target, "text/html,application/xhtml+xml", PAGE_TIMEOUT_MS);
+  } catch {
+    throw fail("unreachable", `Could not reach ${target.hostname}. Check the address or fill the form in yourself.`);
+  }
+  if (!hit) throw fail("unreachable", "That address redirects somewhere we will not follow");
+  if (!hit.res.ok) throw fail("unreachable", `${target.hostname} answered ${hit.res.status}. Check the address or fill the form in yourself.`);
+  const html = (await hit.res.text()).slice(0, MAX_HTML_BYTES);
+  return { html, url: hit.url, meta: parseSiteMeta(html, hit.url.toString()) };
+}
+
 // Public metadata of the founder's own site: name, description, tagline and the best available icon.
 export const site = action({
   args: { url: v.string() },
@@ -104,26 +136,50 @@ export const site = action({
     if (!target) throw fail("bad_request", "Enter a public website address, e.g. https://yourdomain.com");
     await budget(ctx);
 
-    let hit: Awaited<ReturnType<typeof guardedFetch>>;
-    try {
-      hit = await guardedFetch(target, "text/html,application/xhtml+xml", PAGE_TIMEOUT_MS);
-    } catch {
-      throw fail("unreachable", `Could not reach ${target.hostname}. Check the address or fill the form in yourself.`);
-    }
-    if (!hit) throw fail("unreachable", "That address redirects somewhere we will not follow");
-    if (!hit.res.ok) throw fail("unreachable", `${target.hostname} answered ${hit.res.status}. Check the address or fill the form in yourself.`);
-
-    const meta = parseSiteMeta((await hit.res.text()).slice(0, MAX_HTML_BYTES), hit.url.toString());
+    const { url: final, meta } = await readSite(target);
     const icon = meta.iconUrl ? publicUrl(meta.iconUrl) : null;
     const storageId = icon ? await storeImage(ctx, icon) : null;
     // Only an icon we actually fetched is offered: hotlinking one we could not read shows the founder a broken image.
     return {
-      url: hit.url.origin + (hit.url.pathname === "/" ? "" : hit.url.pathname),
+      url: siteUrlOf(final),
       name: meta.name,
       description: meta.description,
       valueProposition: meta.valueProposition,
       logoUrl: (storageId ? await ctx.storage.getUrl(storageId) : null) ?? undefined,
       logoStorageId: storageId ?? undefined,
+    };
+  },
+});
+
+// Is this domain already a public growth page? Same bounded walk of the public index the discovery queries use.
+export const claimedByDomain = internalQuery({
+  args: { domain: v.string() },
+  handler: async (ctx, { domain }) => {
+    const rows = await ctx.db.query("saas").withIndex("by_public_new30d", (q) => q.eq("isPublic", true)).order("desc").take(MAX_PUBLIC_SCAN);
+    const hit = rows.find((s) => normalizeDomain(s.websiteUrl) === domain);
+    return hit ? { slug: hit.slug, name: hit.name } : null;
+  },
+});
+
+// The landing-page preview: everything we can honestly say about a visitor's product before they have an account.
+// No auth, therefore no writes at all — the logo comes back as the origin's own URL instead of a storage copy, and
+// the only database read is the "is this domain already listed" check. Same SSRF guard, timeouts and byte cap as `site`.
+export const previewSite = action({
+  args: { gateway: v.optional(v.string()), url: v.string() },
+  handler: async (ctx, { gateway, url }): Promise<SitePreview> => {
+    requireGateway(gateway);
+    const target = publicUrl(url);
+    if (!target) throw fail("bad_request", "Enter a public website address, e.g. https://yourdomain.com");
+    const { html, url: final, meta } = await readSite(target);
+    const domain = normalizeDomain(final.toString());
+    return {
+      url: siteUrlOf(final),
+      name: meta.name,
+      description: meta.description,
+      valueProposition: meta.valueProposition,
+      logoUrl: meta.iconUrl && publicUrl(meta.iconUrl) ? meta.iconUrl : undefined,
+      hints: detectSiteHints(html, meta),
+      claimed: domain ? await ctx.runQuery(internal.enrich.claimedByDomain, { domain }) : null,
     };
   },
 });
