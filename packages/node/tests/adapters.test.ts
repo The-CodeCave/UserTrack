@@ -38,8 +38,8 @@ describe("prisma adapter", () => {
     const created = await hooks.create({ args: { data: { email: "x@example.com" } }, query: async () => ({ id: "u1", email: "x@example.com", createdAt: new Date(NOW) }) });
     expect(created).toMatchObject({ id: "u1" });
     await hooks.delete({ args: { where: { id: "u1" } }, query: async () => ({ id: "u1" }) });
-    await new Promise((r) => setTimeout(r, 20));
-    expect(sent).toEqual(["user.created", "user.deleted"]);
+    // The pushes are deliberately not awaited by the hooks, so poll for them instead of guessing a delay.
+    await expect.poll(() => sent).toEqual(["user.created", "user.deleted"]);
     const failing = userTrackPrismaExtension({ projectId: PROJECT, secret: SECRET, model: "account", fetch: (async () => { throw new Error("down"); }) as unknown as typeof fetch });
     expect(Object.keys(failing.query)).toEqual(["account"]);
     await expect((failing.query.account as typeof hooks).create({ args: {}, query: async () => ({ id: "u2" }) })).resolves.toMatchObject({ id: "u2" });
