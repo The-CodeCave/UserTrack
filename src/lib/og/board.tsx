@@ -1,4 +1,4 @@
-import { publicQuery } from "@/lib/convex-public";
+import { publicData, publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { OgFrame, OgEyebrow, OgChip, OgLogo, OgSpark, OgCheck, ogImage, ogWordmark, remoteImage, truncate, LINE, PINK, INK, MUTED, DIM, HOST } from "@/lib/og/frame";
 import { formatCompact, formatDelta, formatPct, formatRate } from "@/lib/format";
@@ -55,7 +55,8 @@ export interface BoardOgOptions {
 
 // One renderer for every ranking page: leaderboard, trending, fastest, new, most new, conversion and category boards.
 export async function renderBoardOg({ board, window = "30d", category, platform, eyebrow, title, sub, path }: BoardOgOptions) {
-  const list = await rows(board, window, category, platform);
+  // Same degraded contract as the public pages: these cards prerender at build time, when Convex may be unreachable.
+  const list = (await publicData(() => rows(board, window, category, platform))) ?? [];
   const logos = await Promise.all(list.map((s) => remoteImage(s.logoUrl)));
 
   return ogImage(
