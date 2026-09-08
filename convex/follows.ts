@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getProfileForUser, requireProfile } from "./profiles";
 import { DAY } from "./lib/time";
 import { publicTrustLabel } from "./lib/trust";
-import { publicLogo } from "./domain/visibility";
+import { isProfileVisible, publicLogo } from "./domain/visibility";
 import { rankMovement } from "./lib/history";
 
 const targetType = v.union(v.literal("saas"), v.literal("profile"));
@@ -24,7 +24,7 @@ async function loadTarget(ctx: Ctx, type: TargetType, targetId: string) {
   const target = type === "saas" ? await ctx.db.get(targetId as Id<"saas">).catch(() => null) : await ctx.db.get(targetId as Id<"profiles">).catch(() => null);
   if (!target) throw new Error("Not found");
   if (type === "saas" && !(target as Doc<"saas">).isPublic) throw new Error("This project is private");
-  if (type === "profile" && (target as Doc<"profiles">).profilePublic === false) throw new Error("This profile is private");
+  if (type === "profile" && !isProfileVisible(target as Doc<"profiles">)) throw new Error("This profile is private");
   return target;
 }
 

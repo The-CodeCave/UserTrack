@@ -110,6 +110,8 @@ export default defineSchema({
     attribution: v.optional(v.object({ ref: v.optional(v.string()), source: v.optional(v.string()), medium: v.optional(v.string()), campaign: v.optional(v.string()), at: v.number() })),
     // false hides /u/<username>, search and the API; default public.
     profilePublic: v.optional(v.boolean()),
+    // false only on a row minted by profiles.ensure; unset means confirmed, so no migration (A234).
+    handleConfirmed: v.optional(v.boolean()),
     // Summary of a connected X account; tokens live in socialConnections and never here.
     xUserId: v.optional(v.string()),
     xConnectedAt: v.optional(v.number()),

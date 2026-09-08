@@ -6,7 +6,7 @@ import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { benchmarkHistoryFor, publicBenchmarkHighlight, type BenchmarkHighlight } from "./domain/benchmarks";
 import { seriesFor } from "./domain/metrics";
 import { FUNNEL_TIMEFRAMES, funnelFor, funnelHistoryFor, funnelOptionsFor } from "./domain/funnel";
-import { isAnonymous, publicLogo, stripPrivate, visibilityOf } from "./domain/visibility";
+import { isAnonymous, isHandleConfirmed, isProfileVisible, publicLogo, stripPrivate, visibilityOf } from "./domain/visibility";
 import { publicTrustLabel } from "./lib/trust";
 import { explainTrending, trendingFactors } from "./lib/trending";
 import { trendingInputs } from "./leaderboard";
@@ -31,7 +31,7 @@ export function publicProfile(p: Doc<"profiles">) {
   return { _id, username, displayName, avatarUrl, bio, website, x, xConnected: Boolean(p.xUserId), xFollowers, xFollowersAt, github, linkedin, location, followerCount: followerCount ?? 0, joinedAt: _creationTime };
 }
 
-export const isProfilePublic = (p: Doc<"profiles">) => p.profilePublic !== false && p.userId !== "demo";
+export const isProfilePublic = (p: Doc<"profiles">) => isProfileVisible(p) && p.userId !== "demo";
 
 // Public-safe projection. Connection ≠ publication: every gated metric is removed unless its visibility key is on.
 // Anonymous mode additionally drops logo, website, store links and cofounders (domain/visibility.ts).
@@ -47,7 +47,7 @@ export function publicSaas(s: Doc<"saas">) {
 async function publicOwner(ctx: QueryCtx, s: Doc<"saas">) {
   if (isAnonymous(s)) return null;
   const owner = await ctx.db.get(s.ownerId);
-  return owner ? publicProfile(owner) : null;
+  return owner && isHandleConfirmed(owner) ? publicProfile(owner) : null;
 }
 
 // One row per day, so the range holds ~30 anyway — but the read is bounded explicitly: newest first, then reversed.
@@ -403,7 +403,7 @@ export const profileByUsername = query({
   args: { username: v.string() },
   handler: async (ctx, { username }) => {
     const p = await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", username.toLowerCase())).unique();
-    if (!p || p.profilePublic === false) return null;
+    if (!p || !isProfileVisible(p)) return null;
     const saas = (await founderRows(ctx, p)).map(publicSaas);
     return {
       ...publicProfile(p),
@@ -418,7 +418,7 @@ export const founderHistory = query({
   args: { username: v.string(), range: rangeArg },
   handler: async (ctx, { username, range }) => {
     const p = await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", username.toLowerCase())).unique();
-    if (!p || p.profilePublic === false) return null;
+    if (!p || !isProfileVisible(p)) return null;
     const rows = await founderRows(ctx, p);
     const ms = RANGE_MS[range === "24h" ? "7d" : range];
     const from = ms === null ? "0000" : dayKey(Date.now() - ms);

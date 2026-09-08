@@ -77,3 +77,9 @@ export function stripPrivate<T extends Partial<Doc<"saas">>>(s: T, vis: Visibili
   }
   return out;
 }
+
+// A handle minted by profiles.ensure is a placeholder, not a founder identity: it stays out of every public read
+// until the founder confirms it in the wizard (profiles.upsert). Unset = confirmed, so old rows need no migration.
+export const isHandleConfirmed = (p: Pick<Doc<"profiles">, "handleConfirmed">) => p.handleConfirmed !== false;
+// Publicly readable founder profile: the handle is confirmed and the founder has not hidden the profile.
+export const isProfileVisible = (p: Pick<Doc<"profiles">, "handleConfirmed" | "profilePublic">) => isHandleConfirmed(p) && p.profilePublic !== false;

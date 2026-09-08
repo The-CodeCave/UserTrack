@@ -33,7 +33,6 @@ Last updated: 2026-09-08 · code state: **v1.0 launch hardening + v1.0.1 review 
 
 | Step | Why | Where |
 |---|---|---|
-| **Decide: should the onboarding profile step move to the end?** | Since `b03775b` the visitor sees their product before signing up, so being asked for *their own* handle and avatar first is now the odd step. Doing it needs a `profiles.handleConfirmed` flag (the wizard derives every step from server state), a reaper for auto-created handles from abandoned signups, and a call on whether an auto-created profile is public by default. Product + schema decision, not a wizard reorder. | `docs/ASSUMPTIONS.md` A234 |
 | **Sentry EU project + `NEXT_PUBLIC_SENTRY_DSN`** | Without a DSN the SDK is never initialised or downloaded — crashes render the branded error boundary but nobody is notified. | *Sentry — create the EU project and set the DSN (OPS-3)* |
 | **Convex → Sentry log stream** | Backend function errors land in the same project. | *Optional: Convex → Sentry log stream (OPS-3)* |
 | **npm publishes** (`@usertrack/protocol` → `@usertrack/node` → `@usertrack/better-auth`) | Until then founders install the SDK from a `pnpm pack` tarball. Order matters: the plugin depends on the other two. | `packages/node/HUMAN_TODO.md`, `packages/better-auth/HUMAN_TODO.md` |

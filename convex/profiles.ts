@@ -1,12 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { authComponent } from "./auth";
-import { isValidHandle } from "../src/lib/slug";
+import { isValidHandle, slugify } from "../src/lib/slug";
 import { isValidXHandle, normalizeXHandle } from "../src/lib/social";
 import { sanitizeAttribution } from "../src/lib/attribution";
 import { setPreferences } from "./email/prefs";
 import { socialPrefs } from "./schema";
 import { requireVerifiedToPublish } from "./domain/projects";
+import { isHandleConfirmed } from "./domain/visibility";
 import { storedImageUrl } from "./lib/uploads";
 import { fillEmpty, followerPatch, prefillFor, takePrefill } from "./authProfile";
 
@@ -59,6 +60,40 @@ export function canonicalX(raw?: string) {
   if (!isValidXHandle(h)) throw new Error("X handle: 1–15 letters, numbers or underscores");
   return h;
 }
+
+// First free handle for a server-minted profile; numeric suffixes exactly like uniqueSlug in domain/projects.ts.
+async function mintHandle(ctx: MutationCtx, base: string) {
+  const root = (slugify(base).slice(0, 24).replace(/-+$/, "") || "founder").padEnd(3, "0");
+  for (let i = 0; i < 50; i++) {
+    const candidate = i === 0 ? root : `${root}-${i + 1}`;
+    if (!isValidHandle(candidate)) continue;
+    const hit = await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", candidate)).unique();
+    if (!hit) return candidate;
+  }
+  throw new Error("Could not find a free handle");
+}
+
+// The wizard needs saas.ownerId before the founder has picked anything, so the profile row is minted here with a
+// derived handle. handleConfirmed: false keeps it out of every public read until the profile step confirms it.
+export const ensure = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { user, profile } = await getProfileForUser(ctx);
+    if (!user) throw new Error("Not signed in");
+    if (profile) return profile._id;
+    const local = user.email?.split("@")[0] ?? "";
+    const prefill = await takePrefill(ctx, user._id);
+    return ctx.db.insert("profiles", {
+      ...fillEmpty({}, prefill),
+      ...followerPatch(prefill),
+      userId: user._id,
+      username: await mintHandle(ctx, user.name || local),
+      displayName: (user.name?.trim() || local || "Founder").slice(0, 60),
+      onboardingCompleted: false,
+      handleConfirmed: false,
+    });
+  },
+});
 
 // Short-lived URL for a direct browser -> Convex storage POST, so an avatar can be a file instead of a hosted link.
 export const generateAvatarUploadUrl = mutation({
@@ -116,6 +151,8 @@ export const upsert = mutation({
       avatarUrl: avatar?.url ?? args.avatarUrl?.trim() ?? undefined,
       location: args.location?.trim().slice(0, 60) || undefined,
       bio: args.bio?.trim().slice(0, 160) || undefined,
+      // The founder has now seen the handle, so the row leaves placeholder state and the publish gate above applies to it.
+      handleConfirmed: true,
     };
     if (timezone) await setPreferences(ctx, user._id, { timezone });
     if (profile) {
@@ -147,6 +184,7 @@ export const completeOnboarding = mutation({
   handler: async (ctx) => {
     const { user, profile } = await requireProfile(ctx);
     requireVerifiedToPublish(user);
+    if (!isHandleConfirmed(profile)) throw new Error("Confirm your founder handle before finishing onboarding");
     await ctx.db.patch(profile._id, { onboardingCompleted: true });
   },
 });

@@ -103,7 +103,7 @@ export function AiSetup({ onDone, onSwitchToManual }: { onDone: (project: AiSetu
           </Panel>
         )}
         {phase === "status" && session && status && <Live status={status} secret={session.secret} onCopyPrompt={copyPrompt} onManual={onSwitchToManual} onReset={() => setSession(null)} />}
-        {phase === "done" && status?.project && <Done project={status.project} />}
+        {phase === "done" && status?.project && <AiDone project={status.project} />}
       </motion.div>
     </AnimatePresence>
   );
@@ -333,7 +333,8 @@ function StepRow({ step, now }: { step: Status["steps"][number]; now: number }) 
   );
 }
 
-function Done({ project }: { project: AiSetupProject }) {
+// Onboarding renders this itself, after the founder has confirmed the handle the agent-created project is published under.
+export function AiDone({ project }: { project: AiSetupProject }) {
   const url = saasUrl(project.slug);
   const { copied, copy } = useCopy(url);
   const v = project.verification;

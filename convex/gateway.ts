@@ -11,7 +11,7 @@ import { RANGES, dayKey, dayStart, DAY } from "./lib/time";
 import { integrationRole, providerKind, tokenType } from "./schema";
 import { describeProvider, getProvider, normalizeRole, ProviderError, verificationLevel, type Role } from "./providers";
 import { detectedCount } from "./integrations";
-import { visibilityOf } from "./domain/visibility";
+import { isHandleConfirmed, isProfileVisible, visibilityOf } from "./domain/visibility";
 import { fetchMetrics } from "./providerRun";
 import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, projectSummary, projectUrls, requireOwnedProject, requireVerifiedToPublish, siteUrl, updateProject } from "./domain/projects";
 import { connectIntegration, integrationView, listIntegrations, requestSync } from "./domain/integrations";
@@ -832,7 +832,7 @@ async function founderProfile(ctx: QueryCtx | MutationCtx, profile: Doc<"profile
   const rows = (await founderRows(ctx, profile)).map(publicSaas);
   const base = siteUrl();
   return {
-    profile: { ...publicProfile(profile), location: profile.location, profilePublic: profile.profilePublic !== false, xState: xConnectionState({ handle: profile.x, connected: Boolean(profile.xUserId) }), socialPrefs: normalizePrefs(profile.socialPrefs) },
+    profile: { ...publicProfile(profile), location: profile.location, profilePublic: isProfileVisible(profile), xState: xConnectionState({ handle: profile.x, connected: Boolean(profile.xUserId) }), socialPrefs: normalizePrefs(profile.socialPrefs) },
     aggregates: founderAggregates(rows),
     projects: rows.map((s) => ({ id: s._id, slug: s.slug, name: s.name, totalUsers: s.totalUsers, newUsers30d: s.newUsers30d, growth30dPct: s.growth30dPct, rank: s.rank, trendingRank: s.trendingRank, verification: s.trust, url: `${base}/s/${s.slug}` })),
     urls: { profile: `${base}/u/${profile.username}`, card: `${base}/u/${profile.username}/card`, api: `${base}/api/v1/users/${profile.username}`, settings: `${base}/app/settings/social` },
@@ -966,7 +966,7 @@ export const founderUrlTool = query({
   handler: async (ctx, { auth }) => {
     const { profile } = await authenticate(ctx, auth, "mcp", "profile:read");
     const base = siteUrl();
-    return { username: profile.username, public: profile.profilePublic !== false, urls: { profile: `${base}/u/${profile.username}`, card: `${base}/u/${profile.username}/card`, ogImage: `${base}/u/${profile.username}/opengraph-image`, api: `${base}/api/v1/users/${profile.username}`, history: `${base}/api/v1/users/${profile.username}/history` } };
+    return { username: profile.username, public: isProfileVisible(profile), urls: { profile: `${base}/u/${profile.username}`, card: `${base}/u/${profile.username}/card`, ogImage: `${base}/u/${profile.username}/opengraph-image`, api: `${base}/api/v1/users/${profile.username}`, history: `${base}/api/v1/users/${profile.username}/history` } };
   },
 });
 
@@ -1031,7 +1031,7 @@ async function resolveTarget(ctx: QueryCtx | MutationCtx, ref: { targetType: "sa
     return { type: "saas" as const, id: s!._id, slug: s!.slug, name: s!.name, url: projectUrls(s!).page };
   }
   const p = ref.username ? await ctx.db.query("profiles").withIndex("by_username", (q) => q.eq("username", ref.username!.toLowerCase().replace(/^@/, ""))).unique() : ref.targetId ? await ctx.db.get(ref.targetId as Id<"profiles">).catch(() => null) : null;
-  if (!p || p.profilePublic === false) fail("not_found", "No public founder matches that username or id");
+  if (!p || !isProfileVisible(p)) fail("not_found", "No public founder matches that username or id");
   return { type: "profile" as const, id: p!._id, username: p!.username, name: p!.displayName, url: `${siteUrlOf()}/u/${p!.username}` };
 }
 
@@ -1091,7 +1091,7 @@ export const following = query({
       const s = await ctx.db.get(row._id);
       if (!s || !s.isPublic) continue;
       const owner = await ctx.db.get(s.ownerId);
-      saas.push({ ...publicSaas(s), owner: owner ? { username: owner.username, displayName: owner.displayName } : null, via: row.via, followed: row.followed, rankMovement7d: row.rankMovement7d, trendingMovement7d: row.trendingMovement7d });
+      saas.push({ ...publicSaas(s), owner: owner && isHandleConfirmed(owner) ? { username: owner.username, displayName: owner.displayName } : null, via: row.via, followed: row.followed, rankMovement7d: row.rankMovement7d, trendingMovement7d: row.trendingMovement7d });
     }
     return { days: clampDays(days), saas, founders: w.founders.map((p) => ({ username: p.username, displayName: p.displayName, avatarUrl: p.avatarUrl, followerCount: p.followerCount })), feed: w.feed.map(({ via, founder, ...i }) => ({ ...i, via, founder })) };
   },

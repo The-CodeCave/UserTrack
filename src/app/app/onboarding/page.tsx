@@ -8,7 +8,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
 import { Check, Copy, ExternalLink, PartyPopper } from "lucide-react";
 import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { track as analytics, type AuthMethod } from "@/lib/analytics";
 import { readAttribution } from "@/lib/attribution";
 import { readPreviewDraft } from "@/lib/preview-draft";
@@ -20,7 +20,7 @@ import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { ProfileForm } from "@/components/app/profile-form";
 import { SaasForm } from "@/components/app/saas-form";
 import { ConnectSource, SourceStatus } from "@/components/app/connect-source";
-import { AiSetup, SetupChooser } from "@/components/app/ai-setup";
+import { AiDone, AiSetup, SetupChooser, type AiSetupProject } from "@/components/app/ai-setup";
 import { PlatformStep } from "@/components/app/platform-picker";
 import { StackQuestions } from "@/components/app/stack-questions";
 import { Button } from "@/components/ui/button";
@@ -29,12 +29,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatCompact, formatDelta, formatRate } from "@/lib/format";
 import { NO_REVENUE_NOTE, providerLabel, type ProviderKind } from "@/lib/providers-ui";
 import { recommendStack, type StackChoices, type StackRecommendation } from "@/lib/stack-recommendation";
-import { saasUrl } from "@/lib/site";
+import { profileUrl, saasUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
-const STEPS = ["Profile", "Your SaaS", "Platform", "Stack", "Source", "Activation", "Conversion", "Publish"] as const;
+// Profile comes last: the founder sees the product before being asked for their own handle (A234).
+const STEPS = ["Your SaaS", "Platform", "Stack", "Source", "Activation", "Conversion", "Profile", "Publish"] as const;
 const DONE = STEPS.length;
-const AI_STEPS = ["Profile", "Set up with AI", "Live"] as const;
+const PROFILE_STEP = STEPS.indexOf("Profile");
+const AI_STEPS = ["Set up with AI", "Profile", "Live"] as const;
 const SOCIAL_METHODS: readonly AuthMethod[] = ["google", "github", "x"];
 const MODE_KEY = "ut:onboarding-mode";
 const STACK_KEY = "ut:onboarding-stack";
@@ -68,14 +70,15 @@ export default function OnboardingPage() {
   const [draft] = useState(readPreviewDraft);
   const [stackFromSite] = useState(() => !stackAnswered() && Boolean(readStack().identity));
   const [aiDone, setAiDone] = useState(false);
+  const [aiProject, setAiProject] = useState<AiSetupProject | null>(null);
   const first = mine?.[0];
   const saasId = override?.saasId ?? first?._id ?? null;
   const derived =
-    me === undefined || mine === undefined ? null
-    : !me?.profile ? 0
-    : !first ? 1
-    : !first.projectType ? 2
-    : first.trust === "pending" && !first.lastSyncedAt ? (stackDone(stack) ? 4 : 3)
+    me === undefined || mine === undefined || !me?.profile ? null
+    : !first ? 0
+    : !first.projectType ? 1
+    : first.trust === "pending" && !first.lastSyncedAt ? (stackDone(stack) ? 3 : 2)
+    : me.profile.handleConfirmed === false ? PROFILE_STEP
     : 7;
   const step = override?.step ?? derived;
   const setStep = (s: number, id?: Id<"saas">) => {
@@ -86,9 +89,10 @@ export default function OnboardingPage() {
   const update = useMutation(api.saas.update);
   const setPublic = useMutation(api.saas.setPublic);
   const complete = useMutation(api.profiles.completeOnboarding);
+  const ensure = useMutation(api.profiles.ensure);
   const track = useMutation(api.onboarding.track);
-  // The AI flow owns the screen after the profile step; the agent creates the project, so `derived` must not take over.
-  const ai = mode === "ai" && step !== null && step > 0;
+  // The AI flow owns the screen: the agent creates the project, so `derived` must not take over.
+  const ai = mode === "ai";
   // Hybrid sees every provider; web / mobile only the ones that apply.
   const platform = saas?.projectType && saas.projectType !== "hybrid" ? saas.projectType : undefined;
   const rec = recommendStack({ platform: saas?.projectType ?? "web", ...stack });
@@ -96,6 +100,11 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (me?.profile?.onboardingCompleted && override?.step !== DONE && !aiDone) router.replace("/app");
   }, [me, override, aiDone, router]);
+
+  // saas.ownerId needs a profile row before the founder has picked a handle; it stays unconfirmed until the profile step.
+  useEffect(() => {
+    if (me && !me.profile) void ensure().catch((err: Error) => toast.error(err.message.replace(/^.*Uncaught Error: /, "").split("\n")[0]));
+  }, [me, ensure]);
 
   // Social sign-ups only complete once the OAuth redirect lands here; `?new=` carries the provider.
   useEffect(() => {
@@ -123,17 +132,20 @@ export default function OnboardingPage() {
       return;
     }
     void track({ event: "stack_selected" });
-    setStep(4);
+    setStep(3);
   }
   function pick(m: "ai" | "manual") {
     setMode(m);
     void track({ event: m === "ai" ? "onboarding_ai_setup_selected" : "manual_setup_selected" });
   }
+  function aiSetupDone(project: AiSetupProject) {
+    setAiProject(project);
+    analytics("project_created", { source: "mcp" });
+  }
   async function finishAi() {
     setAiDone(true);
     sessionStorage.removeItem(MODE_KEY);
     await complete();
-    analytics("project_created", { source: "mcp" });
     analytics("onboarding_completed");
     await track({ event: "mcp_setup_completed" });
     toast.success("You're live!");
@@ -159,7 +171,7 @@ export default function OnboardingPage() {
   }
 
   const steps = ai ? AI_STEPS : STEPS;
-  const current = ai ? (aiDone ? 2 : 1) : step;
+  const current = ai ? (aiDone ? 2 : aiProject ? 1 : 0) : step;
 
   return (
     <main className="relative min-h-full flex-1 px-4 py-8 sm:py-14">
@@ -176,24 +188,18 @@ export default function OnboardingPage() {
         </ol>
 
         <AnimatePresence mode="wait">
-          <motion.div key={ai ? "ai" : step} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
-            {step === 0 && (
+          <motion.div key={ai ? (aiDone ? "ai-done" : aiProject ? "ai-profile" : "ai") : step} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+            {ai && !aiProject && <AiSetup onDone={aiSetupDone} onSwitchToManual={() => pick("manual")} />}
+            {ai && aiProject && !aiDone && me?.profile && <ProfileStep profile={me.profile} step="Step 2 of 3" onSaved={finishAi} />}
+            {ai && aiDone && aiProject && <AiDone project={aiProject} />}
+            {!ai && step === 0 && (
               <Panel className="p-6">
                 <SectionLabel>Step 1 of {DONE}</SectionLabel>
-                <h1 className="mt-2 text-2xl font-semibold tracking-tight">Create your founder profile</h1>
-                <p className="mb-6 mt-1 text-sm text-muted-foreground">Your public founder profile groups all your SaaS and growth metrics in one place. Your X handle is optional and never posted to without your say-so.</p>
-                <ProfileForm compact initial={me?.prefill} defaultName={me?.user.name} submitLabel="Continue" onSaved={() => setStep(1)} />
-              </Panel>
-            )}
-            {ai && <AiSetup onDone={finishAi} onSwitchToManual={() => pick("manual")} />}
-            {!ai && step === 1 && (
-              <Panel className="p-6">
-                <SectionLabel>Step 2 of {DONE}</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">Add your SaaS</h1>
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">{mode === "manual" ? "You can add more products later from the dashboard." : "Pick how you want to get on the board."}</p>
                 {mode === "manual" ? (
                   <>
-                    <SaasForm fromPreview={draft} submitLabel="Continue" onSaved={(id) => setStep(2, id)} />
+                    <SaasForm fromPreview={draft} submitLabel="Continue" onSaved={(id) => setStep(1, id)} />
                     <button type="button" onClick={() => pick("ai")} className="mt-4 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">Set up with AI instead</button>
                   </>
                 ) : (
@@ -201,27 +207,41 @@ export default function OnboardingPage() {
                 )}
               </Panel>
             )}
-            {!ai && step === 2 && saas && (
+            {!ai && step === 1 && saas && (
               <Panel className="p-6">
-                <SectionLabel>Step 3 of {DONE}</SectionLabel>
+                <SectionLabel>Step 2 of {DONE}</SectionLabel>
                 <h1 className="mt-2 text-2xl font-semibold tracking-tight">What are you tracking?</h1>
                 <p className="mb-6 mt-1 text-sm text-muted-foreground">Decides which sources and stack questions you see. UserTrack tracks users, never revenue.</p>
-                <PlatformStep initial={{ projectType: saas.projectType ?? draft?.projectType, appStoreUrl: saas.appStoreUrl ?? draft?.appStoreUrl, playStoreUrl: saas.playStoreUrl ?? draft?.playStoreUrl }} onSubmit={async (v) => { await update({ ...base(saas), ...v }); void track({ event: "platform_selected" }); setStep(3); }} />
+                <PlatformStep initial={{ projectType: saas.projectType ?? draft?.projectType, appStoreUrl: saas.appStoreUrl ?? draft?.appStoreUrl, playStoreUrl: saas.playStoreUrl ?? draft?.playStoreUrl }} onSubmit={async (v) => { await update({ ...base(saas), ...v }); void track({ event: "platform_selected" }); setStep(2); }} />
               </Panel>
             )}
-            {!ai && step === 3 && saas?.projectType && (
+            {!ai && step === 2 && saas?.projectType && (
+              <Panel className="p-6">
+                <SectionLabel>Step 3 of {DONE}</SectionLabel>
+                <StackQuestions key={saas.projectType} platform={saas.projectType} value={stack} onChange={setStack} onDone={finishStack} />
+              </Panel>
+            )}
+            {!ai && step === 3 && saasId && (
               <Panel className="p-6">
                 <SectionLabel>Step 4 of {DONE}</SectionLabel>
-                <StackQuestions key={saas.projectType} platform={saas.projectType} value={stack} onChange={setStack} onDone={finishStack} />
+                <h1 className="mt-2 text-2xl font-semibold tracking-tight">Connect a data source</h1>
+                <p className="mb-6 mt-1 text-sm text-muted-foreground">Where your registered user count comes from. Read-only, synced every 4 hours. Verified sources get ranked.</p>
+                <Recommendation rec={rec} fromSite={stackFromSite} />
+                <ConnectSource saasId={saasId} platform={platform} recommended={rec.users ?? undefined} recommendedSource={rec.nativeSource} websiteUrl={saas?.websiteUrl} onConnected={() => setStep(4)} />
               </Panel>
             )}
             {!ai && step === 4 && saasId && (
               <Panel className="p-6">
-                <SectionLabel>Step 5 of {DONE}</SectionLabel>
-                <h1 className="mt-2 text-2xl font-semibold tracking-tight">Connect a data source</h1>
-                <p className="mb-6 mt-1 text-sm text-muted-foreground">Where your registered user count comes from. Read-only, synced every 4 hours. Verified sources get ranked.</p>
-                <Recommendation rec={rec} fromSite={stackFromSite} />
-                <ConnectSource saasId={saasId} platform={platform} recommended={rec.users ?? undefined} recommendedSource={rec.nativeSource} websiteUrl={saas?.websiteUrl} onConnected={() => setStep(5)} />
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <SectionLabel>Step 5 of {DONE} · optional</SectionLabel>
+                    <h1 className="mt-2 text-2xl font-semibold tracking-tight">Track activation too? (optional)</h1>
+                  </div>
+                  <Button variant="outline" size="sm" className="shrink-0" onClick={() => setStep(5)}>Skip for now</Button>
+                </div>
+                <p className="mb-6 mt-1 text-sm text-muted-foreground">Activation tells UserTrack how many people actually reach value in your product — e.g. onboarding_completed, project_created.</p>
+                <ConnectSource saasId={saasId} role="activation" platform={platform} recommended={rec.activation} onConnected={() => setStep(5)} />
+                <Button variant="ghost" className="mt-4 h-11 w-full sm:w-auto" onClick={() => setStep(5)}>Skip for now</Button>
               </Panel>
             )}
             {!ai && step === 5 && saasId && (
@@ -229,30 +249,17 @@ export default function OnboardingPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <SectionLabel>Step 6 of {DONE} · optional</SectionLabel>
-                    <h1 className="mt-2 text-2xl font-semibold tracking-tight">Track activation too? (optional)</h1>
+                    <h1 className="mt-2 text-2xl font-semibold tracking-tight">Connect your payment provider? (optional)</h1>
                   </div>
                   <Button variant="outline" size="sm" className="shrink-0" onClick={() => setStep(6)}>Skip for now</Button>
                 </div>
-                <p className="mb-6 mt-1 text-sm text-muted-foreground">Activation tells UserTrack how many people actually reach value in your product — e.g. onboarding_completed, project_created.</p>
-                <ConnectSource saasId={saasId} role="activation" platform={platform} recommended={rec.activation} onConnected={() => setStep(6)} />
+                <p className="mt-1 text-sm text-muted-foreground">Connect your payment provider to see Converted Users — no revenue is read.</p>
+                <p className="mb-6 mt-2 font-mono text-[11px] text-muted-foreground">{NO_REVENUE_NOTE}</p>
+                <ConnectSource saasId={saasId} role="conversion" platform={platform} recommended={rec.conversion} onConnected={() => setStep(6)} />
                 <Button variant="ghost" className="mt-4 h-11 w-full sm:w-auto" onClick={() => setStep(6)}>Skip for now</Button>
               </Panel>
             )}
-            {!ai && step === 6 && saasId && (
-              <Panel className="p-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <SectionLabel>Step 7 of {DONE} · optional</SectionLabel>
-                    <h1 className="mt-2 text-2xl font-semibold tracking-tight">Connect your payment provider? (optional)</h1>
-                  </div>
-                  <Button variant="outline" size="sm" className="shrink-0" onClick={() => setStep(7)}>Skip for now</Button>
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">Connect your payment provider to see Converted Users — no revenue is read.</p>
-                <p className="mb-6 mt-2 font-mono text-[11px] text-muted-foreground">{NO_REVENUE_NOTE}</p>
-                <ConnectSource saasId={saasId} role="conversion" platform={platform} recommended={rec.conversion} onConnected={() => setStep(7)} />
-                <Button variant="ghost" className="mt-4 h-11 w-full sm:w-auto" onClick={() => setStep(7)}>Skip for now</Button>
-              </Panel>
-            )}
+            {!ai && step === PROFILE_STEP && me?.profile && <ProfileStep profile={me.profile} step={`Step ${PROFILE_STEP + 1} of ${DONE}`} onSaved={() => setStep(7)} />}
             {!ai && step === 7 && saas && (
               <Panel className="p-6">
                 <SectionLabel>Step 8 of {DONE}</SectionLabel>
@@ -274,7 +281,7 @@ export default function OnboardingPage() {
                 {saas.integrations[0] && <div className="mb-6"><SourceStatus saasId={saas._id} integration={saas.integrations[0]} totalUsers={saas.totalUsers} trust={saas.trust} trustLabel={saas.trustLabel} /></div>}
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Button className="h-11" onClick={publish}>Publish page</Button>
-                  <Button variant="ghost" className="h-11" onClick={() => setStep(4)}>Change source</Button>
+                  <Button variant="ghost" className="h-11" onClick={() => setStep(3)}>Change source</Button>
                 </div>
               </Panel>
             )}
@@ -287,6 +294,20 @@ export default function OnboardingPage() {
         </HelpCallout>
       </div>
     </main>
+  );
+}
+
+// The founder's own handle, asked once the product exists — so the page it names is already real.
+function ProfileStep({ profile, step, onSaved }: { profile: Doc<"profiles">; step: string; onSaved: () => void }) {
+  return (
+    <Panel className="p-6">
+      <SectionLabel>{step}</SectionLabel>
+      <h1 className="mt-2 text-2xl font-semibold tracking-tight">Name your founder page</h1>
+      <p className="mb-6 mt-1 text-sm text-muted-foreground">
+        Everything you track lands on <span className="font-mono text-foreground">{profileUrl(profile.username)}</span> — we picked that handle from your name, change it below if you want another one. Your X handle is optional and never posted to without your say-so.
+      </p>
+      <ProfileForm compact initial={profile} submitLabel="Continue" onSaved={onSaved} />
+    </Panel>
   );
 }
 
