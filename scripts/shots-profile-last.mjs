@@ -33,7 +33,6 @@ await shot(d, "01-step1-your-saas", true);
 for (const w of [375, 768]) { const p = await page(w); await p.goto(`${base}/app/onboarding`, { waitUntil: "networkidle" }); await p.waitForSelector("text=Add your SaaS"); await shot(p, `01-step1-your-saas-${w}`, true); await p.close(); }
 
 // The placeholder profile already exists, but it resolves nowhere public.
-const handle = `ada-lovelace${tag ? "" : ""}`;
 const ghost = await d.evaluate(async (u) => (await fetch(u)).status, `${base}/api/v1/users/ada-lovelace`);
 console.log("placeholder /api/v1/users/ada-lovelace →", ghost);
 
