@@ -6,12 +6,19 @@ export const profileUrl = (username: string) => `${SITE_URL}/u/${username}`;
 export const badgeUrl = (slug: string, type = "users") => `${SITE_URL}/api/badge/${slug}.svg?type=${type}`;
 export const shareUrl = (slug: string, kind: string) => `${SITE_URL}/s/${slug}/share/${kind}`;
 
-// Outbound links carry `ref` (for the app) + `utm_*` (Rybbit parses them natively); canonical / OG URLs stay clean.
-export function attributedUrl(url: string, a: { ref: string; source: string; medium: string; campaign: string }) {
+function appendQuery(url: string, params: Record<string, string>) {
   const hashAt = url.indexOf("#");
   const base = hashAt === -1 ? url : url.slice(0, hashAt), hash = hashAt === -1 ? "" : url.slice(hashAt);
-  const q = new URLSearchParams({ ref: a.ref, utm_source: a.source, utm_medium: a.medium, utm_campaign: a.campaign }).toString();
+  const q = new URLSearchParams(params).toString();
   return `${base}${base.includes("?") ? "&" : "?"}${q}${hash}`;
 }
+// Outbound links carry `ref` (for the app) + `utm_*` (Rybbit parses them natively); canonical / OG URLs stay clean.
+export function attributedUrl(url: string, a: { ref: string; source: string; medium: string; campaign: string }) {
+  return appendQuery(url, { ref: a.ref, utm_source: a.source, utm_medium: a.medium, utm_campaign: a.campaign });
+}
+// Hostname for display; a stored URL that predates normalization must not crash the page it renders on.
+export const displayHost = (url: string) => { try { return new URL(url).hostname; } catch { return url; } };
+// Links out to a founder's own product, so their analytics attributes the visit to us.
+export const productLinkUrl = (url: string) => appendQuery(url, { ref: "usertrack", utm_source: "usertrack" });
 // Share page link for one outbound channel (x, link, mcp, x-founder, x-bot …); `shareUrl` itself stays the canonical.
 export const shareLinkUrl = (slug: string, kind: string, channel: string) => attributedUrl(shareUrl(slug, kind), { ref: "share", source: channel, medium: "share-card", campaign: kind });
