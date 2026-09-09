@@ -4,6 +4,9 @@ name: CI
 # No secrets: the build only needs public placeholder URLs, and `convex/_generated` is committed.
 on:
   push:
+    # `prod` runs the same checks inside deploy-prod.yml, which then deploys; running them twice on one push
+    # would only race for the same concurrency slot.
+    branches-ignore: [prod]
     paths-ignore: ["apps/**", "docs/**", "**/*.md"]
   pull_request:
     paths-ignore: ["apps/**", "docs/**", "**/*.md"]
