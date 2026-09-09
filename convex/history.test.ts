@@ -152,6 +152,42 @@ describe("backfill provenance", () => {
     expect((await tx.run((ctx) => ctx.db.get(integrationId)))?.backfilledAt).toBeDefined();
   });
 
+  it("rebuild replaces the curve a wrong source wrote and never deletes a live snapshot", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    const id = await seedSaas(tx, owner, { totalUsers: 1 });
+    const integrationId = await seedLive(tx, id, "clerk", 1);
+    const day = (d: number) => dayKey(Date.now() - d * DAY);
+    // The source counted an event log that only started today: one user, a flat history.
+    mocks.fetchHistory.mockResolvedValue({ metric: "newUsers", points: [3, 2, 1].map((d) => ({ day: day(d), value: 0 })) });
+    await tx.action(internal.sync.backfill, { integrationId, days: 4 });
+    const wrong = await tx.run((ctx) => ctx.db.query("snapshots").collect());
+    expect(wrong.filter((s) => s.backfilled).map((s) => s.totalUsers)).toEqual([1, 1, 1]);
+
+    // Source fixed: it reads the user table now and reports the real signups per day.
+    await tx.run(async (ctx) => {
+      await ctx.db.patch(id, { totalUsers: 30 });
+      await ctx.db.insert("snapshots", { saasId: id, totalUsers: 30, capturedAt: Date.now(), source: "clerk", trust: "verified" });
+      const live = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", id).eq("day", today())).unique();
+      await ctx.db.patch(live!._id, { totalUsers: 30 });
+    });
+    mocks.fetchHistory.mockResolvedValue({ metric: "newUsers", points: [[3, 5], [2, 10], [1, 12], [0, 3]].map(([d, v]) => ({ day: day(d), value: v })) });
+
+    // A plain backfill cannot repair it — every one of those days already has a snapshot.
+    await tx.action(internal.sync.backfill, { integrationId, days: 4 });
+    expect((await tx.run((ctx) => ctx.db.query("snapshots").collect())).filter((s) => s.backfilled).map((s) => s.totalUsers)).toEqual([1, 1, 1]);
+
+    await tx.action(internal.sync.backfill, { integrationId, days: 4, rebuild: true });
+    const after = await tx.run((ctx) => ctx.db.query("snapshots").collect());
+    // 30 today minus the signups of every later day: day-1 = 27, day-2 = 15, day-3 = 5.
+    expect(after.filter((s) => s.backfilled).map((s) => s.totalUsers)).toEqual([5, 15, 27]);
+    expect(after.filter((s) => !s.backfilled).length).toBe(2);
+    const daily = await tx.run((ctx) => ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", id)).collect());
+    expect(daily.map((r) => r.newUsers)).toEqual([5, 10, 12, 3]);
+    const runs = await tx.run((ctx) => ctx.db.query("backfills").withIndex("by_saas_time", (q) => q.eq("saasId", id)).order("asc").collect());
+    expect(runs.at(-1)).toMatchObject({ trigger: "rebuild", status: "ok", pointsWritten: 3 });
+  });
+
   it("bounds per-day providers to 365 days and full providers to five years", async () => {
     const tx = t();
     const owner = await seedOwner(tx);

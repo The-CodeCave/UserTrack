@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
-import { ExternalLink, Trash2, Copy, Check, Eye, Trophy, ArrowRight, Apple, Play, History } from "lucide-react";
+import { ExternalLink, Trash2, Copy, Check, Eye, Trophy, ArrowRight, Apple, Play, History, RefreshCw } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { VISIBILITY_KEYS, VISIBILITY_META } from "@convex/domain/visibility";
@@ -74,7 +74,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
   const byRole = (r: Role) => saas.integrations.find((i) => i.role === r);
   const publish = (v: boolean) => setPublic({ id: saasId, isPublic: v }).then(() => track(v ? "project_published" : "project_unpublished")).catch((e: Error) => toast.error(/Uncaught \w*Error: ([^\n]*)/.exec(e.message)?.[1] ?? "Could not update the page"));
   const copy = async (key: string, text: string) => { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(null), 1500); };
-  const runBackfill = (days: number | "all") => backfill({ saasId, role: "users", days }).then(() => track("backfill_triggered")).then(() => toast.success(days === "all" ? "Backfill started — a long history can take a few minutes" : "Backfill started — points land within a minute")).catch((e) => toast.error(errMsg(e)));
+  const runBackfill = (days: number | "all", rebuild = false) => backfill({ saasId, role: "users", days, rebuild }).then(() => track("backfill_triggered")).then(() => toast.success(rebuild ? "Rebuild started — the reconstructed days are being re-imported" : days === "all" ? "Backfill started — a long history can take a few minutes" : "Backfill started — points land within a minute")).catch((e) => toast.error(errMsg(e)));
   // Derived from state only; disappears as the founder completes each item.
   const nextSteps = [
     ...(!saas.isPublic ? [{ label: "Publish your page", onClick: () => publish(true) }] : []),
@@ -247,11 +247,12 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
         <div className="space-y-3">
           <div>
             <div className="text-sm font-medium">Backfill history</div>
-            <p className="mt-1 text-xs text-muted-foreground">Re-import daily user counts from your users source — the last 30 days, or everything it can read (rebuilt from signup dates, back to your first user). Days that already have data are never rewritten.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Re-import daily user counts from your users source — the last 30 days, or everything it can read (rebuilt from signup dates, back to your first user). Days that already have data are never rewritten, so a backfill can only fill gaps. If your source was reading the wrong table and reported a wrong curve, <strong className="font-medium text-foreground">rebuild</strong> instead: it discards the reconstructed days and imports them again. Days UserTrack measured live are kept either way.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="outline" size="sm" disabled={!users?.capabilities.historicalUsers || backfills?.[0]?.status === "running"} onClick={() => runBackfill(30)}><History className="size-4" /> Backfill last 30 days</Button>
             <Button variant="outline" size="sm" disabled={!users?.capabilities.historicalUsers || backfills?.[0]?.status === "running"} onClick={() => runBackfill("all")}><History className="size-4" /> Backfill entire history</Button>
+            <Button variant="outline" size="sm" disabled={!users?.capabilities.historicalUsers || backfills?.[0]?.status === "running"} onClick={() => { if (confirm("Discard the reconstructed history and import it again from your source? Days measured live are kept.")) runBackfill("all", true); }}><RefreshCw className="size-4" /> Rebuild history</Button>
             {users?.capabilities.historicalUsers && <span className="font-mono text-[11px] text-muted-foreground">{users.label} can read up to {historyReach(users.historyDays)} back.</span>}
             {users && !users.capabilities.historicalUsers && <span className="font-mono text-[11px] text-muted-foreground">Your {users.provider} source cannot read history.</span>}
           </div>

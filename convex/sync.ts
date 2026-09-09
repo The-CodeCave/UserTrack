@@ -130,8 +130,28 @@ export const runOne = internalAction({
 // is only stamped after a successful import so a transient provider error keeps the backfill pending for the next sync.
 export type BackfillResult = { ok: true; points: number; ms: number } | { ok: false; error: string };
 
-export async function runBackfill(ctx: ActionCtx, integration: Doc<"integrations">, role: Role, days: number, trigger: "first_sync" | "rolling" | "manual"): Promise<BackfillResult> {
+const backfillTrigger = v.union(v.literal("first_sync"), v.literal("rolling"), v.literal("manual"), v.literal("rebuild"));
+export type BackfillTrigger = "first_sync" | "rolling" | "manual" | "rebuild";
+
+// Reconstructed history is written once and never rewritten, so a source that was pointed at the wrong table keeps a wrong
+// curve forever. This drops the backfilled days inside the window; snapshots UserTrack observed live are never touched.
+export const clearBackfilled = internalMutation({
+  args: { integrationId: v.id("integrations"), days: v.number() },
+  handler: async (ctx, { integrationId, days }) => {
+    const integration = await ctx.db.get(integrationId);
+    if (!integration || normalizeRole(integration.role) !== "users") return 0;
+    const since = dayStart(Date.now() - (days - 1) * DAY);
+    const rows = await ctx.db.query("snapshots").withIndex("by_saas_time", (q) => q.eq("saasId", integration.saasId).gte("capturedAt", since)).collect();
+    let cleared = 0;
+    for (const s of rows) if (s.backfilled) { await ctx.db.delete(s._id); cleared++; }
+    return cleared;
+  },
+});
+
+export async function runBackfill(ctx: ActionCtx, integration: Doc<"integrations">, role: Role, days: number, trigger: BackfillTrigger): Promise<BackfillResult> {
   const now = Date.now();
+  // A source that was reading the wrong table reports a wrong history; "rebuild" drops the reconstructed days first so they can be written again.
+  if (trigger === "rebuild") await ctx.runMutation(internal.sync.clearBackfilled, { integrationId: integration._id, days });
   const backfillId = await ctx.runMutation(internal.sync.startBackfill, { integrationId: integration._id, role, days, trigger });
   try {
     const history = await fetchHistory(ctx, integration.provider, integration.config, role, days);
@@ -173,19 +193,19 @@ async function writeHistory(ctx: ActionCtx, integration: Doc<"integrations">, ro
 
 // Owner-triggered re-import (dashboard "Backfill history"). Bounded by the provider's reach; "all" imports everything it can read.
 export const backfill = internalAction({
-  args: { integrationId: v.id("integrations"), days: v.optional(v.union(v.number(), v.literal("all"))) },
-  handler: async (ctx, { integrationId, days }): Promise<BackfillResult> => {
+  args: { integrationId: v.id("integrations"), days: v.optional(v.union(v.number(), v.literal("all"))), rebuild: v.optional(v.boolean()) },
+  handler: async (ctx, { integrationId, days, rebuild }): Promise<BackfillResult> => {
     const data: { integration: Doc<"integrations">; websiteUrl: string } | null = await ctx.runQuery(internal.integrations.getForSync, { integrationId });
     if (!data) return { ok: false, error: "integration not found" };
     const { integration } = data;
     if (!hasHistory(integration.provider, integration.config)) return { ok: false, error: "this source cannot read history" };
     const max = historyLimit(integration.provider, integration.config).maxDays;
-    return runBackfill(ctx, integration, normalizeRole(integration.role), days === "all" ? max : Math.min(max, Math.max(1, days ?? BACKFILL_DAYS)), "manual");
+    return runBackfill(ctx, integration, normalizeRole(integration.role), days === "all" ? max : Math.min(max, Math.max(1, days ?? BACKFILL_DAYS)), rebuild ? "rebuild" : "manual");
   },
 });
 
 export const startBackfill = internalMutation({
-  args: { integrationId: v.id("integrations"), role: integrationRole, days: v.number(), trigger: v.union(v.literal("first_sync"), v.literal("rolling"), v.literal("manual")) },
+  args: { integrationId: v.id("integrations"), role: integrationRole, days: v.number(), trigger: backfillTrigger },
   handler: async (ctx, { integrationId, role, days, trigger }) => {
     const integration = await ctx.db.get(integrationId);
     if (!integration) throw new Error("integration not found");

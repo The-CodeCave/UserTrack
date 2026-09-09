@@ -93,8 +93,32 @@ import { convexHandler } from "@usertrack/node/convex";
 
 const http = httpRouter();
 http.route({ path: "/usertrack/metrics", method: "POST", handler: httpAction(convexHandler({ projectId: process.env.USERTRACK_PROJECT_ID!, secret: process.env.USERTRACK_SECRET!, users: internal.usertrack.countUsers })) });
-export default http;` },
-    notes: ["Convex has no cheap count: countWithCap reads up to 10,000 documents and reports exact: false beyond that (shown as approximate). Use @convex-dev/aggregate for exact counts at scale.", "The base URL in UserTrack is your Convex site URL (https://<deployment>.convex.site); env vars are set with npx convex env set."],
+export default http;
+
+// Using @convex-dev/better-auth? Your users live in the auth component, not in your own schema.
+// Page its \`user\` table instead — the component has no createdAt index, so window in memory:
+const CAP = 10_000;
+
+export const countUsers = internalQuery({
+  args: { createdAtGte: v.optional(v.number()), createdAtLt: v.optional(v.number()) },
+  handler: async (ctx, { createdAtGte = 0, createdAtLt = Number.MAX_SAFE_INTEGER }) => {
+    const times: number[] = [];
+    let cursor: string | null = null;
+    while (times.length <= CAP) {
+      const page: { page: { createdAt: number }[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(components.betterAuth.adapter.findMany, {
+        model: "user",
+        select: ["createdAt"],
+        paginationOpts: { cursor, numItems: 1_000 },
+      });
+      for (const user of page.page) times.push(user.createdAt);
+      if (page.isDone) break;
+      cursor = page.continueCursor;
+    }
+    const exact = times.length <= CAP;
+    return { count: times.slice(0, CAP).filter((at) => at >= createdAtGte && at < createdAtLt).length, exact };
+  },
+});` },
+    notes: ["Count the table that owns the user record. An analytics or event-log table (signup_completed rows and the like) only starts the day you ship it, so UserTrack would report a brand-new product with a flat history — a backfill cannot invent the rows that were never written.", "@convex-dev/better-auth keeps users inside the auth component: count components.betterAuth.adapter.findMany({ model: \"user\" }), not a table you populate from an auth trigger.", "Convex has no cheap count: countWithCap reads up to 10,000 documents and reports exact: false beyond that (shown as approximate). Use @convex-dev/aggregate for exact counts at scale.", "The base URL in UserTrack is your Convex site URL (https://<deployment>.convex.site); env vars are set with npx convex env set."],
   },
   authjs: {
     route: { path: ROUTE_PATH, language: "typescript", title: "Mount the handler", code: route(`import { prismaUsers } from "@usertrack/node/prisma"; // or drizzleUsers from "@usertrack/node/drizzle"\nimport { prisma } from "@/lib/prisma";\n`, "prismaUsers(prisma.user, { createdAtField: null })", "authjs") },
@@ -127,9 +151,12 @@ export const NODE_MODIFICATION_RULES = [
   "Install with the @latest suffix and check `npm ls @usertrack/protocol` resolves to 0.1.1 or newer before writing code. Older versions bundle a node:crypto fallback that breaks Convex, Workers, Deno and Edge builds; if the lockfile pins an older one, update it rather than patching or aliasing the builtin.",
   "Add exactly one route file that exports the UserTrack handler; do not change authentication, billing or database code beyond that (and the optional push hook).",
   "The users count source must count registered users only (exclude anonymous / soft-deleted rows with a where filter) and must never return rows.",
+  "Honour createdAtGte / createdAtLt on every count. UserTrack calls the users source once per day to rebuild the growth curve from real signup dates, so a user who signed up on 1 September appears on 1 September in the chart — not on the day you installed the SDK. A source that cannot filter by time must declare timeFilter: false; UserTrack then stores totals only and the curve starts the day you connected.",
+  "Count the table that owns the user record — the auth store or user table. Never count an analytics or event-log table (a `growthEvents` / `signup_completed` style log), even one the repo already writes on signup: it only holds rows from the day it shipped, so the count and its history start at ~0 and no backfill can recover them. If the repo keeps users in an auth component (@convex-dev/better-auth, @convex-dev/auth), read that component's `user` table, not a mirror table filled by a trigger.",
   `Read projectId and secret from process.env.${ENV_PROJECT_ID} / process.env.${ENV_SECRET}. Never hardcode the secret and never commit it.`,
   "Add both variable names to .env.example (values empty) and the real values to the git-ignored local env file and to the hosting provider for every environment that serves the app.",
   "Optional sources: activation = a table with one row per activated user; conversion.converted = users with an active paid subscription (conversion state only — never amounts).",
+  "Both optional sources are windowed by createdAtGte / createdAtLt, so they need the timestamp of the stage itself. Activation: key on each user's first value-event (dedupe by owner, take the earliest) so the daily series counts a user once, on the day they activated. Conversion: key on when the account started paying — filtering paid accounts by their signup date means a user who upgrades months later never shows up in newConverted30d. If no such column exists, add one (e.g. convertedAt, written once on the first upgrade) rather than reusing the signup date.",
   "Run the project's typecheck and tests after the change; the SDK ships its own types.",
   "Deploy. UserTrack can only verify once the route with the env vars is live.",
 ];

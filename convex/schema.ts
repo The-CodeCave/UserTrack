@@ -668,7 +668,7 @@ export default defineSchema({
     status: v.union(v.literal("running"), v.literal("ok"), v.literal("error"), v.literal("empty")),
     pointsWritten: v.optional(v.number()),
     error: v.optional(v.string()),
-    trigger: v.union(v.literal("first_sync"), v.literal("rolling"), v.literal("manual")),
+    trigger: v.union(v.literal("first_sync"), v.literal("rolling"), v.literal("manual"), v.literal("rebuild")),
     startedAt: v.number(),
     finishedAt: v.optional(v.number()),
   })

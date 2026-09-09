@@ -33,8 +33,8 @@ export const syncNow = mutation({
 
 // Owner-triggered history import (docs/HISTORY.md). Same idempotent path as the first sync; "all" = the provider's full reach.
 export const backfill = mutation({
-  args: { saasId: v.id("saas"), role: v.optional(integrationRole), days: v.optional(v.union(v.number(), v.literal("all"))) },
-  handler: async (ctx, { saasId, role, days }) => {
+  args: { saasId: v.id("saas"), role: v.optional(integrationRole), days: v.optional(v.union(v.number(), v.literal("all"))), rebuild: v.optional(v.boolean()) },
+  handler: async (ctx, { saasId, role, days, rebuild }) => {
     await requireOwnedSaas(ctx, saasId);
     const wanted = role ? normalizeRole(role) : "users";
     const all = await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", saasId)).collect();
@@ -43,7 +43,7 @@ export const backfill = mutation({
     if (!hasHistory(integration.provider, integration.config)) throw new Error("This source cannot read history");
     const running = await ctx.db.query("backfills").withIndex("by_integration_time", (q) => q.eq("integrationId", integration._id)).order("desc").first();
     if (running && running.status === "running" && Date.now() - running.startedAt < 10 * 60_000) throw new Error("A backfill is already running");
-    await ctx.scheduler.runAfter(0, internal.sync.backfill, { integrationId: integration._id, days });
+    await ctx.scheduler.runAfter(0, internal.sync.backfill, { integrationId: integration._id, days, rebuild });
   },
 });
 

@@ -664,7 +664,7 @@ export const SHARE_WORKFLOW = [
 
 export const SETUP_WORKFLOW = [
   "usertrack_get_account",
-  "usertrack_get_provider_recommendation (pass detectedProviders / detectedAuth / detectedAnalytics / detectedPayments + framework + projectType from the repo: native SDK (Better Auth plugin, or @usertrack/node for Auth.js / Convex / Prisma / Drizzle / custom) → Supabase → Clerk → Firebase → PostgreSQL → endpoint for users; Sign in with Apple / Google are auth methods, never the users source)",
+  "usertrack_get_provider_recommendation (pass detectedProviders / detectedAuth / detectedAnalytics / detectedPayments + framework + projectType from the repo: native SDK (Better Auth plugin, or @usertrack/node for Auth.js / Convex / Prisma / Drizzle / custom) → Supabase → Clerk → Firebase → PostgreSQL → endpoint for users; Sign in with Apple / Google are auth methods, never the users source; an analytics or event-log table the repo writes on signup is never the users source either — it starts empty on the day it shipped, so count the auth store / user table it was derived from)",
   "usertrack_create_project (idempotent by domain)",
   "usertrack_get_integration_setup (recommended provider)",
   "native: usertrack_create_integration { provider: \"native\", source } → usertrack_get_native_setup { source } → install @usertrack/better-auth@latest (add userTrack() to the existing plugins array) or @usertrack/node@latest (add the route file with a count source; optionally activation / conversion sources) — always with @latest, and verify the transitive @usertrack/protocol is >= 0.1.1 before writing code — set USERTRACK_PROJECT_ID / USERTRACK_SECRET (never commit the secret), typecheck, deploy",

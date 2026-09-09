@@ -21,7 +21,7 @@ Goal: make this app a **native, verified** UserTrack source. Install the package
      ```
    - Express: `app.post("/api/usertrack/metrics", toNodeHandler(createUserTrackHandler({ … })))`
    - Hono: `app.post("/api/usertrack/metrics", (c) => usertrack(c.req.raw))`
-   - Convex: route `/usertrack/metrics` in `convex/http.ts` with `httpAction(convexHandler({ projectId, secret, users: internal.usertrack.countUsers }))` and a `countUsers` internal query built with `countWithCap` (see README). Base URL = the Convex site URL.
+   - Convex: route `/usertrack/metrics` in `convex/http.ts` with `httpAction(convexHandler({ projectId, secret, users: internal.usertrack.countUsers }))` and a `countUsers` internal query built with `countWithCap` (see README). Base URL = the Convex site URL. With `@convex-dev/better-auth` the users live in the auth component: page `components.betterAuth.adapter.findMany({ model: "user", select: ["createdAt"], paginationOpts })` and window in memory (no `createdAt` index there).
 5. Optional: `activation: <CountSource>` (a table with one row per activated user) and `conversion: { converted: <CountSource>, trial?: <CountSource>, mode?: "active_paid" }`. Optional push: Prisma `$extends(userTrackPrismaExtension({ projectId, secret }))`, Auth.js `events: { ...userTrackAuthjsEvents({ projectId, secret }) }`, or `createTracker(...).track("user.created", { id })` after your own insert.
 6. Run the repo's typecheck/tests. Deploy.
 7. Verify: dashboard **Verify** button or MCP `usertrack_verify_integration { projectId, role: "users" }`. 404 = handler not mounted / not deployed; 401 = env vars differ from the integration; stale = clock skew.
@@ -30,6 +30,9 @@ Goal: make this app a **native, verified** UserTrack source. Install the package
 - Do not change authentication, billing or database code beyond adding the handler and (optionally) the push hook.
 - Never hardcode, print, log or commit the secret.
 - A count source is `{ count({ createdAtGte?, createdAtLt? }) => Promise<number | { count, exact }> , timeFilter?: boolean }`. Return only counts.
+- Count the table that owns the record, never an analytics or event log. A `growthEvents`-style table with one `signup_completed` row per user starts empty on the day it ships, so the count and its history begin at ~0 and no backfill can recover them — count the auth store / user table it was derived from.
+- Honour `createdAtGte` / `createdAtLt` on every count. UserTrack calls the users source once per day to reconstruct the growth curve from real signup dates, so a user who signed up on 1 September lands on 1 September in the chart. A source that cannot filter by time must set `timeFilter: false` — UserTrack then stores totals only and the curve starts the day you connected.
+- Windows come from `createdAtGte` / `createdAtLt`, so each source needs the timestamp of its own stage: activation = each user's first value-event (dedupe by owner, take the earliest), conversion = when the account started paying, not when it signed up.
 - Identities (optional) must be opaque user ids — never emails.
 
 ## API surface

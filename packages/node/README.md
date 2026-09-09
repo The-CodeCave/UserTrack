@@ -63,6 +63,8 @@ type CountSource = { count(where: CountWhere): Promise<number | { count: number;
 
 Return `{ count, exact: false }` if you hit a scan cap (UserTrack labels the numbers as approximate). Set `timeFilter: false` if the table has no timestamp — UserTrack then reads totals only and derives windows from its own snapshots.
 
+**The time bounds are what draws your growth curve.** On the first sync UserTrack asks the users source once per day over the last 90 days, so the chart is reconstructed from real signup dates — a user who signed up on 1 September appears on 1 September, not on the day you installed the SDK. Honour `createdAtGte` / `createdAtLt` and the history comes for free; ignore them (or set `timeFilter: false`) and UserTrack stores totals only, with the curve starting the day you connected.
+
 ## Adapters
 
 ### Prisma — `@usertrack/node/prisma`
@@ -116,6 +118,38 @@ const http = httpRouter();
 http.route({ path: "/usertrack/metrics", method: "POST", handler: httpAction(convexHandler({ projectId: process.env.USERTRACK_PROJECT_ID!, secret: process.env.USERTRACK_SECRET!, users: internal.usertrack.countUsers })) });
 export default http;
 ```
+
+**Count the table that owns the user record.** An analytics or event-log table — a `growthEvents` table with one `signup_completed` row per user, say — looks like the right source but only holds rows from the day it shipped, so UserTrack reports a brand-new product with a flat history and no backfill can recover the missing rows.
+
+With [`@convex-dev/better-auth`](https://github.com/get-convex/better-auth) your users live in the auth component rather than in your own schema. Page its `user` table — the component has no `createdAt` index, so window in memory:
+
+```ts
+// convex/usertrack.ts
+import { components } from "./_generated/api";
+
+const CAP = 10_000;
+
+export const countUsers = internalQuery({
+  args: { createdAtGte: v.optional(v.number()), createdAtLt: v.optional(v.number()) },
+  handler: async (ctx, { createdAtGte = 0, createdAtLt = Number.MAX_SAFE_INTEGER }) => {
+    const times: number[] = [];
+    let cursor: string | null = null;
+    while (times.length <= CAP) {
+      const page: { page: { createdAt: number }[]; isDone: boolean; continueCursor: string } = await ctx.runQuery(components.betterAuth.adapter.findMany, {
+        model: "user",
+        select: ["createdAt"],
+        paginationOpts: { cursor, numItems: 1_000 },
+      });
+      for (const user of page.page) times.push(user.createdAt);
+      if (page.isDone) break;
+      cursor = page.continueCursor;
+    }
+    return { count: times.slice(0, CAP).filter((at) => at >= createdAtGte && at < createdAtLt).length, exact: times.length <= CAP };
+  },
+});
+```
+
+Activation and conversion sources are windowed the same way, so they need the timestamp of *that* stage: key activation on each user's first value-event (dedupe by owner, take the earliest) and conversion on when the account started paying. Filtering paid accounts by their signup date means someone who upgrades months later never appears in `newConverted30d`.
 
 Convex has no cheap `count`: `countWithCap` reads up to 10,000 documents (`cap + 1` via `.take`) and reports `exact: false` beyond that, which UserTrack shows as *approximate*. For bigger tables keep an exact counter with [`@convex-dev/aggregate`](https://www.convex.dev/components/aggregate) and return its value instead. The base URL in UserTrack is your Convex site URL, e.g. `https://happy-otter-123.convex.site` (the handler is mounted at `/usertrack/metrics`). Set the env vars with `npx convex env set USERTRACK_PROJECT_ID … && npx convex env set USERTRACK_SECRET …`.
 
