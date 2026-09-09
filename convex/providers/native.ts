@@ -46,7 +46,8 @@ const TIMEOUT_MS = 15_000;
 export const NATIVE_HISTORY_DAYS = 90;
 const ROLES: Role[] = ["users", "activation", "conversion"];
 
-export const defaultBasePath = (source: NativeSource) => (source === "better-auth" ? "/api/auth" : "/api/usertrack");
+// Convex serves the handler from its own domain at the path our snippet hardcodes (/usertrack/metrics), not under /api.
+export const defaultBasePath = (source: NativeSource) => (source === "better-auth" ? "/api/auth" : source === "convex" ? "/usertrack" : "/api/usertrack");
 export const sourceLabel = (source: NativeSource | undefined) => NATIVE_SOURCE_LABEL[normalizeSource(source)];
 // Rows created before migrations:nativeV1 have no `source`: they are Better Auth plugins.
 const sourceOf = (cfg: { source?: NativeSource }) => cfg.source ?? "better-auth";

@@ -1,155 +1,32 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
-import { AlertTriangle, Check, ChevronDown, Copy, ExternalLink, KeyRound, PencilLine, Share2, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Copy, ExternalLink, Share2, Sparkles } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { track as analytics } from "@/lib/analytics";
-import type { Id } from "@convex/_generated/dataModel";
 import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { Button } from "@/components/ui/button";
 import { Confetti } from "@/components/ui/confetti";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HelpCallout, ReportProblemButton } from "@/components/site/feedback";
 import { CopyForAgent } from "@/components/site/copy-for-agent";
-import { mcpAgentPrompt } from "@/lib/llm-prompts";
 import { formatCompact, timeAgo } from "@/lib/format";
 import { AGENT_PROMPT, mcpSnippets } from "@/lib/mcp/snippets";
 import { saasUrl, shareLinkUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
-type Status = NonNullable<FunctionReturnType<typeof api.onboarding.agentSetupStatus>>;
+export type Status = NonNullable<FunctionReturnType<typeof api.onboarding.agentSetupStatus>>;
 export type AiSetupProject = NonNullable<Status["project"]>;
-type Session = { tokenId: Id<"developerTokens">; secret: string; told?: boolean };
 
-const KEY = "ut:ai-setup";
-const fade = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 }, transition: { duration: 0.2 } };
-const link = "text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline";
-
-function readSession(): Session | null {
-  if (typeof window === "undefined") return null;
-  try { return JSON.parse(sessionStorage.getItem(KEY) ?? "null"); } catch { return null; }
-}
-
-function errMsg(e: unknown) {
+export function errMsg(e: unknown) {
   return (e instanceof Error ? e.message : "Something went wrong").replace(/^.*Uncaught Error: /, "").split("\n")[0];
-}
-
-export function AiSetup({ onDone, onSwitchToManual }: { onDone: (project: AiSetupProject) => void; onSwitchToManual: () => void }) {
-  const [session, setSessionState] = useState<Session | null>(readSession);
-  const [busy, setBusy] = useState(false);
-  const createToken = useMutation(api.tokens.create);
-  const track = useMutation(api.onboarding.track);
-  const status = useQuery(api.onboarding.agentSetupStatus, session ? { tokenId: session.tokenId } : "skip");
-  const fired = useRef(false);
-
-  const setSession = (s: Session | null) => {
-    setSessionState(s);
-    if (s) sessionStorage.setItem(KEY, JSON.stringify(s)); else sessionStorage.removeItem(KEY);
-  };
-
-  useEffect(() => {
-    if (!status?.done || !status.project || fired.current) return;
-    fired.current = true;
-    sessionStorage.removeItem(KEY);
-    onDone(status.project);
-  }, [status, onDone]);
-
-  async function start() {
-    setBusy(true);
-    try {
-      const t = await createToken({ type: "mcp", name: "Onboarding agent", origin: "onboarding", expiresInDays: 7 });
-      analytics("token_created", { type: "mcp", origin: "onboarding" });
-      await track({ event: "mcp_setup_started" });
-      setSession({ tokenId: t.id, secret: t.secret });
-    } catch (e) {
-      toast.error(errMsg(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  const copyPrompt = () => track({ event: "agent_prompt_copied" });
-
-  // A null status means the token is gone (revoked elsewhere or another account): start over.
-  const phase =
-    !session || status === null ? "intro"
-    : status === undefined ? "loading"
-    : status.done && status.project ? "done"
-    : session.told || status.token.lastUsedAt ? "status"
-    : "connect";
-
-  return (
-    <AnimatePresence mode="wait">
-      <motion.div key={phase} {...fade}>
-        {phase === "loading" && <Panel className="p-6"><Skeleton className="h-6 w-40" /><Skeleton className="mt-4 h-48 w-full" /></Panel>}
-        {phase === "intro" && <Intro busy={busy} onStart={start} onManual={onSwitchToManual} />}
-        {phase === "connect" && session && (
-          <Panel className="p-6">
-            <SectionLabel>Connect your agent</SectionLabel>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight">Add UserTrack to your agent</h1>
-            <p className="mb-5 mt-1 text-sm text-muted-foreground">Paste the config below into your coding agent, then send it the prompt. This screen updates live once it connects.</p>
-            <TokenSetup secret={session.secret} onCopyPrompt={copyPrompt} />
-            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center">
-              <Button className="h-11" onClick={() => setSession({ ...session, told: true })}>I&apos;ve told my agent →</Button>
-              <button type="button" onClick={onSwitchToManual} className={cn(link, "h-11 px-2")}>Connect manually instead</button>
-            </div>
-          </Panel>
-        )}
-        {phase === "status" && session && status && <Live status={status} secret={session.secret} onCopyPrompt={copyPrompt} onManual={onSwitchToManual} onReset={() => setSession(null)} />}
-        {phase === "done" && status?.project && <AiDone project={status.project} />}
-      </motion.div>
-    </AnimatePresence>
-  );
-}
-
-// Chooser cards shared by onboarding and "add a product".
-export function SetupChooser({ onPick }: { onPick: (mode: "ai" | "manual") => void }) {
-  const card = "group relative flex min-h-40 flex-col border bg-background p-4 text-left transition-colors";
-  return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <button type="button" onClick={() => onPick("ai")} className={cn(card, "border-pink/50 hover:border-pink hover:bg-pink/5")}>
-        <span className="absolute right-3 top-3 border border-pink/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-pink">Recommended</span>
-        <Sparkles className="size-5 text-pink" />
-        <span className="mt-3 font-semibold">Set up with AI</span>
-        <ul className="mt-2 space-y-1 font-mono text-xs text-muted-foreground">
-          {["detects your stack", "connects users, activation & conversion — never revenue", "returns your public URL"].map((t) => (
-            <li key={t} className="flex gap-2"><span className="text-pink">→</span>{t}</li>
-          ))}
-        </ul>
-      </button>
-      <button type="button" onClick={() => onPick("manual")} className={cn(card, "border-line hover:border-line-strong hover:bg-card")}>
-        <PencilLine className="size-5 text-muted-foreground" />
-        <span className="mt-3 font-semibold">Connect manually</span>
-        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Fill in your product details and connect a read-only data source yourself. About three minutes.</p>
-      </button>
-    </div>
-  );
-}
-
-function Intro({ busy, onStart, onManual }: { busy: boolean; onStart: () => void; onManual: () => void }) {
-  return (
-    <Panel className="p-6">
-      <SectionLabel><Sparkles className="size-3 text-pink" /> Set up with AI</SectionLabel>
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight">Let your coding agent set up UserTrack</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Your agent can detect your SaaS stack, create the project, configure tracking and verify the integration. You stay in control: read-only credentials, no deletion, revoke any time.</p>
-      <ol className="mt-5 space-y-2 border-y border-line py-4 font-mono text-xs">
-        {["Create a short-lived MCP token", "Paste one line into your agent", "Watch it go live, step by step"].map((t, i) => (
-          <li key={t} className="flex items-center gap-3"><span className="text-pink">0{i + 1}</span><span>{t}</span></li>
-        ))}
-      </ol>
-      <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Button className="h-11" onClick={onStart} disabled={busy}><KeyRound /> {busy ? "Creating token…" : "Create MCP token"}</Button>
-        <button type="button" onClick={onManual} className={cn(link, "h-11 px-2")}>Connect manually instead</button>
-      </div>
-    </Panel>
-  );
 }
 
 function useCopy(text: string, onCopy?: () => void) {
@@ -175,17 +52,17 @@ function CopyBlock({ text, className }: { text: string; className?: string }) {
   );
 }
 
-function TokenSetup({ secret, onCopyPrompt }: { secret: string; onCopyPrompt: () => void }) {
+export function TokenSetup({ secret, prompt, shortPrompt = AGENT_PROMPT, onCopyPrompt }: { secret: string; prompt: string; shortPrompt?: string; onCopyPrompt: () => void }) {
   const snippets = mcpSnippets(secret);
-  const prompt = useCopy(AGENT_PROMPT, onCopyPrompt);
+  const short = useCopy(shortPrompt, onCopyPrompt);
   return (
     <div className="space-y-5">
       <div>
-        <div className="text-label mb-1.5">Your MCP token</div>
+        <div className="text-label mb-1.5">Your secret key</div>
         <CopyBlock text={secret} className="text-pink" />
         <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
-          This token will only be shown once. It expires in 7 days and can be revoked under Developer.
+          This key will only be shown once. It expires in 7 days and can be revoked under Developer.
         </p>
       </div>
       <div>
@@ -204,29 +81,31 @@ function TokenSetup({ secret, onCopyPrompt }: { secret: string; onCopyPrompt: ()
       </div>
       <div className="border border-pink/40 bg-pink/5 p-4">
         <div className="text-label text-pink">Tell your agent:</div>
-        <blockquote className="mt-2 border-l-2 border-pink pl-3 font-mono text-[13px] leading-relaxed">&ldquo;{AGENT_PROMPT}&rdquo;</blockquote>
+        <blockquote className="mt-2 border-l-2 border-pink pl-3 font-mono text-[13px] leading-relaxed">&ldquo;{shortPrompt}&rdquo;</blockquote>
         <CopyForAgent
           surface="mcp-setup"
           className="mt-3"
-          label="Copy full setup for AI agent"
-          prompt={mcpAgentPrompt({ token: secret })}
-          hint="Includes the MCP config, your token, the stack-detection plan and the safety rules."
+          label="Copy instructions to LLM"
+          prompt={prompt}
+          hint="Includes the MCP config, your key, the stack-detection plan and the safety rules."
         />
-        <button type="button" onClick={prompt.copy} className="mt-3 inline-flex h-8 items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">
-          {prompt.copied ? <Check className="size-3.5 text-pink" /> : <Copy className="size-3.5" />} {prompt.copied ? "Copied" : "Copy the short prompt instead"}
+        <button type="button" onClick={short.copy} className="mt-3 inline-flex h-8 items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">
+          {short.copied ? <Check className="size-3.5 text-pink" /> : <Copy className="size-3.5" />} {short.copied ? "Copied" : "Copy the short prompt instead"}
         </button>
       </div>
     </div>
   );
 }
 
-function Live({ status, secret, onCopyPrompt, onManual, onReset }: { status: Status; secret: string; onCopyPrompt: () => void; onManual: () => void; onReset: () => void }) {
+export function Live({ status, secret, prompt, shortPrompt, onCopyPrompt, onManual, onReset }: { status: Status; secret: string; prompt: string; shortPrompt?: string; onCopyPrompt: () => void; onManual: () => void; onReset: () => void }) {
   const [showSetup, setShowSetup] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const setPublic = useMutation(api.saas.setPublic);
-  const { project, steps, error, recent, lastActivityAt, token } = status;
+  const { project, steps, error, recent, lastActivityAt, token, integration } = status;
   const verified = steps.find((s) => s.key === "verified")?.done;
-  const waiting = !lastActivityAt;
+  // Three distinct truths: the agent is driving, the founder connected the source by hand, or nothing has happened yet.
+  const working = Boolean(token.lastUsedAt);
+  const waiting = !working && !integration;
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
@@ -245,7 +124,7 @@ function Live({ status, secret, onCopyPrompt, onManual, onReset }: { status: Sta
     <Panel className="p-6">
       <SectionLabel>Live status</SectionLabel>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{waiting ? "Waiting for your agent" : "Your agent is working"}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{working ? "Your agent is working" : waiting ? "Waiting for your agent" : "Setting up your source"}</h1>
         <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
           <span className="relative flex size-2">
             <span className={cn("absolute inline-flex size-full bg-pink opacity-75", waiting ? "animate-ping" : "animate-pulse")} />
@@ -254,7 +133,7 @@ function Live({ status, secret, onCopyPrompt, onManual, onReset }: { status: Sta
           {waiting ? "Waiting for agent…" : `Last activity: ${timeAgo(lastActivityAt, now)}`}
         </div>
       </div>
-      <p className="mt-1 text-sm text-muted-foreground">Updates live as your agent calls UserTrack. Keep this tab open.</p>
+      <p className="mt-1 text-sm text-muted-foreground">{working || waiting ? "Updates live as your agent calls UserTrack." : "Updates live as your source reports in."} Keep this tab open.</p>
 
       <ol className="mt-5 space-y-2.5 border-y border-line py-4 font-mono text-sm">
         {steps.map((s) => <StepRow key={s.key} step={s} now={now} />)}
@@ -299,17 +178,19 @@ function Live({ status, secret, onCopyPrompt, onManual, onReset }: { status: Sta
       <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
         <button type="button" onClick={() => setShowSetup((v) => !v)} className="inline-flex h-9 items-center gap-1 text-muted-foreground hover:text-foreground">
           <ChevronDown className={cn("size-3.5 transition-transform", showSetup && "rotate-180")} />
-          {showSetup ? "Hide token setup" : "Show token setup again"}
+          {showSetup ? "Hide the key setup" : "Show the key setup again"}
         </button>
-        <button type="button" onClick={onManual} className="h-9 text-muted-foreground hover:text-foreground">Switch to manual</button>
+        <button type="button" onClick={onManual} className="h-9 text-muted-foreground hover:text-foreground">Connect a source myself</button>
       </div>
-      <HelpCallout surface="ai-setup" className="mt-5" title="Agent not moving?">
-        If nothing happens for a few minutes, your agent probably could not reach the MCP server. Send me the client you use and what it printed — I will tell you the fix.
-      </HelpCallout>
+      {waiting && (
+        <HelpCallout surface="ai-setup" className="mt-5" title="Agent not moving?">
+          If nothing happens for a few minutes, your agent probably could not reach the MCP server. Send me the client you use and what it printed — I will tell you the fix.
+        </HelpCallout>
+      )}
       <AnimatePresence initial={false}>
         {showSetup && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-            <div className="pt-4"><TokenSetup secret={secret} onCopyPrompt={onCopyPrompt} /></div>
+            <div className="pt-4"><TokenSetup secret={secret} prompt={prompt} shortPrompt={shortPrompt} onCopyPrompt={onCopyPrompt} /></div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -352,7 +233,7 @@ export function AiDone({ project }: { project: AiSetupProject }) {
         <Sparkles className="size-8 text-pink" />
       </motion.div>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">You&apos;re live on UserTrack.</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Your agent finished the setup. Here is what people will see.</p>
+      <p className="mt-1 text-sm text-muted-foreground">Setup is finished. Here is what people will see.</p>
       <div className="mt-5 border border-line bg-background p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="truncate text-lg font-semibold">{project.name}</div>

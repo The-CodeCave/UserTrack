@@ -18,14 +18,16 @@ export const track = mutation({
 });
 
 export const agentSetupStatus = query({
-  args: { tokenId: v.id("developerTokens") },
-  handler: async (ctx, { tokenId }) => {
+  args: { tokenId: v.id("developerTokens"), saasId: v.optional(v.id("saas")) },
+  handler: async (ctx, { tokenId, saasId }) => {
     const { profile } = await requireProfile(ctx);
     const token = await ctx.db.get(tokenId);
     if (!token || token.profileId !== profile._id) return null;
     const logs = await ctx.db.query("auditLogs").withIndex("by_token_time", (q) => q.eq("tokenId", tokenId)).order("desc").take(100);
     const created = logs.find((l) => l.action === "create_project" && l.ok && l.saasId);
-    let saas = created?.saasId ? await ctx.db.get(created.saasId) : null;
+    // The wizard creates the project before the token, so it names it; the agent-created case is still resolved from the trail.
+    let saas = saasId ? await ctx.db.get(saasId) : created?.saasId ? await ctx.db.get(created.saasId) : null;
+    if (saas && saas.ownerId !== profile._id) return null;
     if (!saas) {
       const mine = await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", profile._id)).collect();
       saas = mine.filter((s) => s._creationTime >= token.createdAt - 60_000).sort((a, b) => b._creationTime - a._creationTime)[0] ?? null;
@@ -50,7 +52,9 @@ export const agentSetupStatus = query({
       integration: users ?? null,
       error: users?.status === "error" ? users.lastError : undefined,
       steps,
-      done: flags.every((f) => f.done),
+      // Whether an agent ever called is progress worth showing, not a requirement: a founder who connects the source
+      // by hand from the same wizard is just as finished.
+      done: flags.every((f) => f.key === "agent" || f.done),
       lastActivityAt: logs[0]?.at ?? token.lastUsedAt,
       recent: logs.slice(0, 8).map((l) => ({ action: l.action, ok: l.ok, at: l.at, detail: l.detail })),
     };

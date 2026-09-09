@@ -67,7 +67,7 @@ export default function DeveloperPage() {
             <p className="mt-2 text-sm text-muted-foreground">Connect Claude Code, Cursor, Codex or any MCP client. Agents can create and configure projects, verify integrations and read metrics for you. {limits.mcp.perDay.toLocaleString("en")} calls per day per token.</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button variant="outline" className="h-10" render={<Link href="/app/saas/new?mode=ai" />}><Sparkles className="size-4" /> Set up a project with AI</Button>
+            <Button variant="outline" className="h-10" render={<Link href="/app/saas/new" />}><Sparkles className="size-4" /> Set up a project with AI</Button>
             <CreateMcpTokenDialog />
           </div>
         </div>

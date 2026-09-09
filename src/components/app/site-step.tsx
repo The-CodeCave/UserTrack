@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
 import { useAction } from "convex/react";
 import { ConvexError } from "convex/values";
 import { ArrowRight, Loader2 } from "lucide-react";
@@ -23,8 +23,9 @@ const filledBy = (d: PreviewDraft) => (["name", "description", "valueProposition
 
 // Step one of adding a product: the live URL, nothing else. It is read once here so the form on the next screen
 // arrives filled in — name, description, tagline, icon, category and, if the page links to a store, the platform.
-// A page we cannot read is not a dead end: the address still carries over and the founder types the rest.
-export function SiteStep({ onDone, after }: { onDone: (draft: PreviewDraft | null) => void; after?: ReactNode }) {
+// A page we cannot read is not a dead end: the address still carries over and the founder types the rest,
+// which is why only the autofill is skippable — the address itself is required to create a project.
+export function SiteStep({ onDone }: { onDone: (draft: PreviewDraft) => void }) {
   const read = useAction(api.enrich.site);
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,12 +70,9 @@ export function SiteStep({ onDone, after }: { onDone: (draft: PreviewDraft | nul
       <p className={error ? "text-sm text-destructive" : "font-mono text-[11px] text-muted-foreground"}>
         {error ?? "We read your public homepage once and fill in the name, description, icon and category."}
       </p>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <button type="button" onClick={() => onDone(url.trim() && !urlError(url) ? { url: url.trim() } : null)} className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-          {error ? "Continue without autofill" : "Skip — I will fill it in myself"}
-        </button>
-        {after}
-      </div>
+      <button type="button" disabled={Boolean(urlError(url))} onClick={() => onDone({ url: url.trim() })} className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-40">
+        {error ? "Continue without autofill" : "Skip — I will fill it in myself"}
+      </button>
     </form>
   );
 }

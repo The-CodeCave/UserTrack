@@ -1,4 +1,4 @@
-// End-to-end smoke: sign up → verify → onboarding (profile, SaaS, platform, stack, manual source, skip activation + conversion, publish) → public page. Screenshots to /tmp/ut-shots.
+// End-to-end smoke: sign up → verify → onboarding (website, product, agent handoff, live, source, publish, profile) → public page. Screenshots to /tmp/ut-shots.
 // The Convex deployment's SITE_URL must match the port `base` points at, or Better Auth rejects the sign-up as an untrusted origin (A208).
 import { chromium } from "playwright-core";
 import { execSync } from "node:child_process";
@@ -23,7 +23,7 @@ await step("02a-check-inbox", async () => {
   await page.click("button[type=submit]");
   await page.waitForSelector("[data-testid=check-inbox]", { timeout: 30000 });
 });
-await step("02-onboarding-profile", async () => {
+await step("02-onboarding", async () => {
   // SEC-1 requires a verified address before sign-in; the token only reaches the inbox, so flip the flag through the component adapter.
   const where = JSON.stringify({ input: { model: "user", where: [{ field: "email", operator: "eq", value: email }], update: { emailVerified: true } } });
   execSync(`npx convex run --component betterAuth adapter:updateOne '${where}'`, { stdio: "inherit" });
@@ -32,58 +32,48 @@ await step("02-onboarding-profile", async () => {
   await page.fill("#password", "supersecret123");
   await page.click("button[type=submit]");
   await page.waitForURL("**/app/onboarding", { timeout: 30000 });
-  await page.waitForSelector("#displayName", { timeout: 30000 });
 });
-await step("03-onboarding-saas", async () => {
-  await page.fill("#username", `smoke-${tag}`);
+await step("03-onboarding-website", async () => {
+  await page.waitForSelector("[data-testid=site-step-url]", { timeout: 30000 });
+  await page.fill("[data-testid=site-step-url]", "https://example.com");
+});
+await step("04-onboarding-product", async () => {
   await page.click("button[type=submit]");
-  await page.click("text=Connect manually", { timeout: 30000 });
-  await page.waitForSelector("#name", { timeout: 30000 });
+  await page.waitForSelector("#description", { timeout: 60000 });
   await page.fill("#name", `Smoke SaaS ${tag}`);
-  await page.fill("#websiteUrl", "https://smoke.example.com");
   await page.fill("#description", "Smoke-test product created by the e2e script.");
-  await page.selectOption("#category", "developer-tools");
-  await page.fill("#tags", "testing, e2e");
 });
-await step("04a-onboarding-platform", async () => {
+await step("05-onboarding-agent", async () => {
   await page.click("button[type=submit]");
-  await page.waitForSelector("text=What are you tracking?", { timeout: 30000 });
-  await page.click("text=Web SaaS");
-  await page.click("button:has-text('Continue')");
+  await page.waitForSelector("text=Hand it to your coding agent", { timeout: 60000 });
+  await page.waitForSelector("text=Copy instructions to LLM", { timeout: 30000 });
 });
-await step("04b-onboarding-stack", async () => {
-  // Identity → Analytics → Monetization; last screen's button reads "Show recommendations".
-  for (const pick of ["Other", "None", "Not monetized"]) {
-    await page.waitForSelector("button[aria-pressed]", { timeout: 30000 });
-    await page.click(`button[aria-pressed]:has-text('${pick}')`);
-    await page.click("button:has-text('Continue'), button:has-text('Show recommendations')");
-  }
+await step("06-onboarding-live", async () => {
+  await page.click("button:has-text(\"I've told my agent\")");
+  await page.waitForSelector("text=Live status", { timeout: 60000 });
+  await page.waitForSelector("text=UserTrack project created", { timeout: 30000 });
 });
-await step("04-onboarding-source", async () => {
-  await page.waitForSelector("text=Connect a data source", { timeout: 30000 });
-  await page.click("text=Manual");
+// The agent normally does this over MCP; the escape hatch is the same wizard, so it stands in for it here.
+await step("07-onboarding-source", async () => {
+  await page.click("button:has-text('Connect a source myself')");
+  await page.waitForSelector("text=Where does your user count come from?", { timeout: 30000 });
+  await page.click("button:has-text('Manual')");
+  await page.waitForSelector("#totalUsers", { timeout: 20000 });
   await page.fill("#totalUsers", "1234");
 });
-await step("05-onboarding-activation", async () => {
+await step("07b-onboarding-publish", async () => {
+  await page.click("button[type=submit]:has-text('Connect')");
+  await page.waitForSelector("text=Live status", { timeout: 60000 });
+  await page.locator("button:has-text('Publish now')").click({ timeout: 60000 });
+});
+await step("07c-onboarding-profile", async () => {
+  await page.waitForSelector("#username", { timeout: 60000 });
+  await page.fill("#username", `smoke-${tag}`);
   await page.click("button[type=submit]");
-  await page.waitForSelector("text=Track activation too", { timeout: 30000 });
-});
-await step("05b-onboarding-conversion", async () => {
-  await page.click("text=Skip for now");
-  await page.waitForSelector("text=Connect your payment provider", { timeout: 30000 });
-  await page.waitForSelector("text=never needs your revenue numbers", { timeout: 30000 });
-});
-await step("06-onboarding-publish", async () => {
-  await page.click("text=Skip for now");
-  await page.waitForSelector("text=Publish your growth page", { timeout: 30000 });
-  await page.waitForSelector("text=1,234", { timeout: 30000 });
-});
-await step("07-celebrate", async () => {
-  await page.click("text=Publish page");
-  await page.waitForSelector("text=on the board", { timeout: 30000 });
+  await page.waitForSelector("text=You're live on UserTrack.", { timeout: 60000 });
 });
 // Resolved against `base` so the script works when the dev server is not on the configured site URL.
-const slugLink = new URL(new URL(await page.locator("a:has-text('Open page')").getAttribute("href")).pathname, base).href;
+const slugLink = new URL(new URL(await page.locator("a:has-text('View public page')").getAttribute("href")).pathname, base).href;
 await step("08-public-page", async () => { await page.goto(slugLink); await page.waitForSelector("text=Self-reported"); });
 await step("09-dashboard", async () => { await page.goto(`${base}/app`); await page.waitForSelector("text=Your growth at a glance", { timeout: 30000 }); });
 await step("10-manage", async () => { await page.goto(`${base}/app/saas`); await page.click(`text=Smoke SaaS ${tag}`); await page.waitForSelector("text=Identity source", { timeout: 30000 }); await page.waitForSelector("text=Connection ≠ publication", { timeout: 30000 }); });

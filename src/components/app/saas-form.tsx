@@ -23,6 +23,7 @@ import { CATEGORIES } from "@/lib/categories";
 import { COUNTRIES, countryFlag } from "@/lib/countries";
 import { FUNDING, MARKETING_CHANNELS, MARKETS, PROFILE_LIMITS, TEAM_SIZES, type Funding, type TeamSize } from "@/lib/profile-options";
 import { TECH_STACK, TECH_STACK_MAX, normalizeStackEntry } from "@/lib/tech-stack";
+import { AUTH_METHOD_OPTIONS } from "@/lib/stack-recommendation";
 import { xHandleError } from "@/lib/social";
 import { cn } from "@/lib/utils";
 import type { SiteImport } from "@convex/enrich";
@@ -72,6 +73,7 @@ export function SaasForm({
   const [anonymous, setAnonymous] = useState(initial?.anonymous ?? false);
   const [hideFromSearch, setHideFromSearch] = useState(initial?.hideFromSearch ?? false);
   const [mobile, setMobile] = useState(initial?.projectType === "mobile" || initial?.projectType === "hybrid");
+  const [authMethods, setAuthMethods] = useState<string[]>(initial?.authMethods ?? []);
   const [logo, setLogo] = useState<{ url?: string; storageId?: Id<"_storage">; preview?: string }>({ url: initial?.logoUrl ?? fromSite.logoUrl, storageId: siteLogoStorageId });
   const [logoMode, setLogoMode] = useState<"upload" | "url">((initial?.logoUrl && !initial.logoStorageId) || (fromSite.logoUrl && !siteLogoStorageId) ? "url" : "upload");
   const [uploading, setUploading] = useState(false);
@@ -207,6 +209,7 @@ export function SaasForm({
       markets, techStack: stack, marketingChannels: channels,
       cofounders: cofounders.map((c) => ({ name: c.name.trim() || undefined, x: c.x.trim() || undefined, github: c.github.trim() || undefined })),
       country: country || undefined, funding: funding || undefined, teamSize: teamSize || undefined,
+      authMethods,
       valueProposition: opt("valueProposition"), problemSolved: opt("problemSolved"), audience: opt("audience"), pricingSummary: opt("pricingSummary"), additionalInfo: opt("additionalInfo"),
       anonymous, hideFromSearch,
       trustmrrSlug: trustmrrSlug || (initial?.trustmrrSlug ? "" : undefined),
@@ -277,6 +280,15 @@ export function SaasForm({
         {initial && !platform && (
           <div className="space-y-3">
             <Toggle label="My product is a mobile app" hint="Adds App Store / Google Play links and lists it on the mobile boards." checked={mobile} onChange={setMobile} className={hl("projectType")} />
+            <div className="space-y-1.5">
+              <Label className="text-label">Sign-in methods</Label>
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sign-in methods">
+                {AUTH_METHOD_OPTIONS.map((o) => (
+                  <button key={o.value} type="button" aria-pressed={authMethods.includes(o.value)} onClick={() => setAuthMethods((m) => (m.includes(o.value) ? m.filter((v) => v !== o.value) : [...m, o.value]))} className={cn("border px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider", authMethods.includes(o.value) ? "border-pink bg-pink/10 text-pink" : "border-line text-muted-foreground hover:text-foreground")}>{o.label}</button>
+                ))}
+              </div>
+              <p className="font-mono text-[11px] text-muted-foreground">How people sign in. Never the source of your user count.</p>
+            </div>
             {mobile && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="App Store URL" name="appStoreUrl" defaultValue={defaults.appStoreUrl} placeholder="https://apps.apple.com/…" type="url" />

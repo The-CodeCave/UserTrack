@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { apiKeyAgentPrompt, badgeAgentPrompt, mcpAgentPrompt, nativeSdkAgentPrompt, webhookAgentPrompt, widgetAgentPrompt } from "./llm-prompts";
+import { AGENT_PROMPT, BETTER_AUTH_AGENT_PROMPT, MOBILE_AGENT_PROMPT, NATIVE_AGENT_PROMPT } from "./mcp/snippets";
 
 const badge = badgeAgentPrompt({ name: "Acme", slug: "acme", kind: "users", height: 28, html: '<a href="P"><img src="I" alt="Acme on UserTrack" height="28"></a>', markdown: "[![Acme](I)](P)", imageUrl: "I", pageUrl: "P" });
 
@@ -25,6 +26,12 @@ describe("agent prompts", () => {
       expect(p).not.toContain("ut_mcp_…");
       expect(p.length).toBeGreaterThan(400);
       expect(p).toMatch(/AFTER THE CHANGE/);
+    }
+  });
+
+  it("tells the agent to publish, so the URL it reports back is not a 404", () => {
+    for (const p of [mcpAgentPrompt({ token: "ut_mcp_secret" }), AGENT_PROMPT, MOBILE_AGENT_PROMPT, BETTER_AUTH_AGENT_PROMPT, NATIVE_AGENT_PROMPT]) {
+      expect(p).toContain("isPublic: true");
     }
   });
 

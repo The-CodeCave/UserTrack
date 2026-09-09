@@ -78,7 +78,7 @@ export function CreateMcpTokenDialog() {
             <CopyForAgent surface="mcp-token-dialog" label="Copy full setup for AI agent" prompt={mcpAgentPrompt({ token: secret })} hint="MCP config + token + the full setup plan in one paste." className="border border-pink/30 bg-pink/5 p-3" />
             <CopyBlock label="Short prompt for your agent" text={AGENT_PROMPT} />
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button className="h-10 flex-1" render={<Link href="/app/saas/new?mode=ai" />}><Sparkles className="size-4" /> Set up a project with AI</Button>
+              <Button className="h-10 flex-1" render={<Link href="/app/saas/new" />}><Sparkles className="size-4" /> Set up a project with AI</Button>
               <Button variant="outline" className="h-10" onClick={() => setOpen(false)}>Done</Button>
             </div>
           </div>

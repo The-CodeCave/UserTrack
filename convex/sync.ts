@@ -3,6 +3,7 @@ import { internalAction, internalMutation, type ActionCtx, type MutationCtx } fr
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getProvider, historyLimit, normalizeRole, ProviderError, providerLabel, type History, type LifecycleStage, type ProviderMetrics, type Role, type StageIdentities } from "./providers";
+import { authComponent } from "./auth";
 import { recordReported } from "./domain/integrations";
 import { identitySalt, subjectHash } from "./lib/identity";
 import { fetchHistory, fetchMetrics, hasHistory } from "./providerRun";
@@ -18,7 +19,7 @@ import { addMilestones, openFlags, refreshTrust } from "./trust";
 import { onSourceFailure, onSourceSuccess } from "./email/lifecycle";
 import { onSpikeCheck, onUsersSnapshot } from "./email/growth";
 import { recordSpikeShare } from "./share";
-import { addEvent, addOnceEvent } from "./domain/events";
+import { addEvent, addOnceEvent, markLaunched } from "./domain/events";
 import { failActionRun } from "./jobs";
 import { dispatchEvent } from "./webhooks";
 import { conversionMode, integrationRole, lifecycleStage, providerKind, trustLevel } from "./schema";
@@ -310,6 +311,18 @@ export async function recomputeDerived(ctx: MutationCtx, saasId: Id<"saas">, rep
   });
 }
 
+// A first users sync is the end of setup, so the page goes live like the dashboard onboarding does. Only ever on the
+// very first success: a founder who switches back to Draft stays there.
+async function publishOnFirstSync(ctx: MutationCtx, saas: Doc<"saas">) {
+  const owner = await ctx.db.get(saas.ownerId);
+  if (!owner) return;
+  const user = await authComponent.getAnyUserById(ctx, owner.userId);
+  if (!user?.emailVerified) return;
+  await ctx.db.patch(saas._id, { isPublic: true });
+  await markLaunched(ctx, saas);
+  await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
+}
+
 export const recordSuccess = internalMutation({
   args: { integrationId: v.id("integrations"), startedAt: v.number(), attempt: v.number(), role: integrationRole, metrics: metricsValidator, trust: trustLevel },
   handler: async (ctx, { integrationId, startedAt, attempt, role: rawRole, metrics, trust }) => {
@@ -346,6 +359,7 @@ export const recordSuccess = internalMutation({
         await addOnceEvent(ctx, saasId, "verified", now, "Verified on UserTrack", `${saas.name} now syncs verified user counts read-only from ${providerLabel(integration.provider, integration.config)}.`);
         await dispatchEvent(ctx, { type: "project.verified", key: "verified", saas: { ...saas, totalUsers, verifiedAt: now }, at: now, data: { verification: { level: "verified", provider: integration.provider, verifiedAt: new Date(now).toISOString() } } });
       }
+      if (firstEver && !saas.isPublic && !saas.isDemo) await publishOnFirstSync(ctx, saas);
 
       // Milestones, spikes and anomaly checks only for real (non-demo) products.
       if (!saas.isDemo) {

@@ -82,10 +82,18 @@ HARD RULES
 ${OUTRO}`);
 }
 
-export function mcpAgentPrompt(o: { token: string; task?: string }) {
+export function mcpAgentPrompt(o: { token: string; task?: string; project?: { id: string; name: string; websiteUrl: string } }) {
   const client = mcpSnippets(o.token);
   const claude = client.find((s) => s.id === "claude-code")!.text;
   const generic = client.find((s) => s.id === "generic")!.text;
+  const step3 = o.project
+    ? `STEP 3 — USE MY EXISTING PROJECT
+It is already created: "${o.project.name}" (${o.project.websiteUrl}), projectId ${o.project.id}. Pass that projectId to
+every tool below. Do NOT create a second project. You may call usertrack_update_project to correct the category,
+project type or store URLs if the repo clearly contradicts what is stored — nothing else.`
+    : `STEP 3 — CREATE THE PROJECT
+Call the UserTrack MCP tools to create (or find) my project: name, description, website URL, category, project type
+(web / mobile / hybrid). Use what is really in this repo — package.json, the landing page copy, the README.`;
   return trim(`Set up UserTrack for this project, end to end. Work in this repository.
 
 STEP 1 — CONNECT THE USERTRACK MCP SERVER
@@ -104,9 +112,7 @@ Supabase, Firebase, Auth0, Convex, Prisma/Drizzle on Postgres …), which analyt
 Plausible, GA4), and which payment provider is wired up (Stripe, Paddle, LemonSqueezy, RevenueCat …).
 Tell me your conclusion in one short list before you change anything.
 
-STEP 3 — CREATE THE PROJECT
-Call the UserTrack MCP tools to create (or find) my project: name, description, website URL, category, project type
-(web / mobile / hybrid). Use what is really in this repo — package.json, the landing page copy, the README.
+${step3}
 
 STEP 4 — CONNECT THE DATA SOURCES, IN THIS ORDER
 a) users — required. Prefer the native SDK (@usertrack/node or @usertrack/better-auth): my app answers signed,
@@ -117,9 +123,11 @@ b) activation — optional but valuable: the event that means a user reached rea
    project_created, first_query …). Pick one that already exists in the code.
 c) conversion — optional: converted/subscribed COUNT only.
 
-STEP 5 — VERIFY AND REPORT
-Verify each integration through the MCP tools, trigger the first sync, then give me: the public UserTrack URL, the
-detected user count, and anything you could not connect and why.
+STEP 5 — VERIFY, PUBLISH AND REPORT
+Verify each integration through the MCP tools and trigger the first sync. Then publish the page with
+usertrack_update_project { isPublic: true }: a project stays a draft until you do, and a draft is not listed, not
+ranked and its public URL returns 404. Open that URL and confirm it loads before you report back. Then give me: the
+public UserTrack URL, the detected user count, and anything you could not connect and why.
 
 HARD RULES
 - UserTrack tracks users, never revenue. Never configure anything that reads MRR, invoices or amounts, and never

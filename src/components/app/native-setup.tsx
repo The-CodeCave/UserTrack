@@ -31,6 +31,15 @@ const SOURCE_HINT: Record<NativeSource, string> = {
 const metricsUrl = (base: string, source: NativeSource) => `${base}${source === "better-auth" ? "/usertrack/metrics" : "/metrics"}`;
 const hostOf = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
+type Cred = { projectId: string; secret: string; url: string };
+// Creating the integration makes the parent swap this wizard for SourceStatus, which mounts a second NativeSetup —
+// so the one-time secret has to outlive the unmount or the founder is told it is lost a click after it was generated.
+const credKey = (saasId: string) => `ut:native-cred:${saasId}`;
+function readCred(saasId: string): Cred | null {
+  if (typeof window === "undefined") return null;
+  try { return JSON.parse(sessionStorage.getItem(credKey(saasId)) ?? "null"); } catch { return null; }
+}
+
 // Wizard for native SDK sources: pick the adapter, UserTrack generates the credential, the founder installs, deploys, verifies.
 export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onConnected }: { saasId: Id<"saas">; websiteUrl: string; existing?: { url?: string; source?: string; secretPrefix?: string; awaiting: boolean } | null; initialSource?: NativeSource; onConnected?: () => void }) {
   const create = useMutation(api.native.createIntegration);
@@ -39,12 +48,18 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
   const [step, setStep] = useState<Step>(existing ? "install" : "create");
   const [base, setBase] = useState(existing?.url ?? "");
   const [override, setOverride] = useState("");
-  const [cred, setCred] = useState<{ projectId: string; secret: string; url: string } | null>(null);
+  const [cred, setCredState] = useState<Cred | null>(() => readCred(saasId));
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
   const idx = STEPS.findIndex((s) => s.key === step);
   const files = SOURCE_FILES[source];
   const label = NATIVE_SOURCE_LABEL[source];
+
+  const setCred = (c: Cred | null) => {
+    setCredState(c);
+    if (c) sessionStorage.setItem(credKey(saasId), JSON.stringify(c));
+    else sessionStorage.removeItem(credKey(saasId));
+  };
 
   async function run(fn: () => Promise<void>) {
     setBusy(true);
@@ -79,6 +94,7 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
       setResult(r);
       if (r.ok) {
         setStep("done");
+        setCred(null);
         toast.success(`Connected — ${formatCompact(r.detected ?? 0)} users detected`);
         onConnected?.();
       } else toast.error(r.error);

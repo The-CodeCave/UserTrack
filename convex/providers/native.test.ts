@@ -38,6 +38,13 @@ describe("validate / normalizeBaseUrl", () => {
     expect(metricsUrl("https://app.example.com/api/auth", "better-auth")).toBe("https://app.example.com/api/auth/usertrack/metrics");
     expect(metricsUrl("https://app.example.com/api/usertrack", "drizzle")).toBe("https://app.example.com/api/usertrack/metrics");
   });
+  // The Convex snippet in lib/nativeSetup.ts mounts http.route({ path: "/usertrack/metrics" }) on the .convex.site
+  // domain, so the deployment URL the docs tell founders to paste has to resolve to exactly that.
+  it("derives the Convex handler URL our own snippet mounts", () => {
+    const base = normalizeBaseUrl("https://acme-otter-42.convex.site", "convex");
+    expect(base).toEqual({ ok: true, url: "https://acme-otter-42.convex.site/usertrack" });
+    expect(metricsUrl(base.ok ? base.url : "", "convex")).toBe("https://acme-otter-42.convex.site/usertrack/metrics");
+  });
   it("rejects configs without a generated secret and defaults the source", () => {
     expect(native.validate({ url: "https://app.example.com" }, "users")).toMatchObject({ ok: false });
     expect(native.validate({ ...cfg }, "users")).toMatchObject({ ok: true, config: { url: cfg.url, projectId: "j57abc", source: "better-auth" } });
