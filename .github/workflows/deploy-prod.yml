@@ -24,8 +24,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      SERVICE: usertrack
+      # A workspace token, so every Railway call names the project explicitly.
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY: --project 57432cb5-dc43-49c7-bf03-cc3908378927 --environment production --service usertrack
       HEALTH_URL: https://usertrack-production.up.railway.app/api/health
     steps:
       - uses: actions/checkout@v4
@@ -43,39 +44,25 @@ jobs:
       - run: pnpm test
       - run: pnpm packages:build && pnpm packages:typecheck && pnpm packages:test
 
-      # A Railway project token cannot be minted from the CLI, only in the dashboard. Until one exists the branch is
-      # still gated and the repo still deploys the way it did before; saying so beats failing with a 401.
+      # A revoked or rotated token would otherwise surface as an opaque 401 halfway through a release.
       - name: Railway token missing
-        if: env.RAILWAY_TOKEN == ''
+        if: env.RAILWAY_API_TOKEN == ''
         run: |
-          {
-            echo "### Deploy skipped — no \`RAILWAY_TOKEN\`"
-            echo
-            echo "Create a **project token** (project \`usertrack\`, environment \`production\`) at"
-            echo "<https://railway.com/project/57432cb5-dc43-49c7-bf03-cc3908378927/settings/tokens>, then:"
-            echo
-            echo '```'
-            echo 'gh secret set RAILWAY_TOKEN --repo The-CodeCave/UserTrack'
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::warning title=Deploy skipped::RAILWAY_TOKEN is not set — the branch was verified but nothing was deployed."
+          echo "::error title=No Railway token::Mint a workspace token at https://railway.com/account/tokens and run: gh secret set RAILWAY_API_TOKEN --repo The-CodeCave/UserTrack"
+          exit 1
 
       - name: Install Railway CLI
-        if: env.RAILWAY_TOKEN != ''
         run: npm i -g @railway/cli@5
 
       # `railway up` uploads the checked-out tree, so Railway's own RAILWAY_GIT_* variables are not populated and
       # /api/health would report "dev". The commit is passed explicitly instead, which is also what the poll below
       # waits for — the deploy is only green once the new build is the one answering.
       - name: Deploy
-        if: env.RAILWAY_TOKEN != ''
         run: |
-          railway variable set "NEXT_PUBLIC_APP_VERSION=${GITHUB_SHA::7}" \
-            --service "$SERVICE" --environment production --skip-deploys
-          railway up --ci --service "$SERVICE" --environment production
+          railway variable set "NEXT_PUBLIC_APP_VERSION=${GITHUB_SHA::7}" $RAILWAY --skip-deploys
+          railway up --ci $RAILWAY
 
       - name: Wait for the new build to answer
-        if: env.RAILWAY_TOKEN != ''
         run: |
           for i in $(seq 1 40); do
             VERSION=$(curl -fsS --max-time 10 "$HEALTH_URL" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version' 2>/dev/null || echo "")

@@ -20,7 +20,12 @@ const HERO_NAV = [["/discover", "Discover"], ["/trending", "Trending"], ["/leade
 
 export default async function LandingPage() {
   const data = await publicData(() => publicQuery(api.public.landing, {}));
-  const { top, trending, newAndHot, stats } = data ?? { top: [], trending: [], newAndHot: [], stats: undefined };
+  // `convex deploy --cmd` builds before it pushes, so this page is prerendered against the *previous* backend — a
+  // list this release added does not exist yet at build time and must not be read as if it did.
+  const top = data?.top ?? [];
+  const trending = data?.trending ?? [];
+  const newAndHot = data?.newAndHot ?? [];
+  const stats = data?.stats;
 
   return (
     <div>
