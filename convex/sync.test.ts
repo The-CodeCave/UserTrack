@@ -33,6 +33,19 @@ describe("publish on first sync", () => {
     expect((await tx.run((ctx) => ctx.db.query("events").collect())).some((e) => e.kind === "launched")).toBe(true);
   });
 
+  it("schedules the badge nudge once, on the first users sync, whatever the provider", async () => {
+    authState.emailVerified = true;
+    const tx = t();
+    const { saasId, integrationId } = await seed(tx);
+    await tx.run((ctx) => ctx.db.patch(integrationId, { provider: "manual" }));
+    await sync(tx, integrationId, 48);
+    await sync(tx, integrationId, 60);
+    const scheduled = await tx.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const nudges = scheduled.filter((f) => f.name.includes("embedNudge"));
+    expect(nudges.length).toBe(1);
+    expect(nudges[0].args[0]).toEqual({ saasId });
+  });
+
   it("never re-publishes a project the founder switched back to draft", async () => {
     authState.emailVerified = true;
     const tx = t();

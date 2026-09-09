@@ -62,7 +62,25 @@ export async function onSourceSuccess(ctx: MutationCtx, integration: Doc<"integr
   if (firstEver && integration.provider !== "manual") {
     await enqueue(ctx, { userId: owner.userId, type: "source-connected", dedupeKey: `source-connected:${saas._id}`, saasId: saas._id, data: { saasName: saas.name, slug: saas.slug, saasId: saas._id, totalUsers, trust: integration.trust, provider, isPublic: saas.isPublic } });
   }
+  // The badge renders live numbers, so it is only worth asking about once there are some — including for manual sources.
+  if (firstEver) await ctx.scheduler.runAfter(EMBED_NUDGE_DELAY_MS, internal.email.lifecycle.embedNudge, { saasId: saas._id });
 }
+
+export const EMBED_NUDGE_DELAY_MS = 3 * DAY;
+
+// 3 days after the first sync: offer the badge, but only to a published product with real numbers that has none yet.
+export const embedNudge = internalMutation({
+  args: { saasId: v.id("saas") },
+  handler: async (ctx, { saasId }) => {
+    const saas = await ctx.db.get(saasId);
+    if (!saas || saas.isDemo || !saas.isPublic || saas.totalUsers < 1) return;
+    const embedded = await ctx.db.query("embedSites").withIndex("by_saas_last", (q) => q.eq("saasId", saasId)).first();
+    if (embedded) return;
+    const owner = await ctx.db.get(saas.ownerId);
+    if (!owner) return;
+    await enqueue(ctx, { userId: owner.userId, type: "embed-nudge", dedupeKey: `embed-nudge:${saasId}`, saasId, data: { saasName: saas.name, slug: saas.slug, saasId, totalUsers: saas.totalUsers } });
+  },
+});
 
 // Called from sync.recordFailure. Enters "unhealthy" once per episode and emails exactly then.
 export async function onSourceFailure(ctx: MutationCtx, integration: Doc<"integrations">, failures: number, error: string) {

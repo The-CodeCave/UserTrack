@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderEmail, type TemplateData } from "./templates";
+import { esc } from "./templates/layout";
 import { EMAIL_TYPES, allowedByPreferences, allowedByRecipientStatus, DEFAULT_PREFERENCES, isTransactional, type EmailType } from "./types";
 import { signPrefsToken, verifyPrefsToken } from "./token";
 import { verifySvixSignature } from "./webhookSig";
@@ -22,6 +23,7 @@ const samples: { [T in EmailType]: TemplateData[T] } = {
   "source-connected": { saasName: "Acme", slug: "acme", saasId: "s1", totalUsers: 1234, trust: "verified", provider: "Clerk", isPublic: true },
   "source-failed": { saasName: "Acme", saasId: "s1", provider: "Clerk", error: "401 <script>alert(1)</script>", lastSuccessAt: 0, failures: 6 },
   "source-recovered": { saasName: "Acme", saasId: "s1", provider: "Clerk", totalUsers: 1240, downForMs: 3 * 86_400_000 },
+  "embed-nudge": { saasName: "Acme", slug: "acme", saasId: "s1", totalUsers: 1234 },
   "user-milestone": { saasName: "Acme", slug: "acme", threshold: 10_000, totalUsers: 10_042, previousThreshold: 5_000, sinceMs: 40 * 86_400_000, isPublic: true },
   "rank-milestone": { saasName: "Acme", slug: "acme", threshold: 10, rank: 8, newUsers30d: 1842, growth30dPct: 18.4 },
   "growth-spike": { saasName: "Acme", slug: "acme", saasId: "s1", last24h: 84, average: 30, multiple: 2.8, days: 30, totalUsers: 5000 },
@@ -71,6 +73,26 @@ describe("templates", () => {
     expect(m.html).toContain("no data this month");
     expect(m.html).toContain("/app/reports/2026-08");
     expect(m.text).toContain("Beta\nno data this month");
+  });
+  it("embed nudge carries a pasteable prompt with the real badge markup, unattributed by email", () => {
+    const r = renderEmail("embed-nudge", samples["embed-nudge"], ctx);
+    const markup = '<a href="https://usertrack.dev/s/acme?ref=badge&utm_source=badge&utm_medium=image&utm_campaign=users"><img src="https://usertrack.dev/api/badge/acme.svg?type=users" alt="Acme on UserTrack" height="28"></a>';
+    expect(r.text).toContain(markup);
+    expect(r.html).toContain(esc(markup));
+    expect(r.text).toContain("[![Acme on UserTrack](https://usertrack.dev/api/badge/acme.svg?type=users)]");
+    // The badge link is attributed to the badge, never to the email that suggested it.
+    expect(r.text).not.toContain("badge/acme.svg?type=users&ref=email");
+    expect(r.text).toContain("usertrack.dev to img-src");
+    expect(r.text).not.toContain("undefined");
+    expect(r.html).not.toContain("undefined");
+  });
+  it("embed nudge tells the agent to stop instead of inventing a landing page", () => {
+    const { text: t } = renderEmail("embed-nudge", samples["embed-nudge"], ctx);
+    expect(t).toContain("CHECK THE LANDING PAGE IS ACTUALLY IN THIS REPOSITORY");
+    expect(t).toContain("Framer / Webflow / WordPress");
+    expect(t).toContain("If you cannot find one, stop and tell me.");
+    expect(t).toContain("Do not create a page, a component or a section to hold the badge");
+    expect(t).toContain("do not commit");
   });
   it("welcome without verify link points to onboarding", () => {
     const r = renderEmail("welcome", { name: "Ada" }, ctx);

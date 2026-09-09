@@ -9,6 +9,7 @@ import type { SitePreview } from "@convex/enrich";
 import { track } from "@/lib/analytics";
 import { categoryLabel } from "@/lib/categories";
 import { readPreviewDraft, writePreviewDraft, type PreviewDraft } from "@/lib/preview-draft";
+import { readSitePreview, draftOf, type PreviewOutcome } from "@/lib/preview-request";
 import { recommendStack, stackQuestions } from "@/lib/stack-recommendation";
 import { providerLabel } from "@/lib/providers-ui";
 import { Button } from "@/components/ui/button";
@@ -23,19 +24,11 @@ import { PreviewForm } from "@/components/public/preview-form";
 const STACK_LABELS = new Map(stackQuestions("hybrid").flatMap((q) => q.options.map((o) => [`${q.key}:${o.value}`, o.label] as const)));
 const SIGN_UP = "/sign-up?next=/app/onboarding";
 
-const draftOf = (p: SitePreview): PreviewDraft => ({
-  url: p.url, ready: true, name: p.name, description: p.description, valueProposition: p.valueProposition, logoUrl: p.logoUrl,
-  category: p.hints.category, projectType: p.hints.projectType, appStoreUrl: p.hints.appStoreUrl, playStoreUrl: p.hints.playStoreUrl,
-  identity: p.hints.identity, analytics: p.hints.analytics, monetization: p.hints.monetization,
-});
-
 const previewOf = (d: PreviewDraft): SitePreview => ({
   url: d.url, name: d.name, description: d.description, valueProposition: d.valueProposition, logoUrl: d.logoUrl,
   hints: { category: d.category, projectType: d.projectType, appStoreUrl: d.appStoreUrl, playStoreUrl: d.playStoreUrl, identity: d.identity, analytics: d.analytics, monetization: d.monetization },
   claimed: null,
 });
-
-type Outcome = { preview: SitePreview } | { error: string; reason: string };
 
 export function PreviewResult() {
   const [draft] = useState(readPreviewDraft);
@@ -43,19 +36,7 @@ export function PreviewResult() {
   const [busy, setBusy] = useState(() => Boolean(draft && !draft.ready));
   const [error, setError] = useState<string | null>(null);
 
-  // One request, no state of its own, so the outcome can be applied from a callback either way.
-  const load = useCallback(async (url: string): Promise<Outcome> => {
-    try {
-      const res = await fetch("/api/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
-      const body = (await res.json().catch(() => null)) as (SitePreview & { message?: string; code?: string }) | null;
-      if (!res.ok || !body) return { error: body?.message ?? "Could not read that website", reason: body?.code ?? String(res.status) };
-      return { preview: body };
-    } catch {
-      return { error: "Could not reach UserTrack — check your connection and try again.", reason: "network" };
-    }
-  }, []);
-
-  const apply = useCallback((out: Outcome) => {
+  const apply = useCallback((out: PreviewOutcome) => {
     setBusy(false);
     if ("error" in out) {
       setError(out.error);
@@ -69,13 +50,13 @@ export function PreviewResult() {
 
   // The hero stores only the address it was given; /preview is where that address is actually read.
   useEffect(() => {
-    if (draft && !draft.ready) void load(draft.url).then(apply);
-  }, [draft, load, apply]);
+    if (draft && !draft.ready) void readSitePreview(draft.url).then(apply);
+  }, [draft, apply]);
 
   const start = (url: string) => {
     setBusy(true);
     setError(null);
-    void load(url).then(apply);
+    void readSitePreview(url).then(apply);
   };
 
   if (busy) return <Loading />;

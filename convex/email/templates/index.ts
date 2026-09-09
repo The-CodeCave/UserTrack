@@ -38,6 +38,7 @@ export interface TemplateData {
   "source-connected": { saasName: string; slug: string; saasId: string; totalUsers?: number; trust: "verified" | "unverified" | "pending"; provider: string; isPublic: boolean };
   "source-failed": { saasName: string; saasId: string; provider: string; error?: string; lastSuccessAt?: number; failures: number };
   "source-recovered": { saasName: string; saasId: string; provider: string; totalUsers?: number; downForMs: number };
+  "embed-nudge": { saasName: string; slug: string; saasId: string; totalUsers: number };
   "user-milestone": { saasName: string; slug: string; threshold: number; totalUsers: number; previousThreshold?: number; sinceMs?: number; isPublic: boolean };
   "rank-milestone": { saasName: string; slug: string; threshold: number; rank: number; newUsers30d: number; growth30dPct: number };
   "growth-spike": { saasName: string; slug: string; saasId: string; last24h: number; average: number; multiple: number; days: number; totalUsers: number };
@@ -122,6 +123,52 @@ const sourceConnected: Builder<"source-connected"> = (d, c) => {
     preheader: d.totalUsers !== undefined ? `${num(d.totalUsers)} users detected via ${d.provider}.` : `Connected via ${d.provider}.`,
     html: layout({ siteUrl: c.siteUrl, eyebrow: "CONNECTED", title: `${esc(d.saasName)} is connected`, intro: `The first snapshot from ${esc(d.provider)} is in. From now on UserTrack syncs automatically every 4 hours; failed syncs retry on their own.`, body: metricRow([metric("Users detected", d.totalUsers !== undefined ? num(d.totalUsers) : "—", undefined, true), metric("Verification", trust, `via ${d.provider}`)]) + (d.isPublic ? "" : muted("Your page is still a draft. Publish it from the dashboard when you are ready.")), cta, footerNote: nudgeFooter, prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
     text: text([`${d.saasName} is connected via ${d.provider}.`, d.totalUsers !== undefined ? `Users detected: ${num(d.totalUsers)} (${trust}). Next sync in 4 hours.` : `Verification: ${trust}. Next sync in 4 hours.`, `${cta.label}: ${cta.url}`]),
+  };
+};
+
+// The exact markup /app/saas/[id]/embed hands out — same URLs, same badge attribution, so the two never drift apart.
+function badgePrompt(d: TemplateData["embed-nudge"], siteUrl: string) {
+  const img = `${siteUrl}/api/badge/${d.slug}.svg?type=users`;
+  const page = attributedUrl(`${siteUrl}/s/${d.slug}`, { ref: "badge", source: "badge", medium: "image", campaign: "users" });
+  return `Add the UserTrack badge for "${d.saasName}" to my landing page.
+
+USE THIS EXACT MARKUP - do not rebuild it, do not re-host the SVG, do not change the query string:
+
+<a href="${page}"><img src="${img}" alt="${d.saasName} on UserTrack" height="28"></a>
+
+For a README or Markdown docs use this form instead:
+
+[![${d.saasName} on UserTrack](${img})](${page})
+
+FIRST, CHECK THE LANDING PAGE IS ACTUALLY IN THIS REPOSITORY
+A marketing site often lives somewhere else - a separate repo, or Framer / Webflow / WordPress. Before you change anything, find the file that renders the public landing page and tell me its path and the line you plan to edit. If you cannot find one, stop and tell me. Do not create a page, a component or a section to hold the badge, and do not put it in the signed-in app UI instead.
+
+WHERE IT GOES
+Where social proof already lives: a footer, a "trusted by" or "as seen on" strip, or the badge row under the H1 in README.md. If nothing like that exists, the site footer next to the copyright is the right place.
+
+RULES
+- Keep the <a> wrapper and the link target - an unlinked badge is not the point of it.
+- Keep height="28" and never set a width; the SVG scales itself.
+- Load it with a plain <img>. Do NOT route it through next/image, an image CDN or any optimizer: it is a remote SVG that has to stay live.
+- In JSX/TSX: class becomes className, self-close <img />, keep href, src, alt and height exactly as above.
+- If this project sets a Content-Security-Policy, add ${new URL(siteUrl).host} to img-src, and nothing else.
+- Change nothing else: no restyling, no refactors, no new dependencies.
+
+Then run this project's typecheck / lint / build, fix anything you broke, do not commit, and report the file you touched and where the badge is now visible.`;
+}
+
+const embedNudge: Builder<"embed-nudge"> = (d, c) => {
+  const prompt = badgePrompt(d, c.siteUrl);
+  const embedUrl = link(c, `/app/saas/${d.saasId}/embed`, "embed");
+  const body =
+    metricRow([metric("Users on your page", num(d.totalUsers), "verified and syncing", true), metric("Badge", "28px SVG", "cached 1h at the edge")]) +
+    section("Hand this to your coding agent", `${muted("It carries your real slug, the badge URL and the rules that keep it working. Copy the whole block.")}<div style="margin:6px 0 0;padding:12px 14px;border:1px solid ${BRAND.line};background:${BRAND.bg};font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.5;color:${BRAND.ink};white-space:pre-wrap;word-break:break-word">${esc(prompt)}</div>`) +
+    muted(`Prefer live numbers that count up on their own? The <a href="${esc(embedUrl)}" style="color:${BRAND.ink}">embed page</a> also has the JavaScript widget, plus other badge styles, themes and a README version.`);
+  return {
+    subject: `Put your ${num(d.totalUsers)} users on your own site`,
+    preheader: `A ready-made prompt that adds the ${d.saasName} badge to your landing page.`,
+    html: layout({ siteUrl: c.siteUrl, eyebrow: "BADGE", title: `${esc(d.saasName)} has numbers worth showing`, intro: `${esc(d.saasName)} has been syncing for a few days and its public page now shows ${num(d.totalUsers)} verified users. The UserTrack badge puts that number on your own landing page and keeps it current on its own - it re-renders from live data, so you never edit it again.`, body, cta: { label: "Open embed page", url: embedUrl }, footerNote: nudgeFooter + " This is the only time we will ask about the badge.", prefsUrl: c.prefsUrl, unsubscribeUrl: c.unsubscribeUrl }),
+    text: text([`${d.saasName} now shows ${num(d.totalUsers)} verified users on UserTrack.`, "The badge puts that number on your own landing page and keeps it current on its own. Paste the prompt below into your coding agent:", prompt, `More badge styles, themes and the live JavaScript widget: ${embedUrl}`]),
   };
 };
 
@@ -254,6 +301,7 @@ const BUILDERS: { [T in EmailType]: Builder<T> } = {
   "source-connected": sourceConnected,
   "source-failed": sourceFailed,
   "source-recovered": sourceRecovered,
+  "embed-nudge": embedNudge,
   "user-milestone": userMilestone,
   "rank-milestone": rankMilestone,
   "growth-spike": growthSpike,

@@ -10,6 +10,7 @@ export type EmailType =
   | "source-connected"
   | "source-failed"
   | "source-recovered"
+  | "embed-nudge"
   | "user-milestone"
   | "rank-milestone"
   | "growth-spike"
@@ -60,6 +61,7 @@ export const EMAIL_META: Record<EmailType, { category: EmailCategory; pref: Pref
   "profile-reminder": { category: "product", pref: "productNudges" },
   "missing-source": { category: "product", pref: "productNudges" },
   "source-connected": { category: "product", pref: "productNudges" },
+  "embed-nudge": { category: "product", pref: "productNudges" },
   "user-milestone": { category: "growth", pref: "growthMilestones" },
   "rank-milestone": { category: "growth", pref: "rankingMilestones" },
   "growth-spike": { category: "growth", pref: "growthAlerts" },

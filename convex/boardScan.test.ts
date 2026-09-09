@@ -119,11 +119,12 @@ describe("landing query", () => {
     expect(landing.top.some((s) => s.slug === "demo")).toBe(false);
     expect(landing.top.map((s) => s.slug)).toEqual([...rows].sort((a, b) => b.totalUsers - a.totalUsers).slice(0, 100).map((s) => s.slug));
     expect(landing.newAndHot.map((s) => s.slug)).toEqual(sortBoard(rows, { board: "new-rising", window: "7d", verifiedOnly: true, limit: 10 }).map((s) => s.slug));
+    expect(landing.trending.map((s) => s.slug)).toEqual(sortBoard(rows, { board: "trending", window: "7d", verifiedOnly: true, limit: 10 }).map((s) => s.slug));
     expect(landing.newAndHot.some((s) => s.slug === "demo")).toBe(false);
+    expect(landing.trending.some((s) => s.slug === "demo")).toBe(false);
     expect(landing.stats).toEqual(await tx.query(api.public.stats, {}));
-    // The Top 100 renders dense (no sparkline, no founder), the carousel cards render both.
-    expect(landing.top.every((s) => s.spark.length === 0)).toBe(true);
-    expect(landing.newAndHot.every((s) => s.owner?.username === "ada")).toBe(true);
+    // Nothing on the landing page renders a sparkline or a founder, so no list carries either.
+    expect([...landing.top, ...landing.trending, ...landing.newAndHot].every((s) => s.spark.length === 0)).toBe(true);
   });
 
   // FIX-3: the payload used to be `publicSet` (take(5000)) + an unbounded dailyMetrics collect per row.
@@ -139,7 +140,7 @@ describe("landing query", () => {
           const rising = i < 12;
           const saasId = await ctx.db.insert("saas", {
             ownerId: owner, name: `S${i}`, slug: `s${i}`, description: "d", websiteUrl: "https://a.io", tags: [], category: "ai", isPublic: true, trust: "verified", trustScore: 80,
-            totalUsers: 100_000 - i, newUsers24h: 1, newUsers7d: rising ? 900 - i : 5, newUsers30d: 100 - (i % 90), growth30dPct: i % 30, growth7dPct: 4,
+            totalUsers: 100_000 - i, newUsers24h: 1, newUsers7d: rising ? 900 - i : 5, newUsers30d: 100 - (i % 90), growth30dPct: i % 30, growth7dPct: 4, trendingScore7d: rising ? 900 - i : 0,
             firstSnapshotAt: rising ? now - DAY : now - 200 * DAY, lastSyncedAt: now,
           });
           if (rising) for (let d = 0; d < 40; d++) await ctx.db.insert("dailyMetrics", { saasId, day: new Date(now - d * DAY).toISOString().slice(0, 10), totalUsers: 10 + d, newUsers: 1 });
@@ -152,8 +153,9 @@ describe("landing query", () => {
     expect(landing.top).toHaveLength(100);
     expect(landing.top[0].slug).toBe("s0");
     expect(landing.newAndHot).toHaveLength(10);
-    // ~110 board rows + 10 owners + 10 × 30 sparkline days + the counters row.
-    expect(landing.newAndHot.every((s) => s.spark.length === 30)).toBe(true);
+    expect(landing.trending).toHaveLength(10);
+    // ~110 board rows + 20 rail rows + the counters row — no owner lookups, no sparkline days.
+    expect(landing.newAndHot.every((s) => s.spark.length === 0)).toBe(true);
   });
 });
 

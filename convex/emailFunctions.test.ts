@@ -124,6 +124,21 @@ describe("lifecycle", () => {
     expect(rows[0]).toMatchObject({ emailType: "missing-source", saasId: bare, status: "queued" });
   });
 
+  it("embed nudge skips drafts, empty products and sites that already embed something", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    const draft = await seedSaas(tx, owner, { slug: "draft", isPublic: false });
+    const empty = await seedSaas(tx, owner, { slug: "empty", totalUsers: 0 });
+    const embedded = await seedSaas(tx, owner, { slug: "embedded" });
+    const ready = await seedSaas(tx, owner, { slug: "ready" });
+    await tx.run((ctx) => ctx.db.insert("embedSites", { saasId: embedded, host: "acme.io", loads: 1, firstSeenAt: 1, lastSeenAt: 1 }));
+    for (const saasId of [draft, empty, embedded, ready]) await tx.mutation(internal.email.lifecycle.embedNudge, { saasId });
+    await tx.mutation(internal.email.lifecycle.embedNudge, { saasId: ready });
+    const rows = await events(tx);
+    expect(rows.length).toBe(1);
+    expect(rows[0]).toMatchObject({ emailType: "embed-nudge", saasId: ready, status: "queued" });
+  });
+
   it("source failure → one mail per episode, recovery mail, then a new failure mail", async () => {
     const tx = t();
     const owner = await seedOwner(tx);

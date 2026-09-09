@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/blueprint/panel";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { LeaderboardRow } from "@/components/public/saas-card";
-import { NewAndHotCarousel } from "@/components/public/new-and-hot-carousel";
+import { CardRail } from "@/components/public/card-rail";
+import { SearchBox } from "@/components/public/search-box";
+import { AddSaasDialog } from "@/components/public/add-saas-dialog";
 import { PreviewForm } from "@/components/public/preview-form";
 import { DegradedNotice } from "@/components/site/degraded";
 import { formatCompact } from "@/lib/format";
@@ -14,14 +16,16 @@ import { formatCompact } from "@/lib/format";
 export const revalidate = 300;
 
 const DISABLED_TABS = ["Trending", "Fastest growing", "New & rising", "Biggest movers"];
+const HERO_NAV = [["/discover", "Discover"], ["/trending", "Trending"], ["/leaderboard", "Leaderboard"], ["/developers", "Developers"]] as const;
 
 export default async function LandingPage() {
   const data = await publicData(() => publicQuery(api.public.landing, {}));
-  const { top, newAndHot, stats } = data ?? { top: [], newAndHot: [], stats: undefined };
+  const { top, trending, newAndHot, stats } = data ?? { top: [], trending: [], newAndHot: [], stats: undefined };
 
   return (
     <div>
-      <section className="relative overflow-hidden">
+      {/* No overflow clip: the search dropdown hangs out of the hero into the rails below it. */}
+      <section className="relative">
         <div aria-hidden className="bp-grid bp-grid-fade absolute inset-0 -z-10" />
         <div className="mx-auto max-w-3xl px-4 pb-10 pt-12 text-center lg:pb-14 lg:pt-16">
           <SectionLabel className="justify-center">Public SaaS growth leaderboard · free</SectionLabel>
@@ -31,10 +35,18 @@ export default async function LandingPage() {
           <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground">
             Connect your product in minutes. UserTrack pulls your user count read-only every 4 hours and gives you a public growth page, verified rankings and a chart people actually share.
           </p>
-          <div className="mt-6">
-            <PreviewForm />
-            <Button size="lg" variant="ghost" className="mt-3 h-11 px-6" render={<Link href="/leaderboard" />}>See the leaderboard</Button>
+          <div className="mx-auto mt-7 flex max-w-2xl flex-col gap-2 sm:flex-row">
+            <SearchBox overlay className="flex-1" placeholder="Search a SaaS or a founder…" />
+            <AddSaasDialog />
           </div>
+          <nav aria-label="Browse the board" className="mt-5 flex flex-wrap items-center justify-center gap-x-1 gap-y-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            {HERO_NAV.map(([href, label], i) => (
+              <span key={href} className="flex items-center gap-1">
+                {i > 0 && <span aria-hidden className="text-line-strong">·</span>}
+                <Link href={href} className="px-2 py-1 underline-offset-4 transition-colors hover:text-foreground hover:underline">{label}</Link>
+              </span>
+            ))}
+          </nav>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
             {stats && <span className="border border-line px-2 py-1">{formatCompact(stats.trackedUsers)} users tracked</span>}
             {stats && <span className="border border-line px-2 py-1">{stats.saasCount} SaaS listed</span>}
@@ -43,7 +55,14 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      <NewAndHotCarousel items={newAndHot} />
+      {(trending.length > 0 || newAndHot.length > 0) && (
+        <section className="border-t border-line">
+          <div className="mx-auto max-w-6xl space-y-7 px-4 py-8">
+            <CardRail title="Trending now" href="/trending" items={trending} />
+            <CardRail title="New & rising" href="/new-saas" items={newAndHot} />
+          </div>
+        </section>
+      )}
 
       <section className="border-t border-line">
         <div className="mx-auto max-w-6xl px-4 py-12">

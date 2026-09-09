@@ -161,17 +161,21 @@ export const leaderboard = query({
   },
 });
 
-// One round trip for the homepage: top 100 by total users, the new-rising carousel and the directory counters.
-// Both lists are bounded index walks and demo rows never appear. The Top 100 renders as dense rows (rank, logo,
-// name, total users) — no sparkline and no founder — so those rows carry neither: ~110 + 10 sparklines per request.
+// One round trip for the homepage: top 100 by total users, the two card rails and the directory counters.
+// Every list is a bounded index walk and demo rows never appear. Nothing here carries a sparkline or a founder —
+// the Top 100 renders as dense rows and the rails render the three board numbers — so the page costs ~130 reads.
 export const landing = query({
   args: {},
   handler: async (ctx) => {
+    const card = (s: Doc<"saas">) => ({ ...publicSaas(s), spark: [] as number[] });
+    const rail = (board: Board) => boardRows(ctx, { board, window: "7d", verifiedOnly: true, hideDemo: true, limit: 10 });
     const top = await boardRows(ctx, { board: "most-users", window: "30d", verifiedOnly: false, hideDemo: true, limit: 100 });
-    const newAndHot = await boardRows(ctx, { board: "new-rising", window: "7d", verifiedOnly: true, hideDemo: true, limit: 10 });
+    const trending = await rail("trending");
+    const newAndHot = await rail("new-rising");
     return {
-      top: top.map((s) => ({ ...publicSaas(s), spark: [] as number[] })),
-      newAndHot: await Promise.all(newAndHot.map((s) => withOwnerAndSpark(ctx, s))),
+      top: top.map(card),
+      trending: trending.map(card),
+      newAndHot: newAndHot.map(card),
       stats: await statsFor(ctx),
     };
   },
