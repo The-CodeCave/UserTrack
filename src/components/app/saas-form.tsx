@@ -54,6 +54,8 @@ export function SaasForm({
   // highlighted like a TrustMRR import, so nothing arrives silently.
   const fromSite: Record<string, string | undefined> = initial || !fromPreview ? {} : { name: fromPreview.name, description: fromPreview.description, websiteUrl: fromPreview.url, valueProposition: fromPreview.valueProposition, category: fromPreview.category, logoUrl: fromPreview.logoUrl };
   const fromSiteCount = Object.values(fromSite).filter(Boolean).length;
+  // The icon the importer already copied into Convex storage; linking the origin's URL is only the fallback.
+  const siteLogoStorageId = initial || !fromPreview?.logoStorageId ? undefined : (fromPreview.logoStorageId as Id<"_storage">);
   const create = useMutation(api.saas.create);
   const update = useMutation(api.saas.update);
   const uploadUrl = useMutation(api.saas.generateLogoUploadUrl);
@@ -70,8 +72,8 @@ export function SaasForm({
   const [anonymous, setAnonymous] = useState(initial?.anonymous ?? false);
   const [hideFromSearch, setHideFromSearch] = useState(initial?.hideFromSearch ?? false);
   const [mobile, setMobile] = useState(initial?.projectType === "mobile" || initial?.projectType === "hybrid");
-  const [logo, setLogo] = useState<{ url?: string; storageId?: Id<"_storage">; preview?: string }>({ url: initial?.logoUrl ?? fromSite.logoUrl });
-  const [logoMode, setLogoMode] = useState<"upload" | "url">((initial?.logoUrl && !initial.logoStorageId) || fromSite.logoUrl ? "url" : "upload");
+  const [logo, setLogo] = useState<{ url?: string; storageId?: Id<"_storage">; preview?: string }>({ url: initial?.logoUrl ?? fromSite.logoUrl, storageId: siteLogoStorageId });
+  const [logoMode, setLogoMode] = useState<"upload" | "url">((initial?.logoUrl && !initial.logoStorageId) || (fromSite.logoUrl && !siteLogoStorageId) ? "url" : "upload");
   const [uploading, setUploading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState<string | null>(fromSiteCount ? `${fromSiteCount} field${fromSiteCount === 1 ? "" : "s"} filled from your website — change anything before you save` : null);

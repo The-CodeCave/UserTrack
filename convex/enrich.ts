@@ -11,7 +11,7 @@ import type { Id } from "./_generated/dataModel";
 import { authComponent } from "./auth";
 import { RATE_LIMITS } from "./lib/rateLimits";
 import { IMAGE_MAX_BYTES, IMAGE_TYPES } from "./lib/uploads";
-import { detectSiteHints, parseSiteMeta, publicUrl, type SiteHints } from "./lib/siteMeta";
+import { ICON_CANDIDATES, detectSiteHints, parseSiteMeta, publicUrl, type SiteHints } from "./lib/siteMeta";
 import { requireGateway } from "./lib/gateway";
 import { normalizeDomain } from "./lib/domain";
 import { MAX_PUBLIC_SCAN } from "./public";
@@ -34,6 +34,7 @@ export interface SiteImport {
   valueProposition?: string;
   logoUrl?: string;
   logoStorageId?: Id<"_storage">;
+  hints: SiteHints;
 }
 
 export interface SitePreview {
@@ -94,20 +95,38 @@ async function guardedFetch(start: URL, accept: string, timeoutMs: number) {
   return null;
 }
 
-// Copies a remote image into Convex storage. Returns null for anything that is not a small PNG / JPG / WebP, so the
-// caller can fall back to linking the original (an .ico or .svg favicon still renders fine in an <img>).
-async function storeImage(ctx: ActionCtx, url: URL): Promise<Id<"_storage"> | null> {
+// Fetches a remote image. `storageId` is set only for a small PNG / JPG / WebP we could copy into storage; an image
+// the origin served that we cannot store (an .ico or .svg favicon, or one over the size cap) comes back without one
+// so the caller can link the original — it still renders in an <img>. Null means we could not fetch it at all, which
+// is what keeps a broken icon from ever being offered.
+async function fetchImage(ctx: ActionCtx, url: URL): Promise<{ storageId?: Id<"_storage"> } | null> {
   try {
     const hit = await guardedFetch(url, "image/*", IMAGE_TIMEOUT_MS);
     if (!hit?.res.ok) return null;
     const type = (hit.res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-    if (!IMAGE_TYPES.has(type)) return null;
+    if (!type.startsWith("image/")) return null;
     const blob = await hit.res.blob();
-    if (blob.size === 0 || blob.size > IMAGE_MAX_BYTES) return null;
-    return await ctx.storage.store(blob);
+    if (blob.size === 0) return null;
+    if (!IMAGE_TYPES.has(type) || blob.size > IMAGE_MAX_BYTES) return {};
+    return { storageId: await ctx.storage.store(blob) };
   } catch {
     return null;
   }
+}
+
+// The best icon the site actually serves: declared icons are tried best-first, the first storable one wins, and a
+// fetchable-but-unstorable one is kept as the fallback link rather than losing the logo entirely.
+async function pickIcon(ctx: ActionCtx, candidates: string[]): Promise<{ url: string; storageId?: Id<"_storage"> } | null> {
+  let linkable: string | null = null;
+  for (const candidate of candidates.slice(0, ICON_CANDIDATES)) {
+    const url = publicUrl(candidate);
+    if (!url) continue;
+    const hit = await fetchImage(ctx, url);
+    if (!hit) continue;
+    if (hit.storageId) return { url: (await ctx.storage.getUrl(hit.storageId)) ?? candidate, storageId: hit.storageId };
+    linkable ??= candidate;
+  }
+  return linkable ? { url: linkable } : null;
 }
 
 // Address a project is stored under: origin plus the path, without a trailing slash.
@@ -136,17 +155,16 @@ export const site = action({
     if (!target) throw fail("bad_request", "Enter a public website address, e.g. https://yourdomain.com");
     await budget(ctx);
 
-    const { url: final, meta } = await readSite(target);
-    const icon = meta.iconUrl ? publicUrl(meta.iconUrl) : null;
-    const storageId = icon ? await storeImage(ctx, icon) : null;
-    // Only an icon we actually fetched is offered: hotlinking one we could not read shows the founder a broken image.
+    const { html, url: final, meta } = await readSite(target);
+    const icon = await pickIcon(ctx, meta.iconUrls);
     return {
       url: siteUrlOf(final),
       name: meta.name,
       description: meta.description,
       valueProposition: meta.valueProposition,
-      logoUrl: (storageId ? await ctx.storage.getUrl(storageId) : null) ?? undefined,
-      logoStorageId: storageId ?? undefined,
+      logoUrl: icon?.url,
+      logoStorageId: icon?.storageId,
+      hints: detectSiteHints(html, meta),
     };
   },
 });
@@ -247,7 +265,7 @@ export const avatar = action({
     if (candidates.length === 0) throw fail("bad_request", "Add your X or GitHub handle first");
     for (const candidate of candidates) {
       const url = publicUrl(candidate.url);
-      const storageId = url ? await storeImage(ctx, url) : null;
+      const storageId = url ? (await fetchImage(ctx, url))?.storageId : undefined;
       if (!storageId) continue;
       const stored = await ctx.storage.getUrl(storageId);
       if (stored) return { url: stored, storageId, source: candidate.source };

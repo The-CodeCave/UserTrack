@@ -157,6 +157,19 @@ export const clear = internalMutation({
   },
 });
 
+// Removes one project and everything attached to it (integrations, snapshots, history, milestones). The dashboard's
+// danger zone does the same thing for the owner; this is the ops path for a project that has to go without a session.
+export const removeBySlug = internalMutation({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
+    if (!s) return "not found";
+    await removeSaas(ctx, s._id);
+    await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
+    return `removed ${slug}`;
+  },
+});
+
 // Removes a profile and everything it owns (used to clean up smoke-test accounts). Auth user stays.
 export const removeProfile = internalMutation({
   args: { username: v.string() },

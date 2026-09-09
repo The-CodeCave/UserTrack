@@ -3,11 +3,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
+import rateLimiterSchema from "../node_modules/@convex-dev/rate-limiter/dist/component/schema.js";
 import { api } from "./_generated/api";
 
-vi.mock("./auth", () => ({ authComponent: { safeGetAuthUser: async () => null } }));
+// Signed out by default; the `site` importer needs an identity, so its own block sets one.
+const auth = vi.hoisted(() => ({ user: null as null | { _id: string; email: string } }));
+vi.mock("./auth", () => ({ authComponent: { safeGetAuthUser: async () => auth.user } }));
 
 const modules = import.meta.glob("./**/*.*s");
+const rateLimiterModules = import.meta.glob("../node_modules/@convex-dev/rate-limiter/dist/component/**/*.js");
+
+// The signed-in importer spends a rate-limit slot, so its tests need the component the anonymous preview never touches.
+function withLimiter() {
+  const t = convexTest(schema, modules);
+  t.registerComponent("rateLimiter", rateLimiterSchema, rateLimiterModules);
+  return t;
+}
 
 const HTML = `<!doctype html><html><head>
   <title>Acme &mdash; Analytics for indie SaaS</title>
@@ -32,6 +43,49 @@ async function seedClaimed(t: ReturnType<typeof convexTest>) {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  auth.user = null;
+});
+
+const ICON_BYTES = "icon-bytes";
+
+// Serves the page plus whatever icons the case declares; anything else 404s, exactly like a stale <link rel=icon>.
+const site = (html: string, icons: Record<string, { type: string }>) =>
+  vi.stubGlobal("fetch", vi.fn(async (input: URL | string) => {
+    const url = String(input);
+    const icon = icons[new URL(url).pathname];
+    if (icon) return new Response(ICON_BYTES, { status: 200, headers: { "content-type": icon.type } });
+    return url.includes("/favicon") || url.includes("icon") ? new Response("nope", { status: 404 }) : new Response(html, { status: 200, headers: { "content-type": "text/html" } });
+  }));
+
+describe("site (signed-in import)", () => {
+  const ICONS = `<link rel="apple-touch-icon" href="/apple.png"><link rel="icon" href="/favicon.ico">`;
+
+  it("copies a storable icon into storage and reports the detected stack", async () => {
+    const t = withLimiter();
+    auth.user = { _id: "u_ada", email: "ada@acme.com" };
+    site(HTML.replace('<link rel="apple-touch-icon" href="/apple-touch-icon.png">', ICONS), { "/apple.png": { type: "image/png" } });
+    const res = await t.action(api.enrich.site, { url: "acme.com" });
+    expect(res.logoStorageId).toBeDefined();
+    expect(res.name).toBe("Acme");
+    expect(res.hints).toMatchObject({ analytics: "posthog", monetization: "stripe" });
+  });
+
+  it("falls back to linking a favicon it cannot store rather than dropping the logo", async () => {
+    const t = withLimiter();
+    auth.user = { _id: "u_ada", email: "ada@acme.com" };
+    // The apple-touch-icon is declared but gone; only the .ico answers, and an .ico can never be stored.
+    site(HTML.replace('<link rel="apple-touch-icon" href="/apple-touch-icon.png">', ICONS), { "/favicon.ico": { type: "image/x-icon" } });
+    const res = await t.action(api.enrich.site, { url: "acme.com" });
+    expect(res.logoUrl).toBe("https://acme.com/favicon.ico");
+    expect(res.logoStorageId).toBeUndefined();
+  });
+
+  it("offers no logo at all when every candidate is unreachable", async () => {
+    const t = withLimiter();
+    auth.user = { _id: "u_ada", email: "ada@acme.com" };
+    site(HTML.replace('<link rel="apple-touch-icon" href="/apple-touch-icon.png">', ICONS), {});
+    expect((await t.action(api.enrich.site, { url: "acme.com" })).logoUrl).toBeUndefined();
+  });
 });
 
 describe("previewSite", () => {

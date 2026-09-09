@@ -7,7 +7,13 @@ export interface SiteMeta {
   description?: string;
   valueProposition?: string;
   iconUrl?: string;
+  // Every declared icon, best first, with /favicon.ico appended: the importer tries them in order, so a site whose
+  // apple-touch-icon 404s still gets its favicon instead of no logo at all.
+  iconUrls: string[];
 }
+
+// How many icons the importer is allowed to try. Each one is a network round trip on the founder's first keystroke.
+export const ICON_CANDIDATES = 4;
 
 const BLOCKED_HOST = /^(localhost|\[?::1\]?|.+\.local|.+\.internal|metadata\..+)$/i;
 const PRIVATE_IP = /^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
@@ -101,13 +107,15 @@ export function parseSiteMeta(html: string, baseUrl: string): SiteMeta {
   const split = splitTitle(clean(meta["og:title"], 200) ?? title);
   const description = clean(meta.description ?? meta["og:description"] ?? meta["twitter:description"], 500);
   const tagline = clean(split.tagline, 300);
-  const icon = icons.sort((a, b) => b.score - a.score)[0]?.href ?? "/favicon.ico";
+  const ranked = icons.sort((a, b) => b.score - a.score).map((i) => absolute(i.href, baseUrl));
+  const iconUrls = [...new Set([...ranked, absolute("/favicon.ico", baseUrl)].filter((u): u is string => Boolean(u)))].slice(0, ICON_CANDIDATES);
   return {
     url: baseUrl,
     name: clean(meta["og:site_name"] ?? meta["application-name"] ?? split.name, 100),
     description,
     valueProposition: tagline && tagline.length >= 12 && tagline !== description ? tagline : undefined,
-    iconUrl: absolute(icon, baseUrl),
+    iconUrl: iconUrls[0],
+    iconUrls,
   };
 }
 

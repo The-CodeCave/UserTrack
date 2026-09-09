@@ -76,6 +76,13 @@ describe("parseSiteMeta", () => {
       "https://acme.com/",
     );
     expect(m.iconUrl).toBe("https://acme.com/apple.png");
+    // Every declared icon stays as a fallback, best first, so an apple-touch-icon that 404s does not cost the logo.
+    expect(m.iconUrls).toEqual(["https://acme.com/apple.png", "https://acme.com/favicon.svg", "https://acme.com/favicon.ico"]);
+  });
+
+  it("always offers /favicon.ico last, and never twice", () => {
+    expect(parseSiteMeta(`<head><link rel="icon" href="/favicon.ico"></head>`, "https://acme.com/").iconUrls).toEqual(["https://acme.com/favicon.ico"]);
+    expect(parseSiteMeta("<head></head>", "https://acme.com/").iconUrls).toEqual(["https://acme.com/favicon.ico"]);
   });
 
   it("survives a page with no head metadata", () => {
@@ -83,7 +90,7 @@ describe("parseSiteMeta", () => {
   });
 });
 
-const meta = (over: Partial<SiteMeta> = {}): SiteMeta => ({ url: "https://acme.com/", name: "Acme", description: "A product.", ...over });
+const meta = (over: Partial<SiteMeta> = {}): SiteMeta => ({ url: "https://acme.com/", name: "Acme", description: "A product.", iconUrls: [], ...over });
 
 describe("detectSiteHints", () => {
   it("reads providers off script and link assets", () => {

@@ -13,6 +13,9 @@ export interface PreviewDraft {
   description?: string;
   valueProposition?: string;
   logoUrl?: string;
+  // Set only by the signed-in importer, which copies the icon into Convex storage. Deliberately absent from
+  // STRING_KEYS: a storage id must never arrive from sessionStorage, only from the action that just created it.
+  logoStorageId?: string;
   category?: string;
   projectType?: "hybrid";
   appStoreUrl?: string;

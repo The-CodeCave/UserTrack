@@ -17,6 +17,21 @@ const PLATFORMS: { value: Platform; label: string; blurb: string; icon: typeof G
   { value: "hybrid", label: "Both", blurb: "Web and mobile sharing one user base", icon: Layers },
 ];
 
+// The three tiles on their own, for screens that already own the surrounding form (the dashboard's new-product flow).
+export function PlatformTiles({ value, onChange }: { value?: Platform; onChange: (p: Platform) => void }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-3">
+      {PLATFORMS.map((p) => (
+        <button key={p.value} type="button" onClick={() => onChange(p.value)} aria-pressed={value === p.value} className={cn("flex min-h-28 flex-col items-start gap-2 border p-4 text-left transition-colors", value === p.value ? "border-pink bg-pink/5" : "border-line hover:border-line-strong")}>
+          <p.icon className={cn("size-5", value === p.value ? "text-pink" : "text-muted-foreground")} />
+          <span className="font-semibold">{p.label}</span>
+          <span className="text-xs leading-relaxed text-muted-foreground">{p.blurb}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // "What are you tracking?" tiles plus optional store links for mobile / hybrid. Empty store URLs are sent as "" so they clear server-side.
 export function PlatformStep({ initial, submitLabel = "Continue", onSubmit }: { initial?: Partial<PlatformValue>; submitLabel?: string; onSubmit: (v: PlatformValue) => Promise<void> | void }) {
   const [type, setType] = useState<Platform | undefined>(initial?.projectType);
@@ -39,15 +54,7 @@ export function PlatformStep({ initial, submitLabel = "Continue", onSubmit }: { 
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      <div className="grid gap-2 sm:grid-cols-3">
-        {PLATFORMS.map((p) => (
-          <button key={p.value} type="button" onClick={() => setType(p.value)} aria-pressed={type === p.value} className={cn("flex min-h-28 flex-col items-start gap-2 border p-4 text-left transition-colors", type === p.value ? "border-pink bg-pink/5" : "border-line hover:border-line-strong")}>
-            <p.icon className={cn("size-5", type === p.value ? "text-pink" : "text-muted-foreground")} />
-            <span className="font-semibold">{p.label}</span>
-            <span className="text-xs leading-relaxed text-muted-foreground">{p.blurb}</span>
-          </button>
-        ))}
-      </div>
+      <PlatformTiles value={type} onChange={setType} />
       {type && type !== "web" && (
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
