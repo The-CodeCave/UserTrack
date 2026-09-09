@@ -10,10 +10,12 @@ Last updated: 2026-09-03.
 
 ### First publish (`0.1.0`)
 
+**Always `pnpm publish`, never `npm publish`.** npm does not understand the `workspace:` protocol and ships `"@usertrack/protocol": "workspace:^"` verbatim, which breaks every install; pnpm rewrites it to `^0.1.0`. Verified 2026-09-09 by diffing both tarballs.
+
 1. `npm login` (account that owns `@usertrack`, 2FA ready).
 2. `pnpm install && pnpm -r --filter "./packages/**" build && pnpm -r --filter "./packages/**" test` from the repository root.
-3. `cd packages/protocol && pnpm pack --pack-destination /tmp && npm publish --access public --provenance=false`
-4. `cd ../node && pnpm pack --pack-destination /tmp && tar -tzf /tmp/usertrack-node-0.1.0.tgz` — expect only `dist/`, `README.md`, `LICENSE`, `CHANGELOG.md`, `AGENTS.md`, `llms.txt`, `package.json`; then `npm publish --access public --provenance=false`.
+3. `cd packages/protocol && pnpm pack --pack-destination /tmp && pnpm publish --access public --no-git-checks --provenance=false`
+4. `cd ../node && pnpm pack --pack-destination /tmp && tar -tzf /tmp/usertrack-node-0.1.0.tgz` — expect only `dist/`, `README.md`, `LICENSE`, `CHANGELOG.md`, `AGENTS.md`, `llms.txt`, `package.json`; then `pnpm publish --access public --no-git-checks --provenance=false`.
 5. Smoke: in any Next.js app `npm install @usertrack/node@0.1.0` and mount the route from the README; or run `pnpm --filter usertrack-node-e2e e2e` (uses the workspace build).
 6. Tag: `git tag protocol-v0.1.0 node-v0.1.0 && git push origin protocol-v0.1.0 node-v0.1.0` (`.github/workflows/release-packages.yml` runs; with neither OIDC nor `NPM_TOKEN` the publish step fails harmlessly because the version already exists).
 

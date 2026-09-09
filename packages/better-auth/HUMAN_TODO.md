@@ -34,7 +34,7 @@ Nothing in the codebase unless the name changes.
 ### Configure trusted publishing (OIDC) for GitHub Actions — or an `NPM_TOKEN`
 
 **Why this is needed**
-`.github/workflows/release-packages.yml` builds, tests, packs and publishes the package with `npm publish --provenance --access public` whenever a tag `better-auth-v*` (or `protocol-v*` / `node-v*` for the sibling packages) is pushed. Provenance requires either npm **Trusted Publishing** (no long-lived secret, recommended) or a granular automation token stored as a GitHub secret.
+`.github/workflows/release-packages.yml` builds, tests, packs and publishes the package with `pnpm publish --access public --no-git-checks` whenever a tag `better-auth-v*` (or `protocol-v*` / `node-v*` for the sibling packages) is pushed. Provenance requires either npm **Trusted Publishing** (no long-lived secret, recommended) or a granular automation token stored as a GitHub secret.
 
 **Where**
 npm: https://www.npmjs.com/package/@usertrack/better-auth/access (available after the first publish) · GitHub: https://github.com/The-CodeCave/UserTrack/settings/secrets/actions
@@ -44,7 +44,7 @@ Option A — trusted publishing (recommended, works from the second release on):
 1. Do the first publish manually from a laptop (next item).
 2. npm → package → **Settings → Trusted publishers → GitHub Actions** → organization `The-CodeCave`, repository `UserTrack`, workflow `release-packages.yml`, environment `npm` (repeat the trusted-publisher entry for `@usertrack/protocol` and `@usertrack/node`).
 3. GitHub → repo → Settings → Environments → create `npm` (optionally require a reviewer = release approval gate).
-4. Nothing else: the workflow already has `permissions: id-token: write` and uses `npm publish --provenance`.
+4. Nothing else: the workflow already has `permissions: id-token: write` and uses `pnpm publish` (provenance comes from `publishConfig`).
 
 Option B — automation token:
 1. npm → Access Tokens → **Generate new token → Granular** → packages & scopes: `@usertrack` read/write, *bypass 2FA* for automation, 1-year expiry.
@@ -74,7 +74,7 @@ Your laptop, repository root.
 1. `npm login` (account that owns `@usertrack`, 2FA ready).
 2. `pnpm install && pnpm -r --filter "./packages/**" build && cd packages/better-auth && pnpm test`
 3. `pnpm pack --pack-destination /tmp && tar -tzf /tmp/usertrack-better-auth-0.2.0.tgz` — confirm the file list above.
-4. `npm publish --access public --provenance=false` (provenance only works from CI).
+4. `pnpm publish --access public --no-git-checks --provenance=false` (provenance only works from CI).
 5. Verify: `npm view @usertrack/better-auth` — then run the example: `cd packages/better-auth/e2e && pnpm e2e` (uses the workspace build) or install the published tarball in any Better Auth app.
 6. Tag the release so the changelog and GitHub release match: `git tag better-auth-v0.2.0 && git push origin better-auth-v0.2.0` (the workflow will run; with neither OIDC nor `NPM_TOKEN` configured the publish step fails harmlessly because the version already exists — that is expected for this first manual release).
 
