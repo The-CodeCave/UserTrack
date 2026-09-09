@@ -734,7 +734,7 @@ Since SEC-2 every per-minute limit is durable in Convex (`@convex-dev/rate-limit
 The Stripe conversion adapter (`convex/providers/stripe.ts`: subscriptions by status → trial / converted users, no amounts) is unit-tested against Stripe's documented response shape. A live read against a real (sandbox) account would confirm pagination and status handling end to end. The agent can read your Stripe accounts through the Stripe MCP servers but cannot create API keys, and a restricted key is what UserTrack needs.
 
 **Where**
-Stripe Dashboard → the **SEOMap sandbox** (or any test-mode account) → Developers → API keys
+Stripe Dashboard → any test-mode account (a sandbox works) → Developers → API keys
 
 **Steps**
 1. Create restricted key → name `usertrack-e2e` → Permissions: **Subscriptions: Read**, everything else None.
