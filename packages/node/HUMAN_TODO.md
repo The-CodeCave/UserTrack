@@ -19,7 +19,8 @@ Last updated: 2026-09-03.
 5. Smoke: in any Next.js app `npm install @usertrack/node@0.1.0` and mount the route from the README; or run `pnpm --filter usertrack-node-e2e e2e` (uses the workspace build).
 6. Tag: `git tag protocol-v0.1.0 node-v0.1.0 && git push origin protocol-v0.1.0 node-v0.1.0` (`.github/workflows/release-packages.yml` runs; with neither OIDC nor `NPM_TOKEN` the publish step fails harmlessly because the version already exists).
 
-**Status** [ ] Pending
+**Status**
+* [x] Done (2026-09-09) — published from a laptop with a classic publish token. Order: `@usertrack/protocol@0.1.0` → `@usertrack/node@0.1.0` → `@usertrack/better-auth@0.2.0`. Verified against the live registry: a clean `npm install @usertrack/better-auth` in an empty project pulls all three, the installed `@usertrack/node` carries `"@usertrack/protocol": "^0.1.0"` (no `workspace:` leftovers) and both `createUserTrackHandler` and `userTrack` import as functions.
 
 ### Real-world adapter test (optional, recommended)
 

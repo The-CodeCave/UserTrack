@@ -35,7 +35,7 @@ Last updated: 2026-09-08 · code state: **v1.0 launch hardening + v1.0.1 review 
 |---|---|---|
 | **Sentry EU project + `NEXT_PUBLIC_SENTRY_DSN`** | Without a DSN the SDK is never initialised or downloaded — crashes render the branded error boundary but nobody is notified. | *Sentry — create the EU project and set the DSN (OPS-3)* |
 | **Convex → Sentry log stream** | Backend function errors land in the same project. | *Optional: Convex → Sentry log stream (OPS-3)* |
-| **npm publishes** (`@usertrack/protocol` → `@usertrack/node` → `@usertrack/better-auth`) | Until then founders install the SDK from a `pnpm pack` tarball. Order matters: the plugin depends on the other two. | `packages/node/HUMAN_TODO.md`, `packages/better-auth/HUMAN_TODO.md` |
+| ~~**npm publishes**~~ **Done (2026-09-09)** — `@usertrack/protocol@0.1.0`, `@usertrack/node@0.1.0`, `@usertrack/better-auth@0.2.0` are live on npm under the `usertrack` org; a clean install in an empty project resolves all three. | Nothing left here. Remaining package work is CI publishing (trusted publisher or `NPM_TOKEN`), the Better Auth community-plugin listing and maintainer setup. | `packages/node/HUMAN_TODO.md`, `packages/better-auth/HUMAN_TODO.md` |
 | **Search Console + directory submissions** | Only worth doing once the domain resolves. | *Search Console: submit the new public pages*, *Submit the UserTrack MCP server to agent directories* |
 | **Optional: X API plan with `users/by/username`** | Not a blocker — the avatar autofill already works for free. It would only remove the `unavatar.io` hop (whose free tier is 25 lookups/day across the whole deployment) and keep X lookups first-party. | *X avatar autofill — the free path, and what a paid X plan would change (ONB-1)* |
 

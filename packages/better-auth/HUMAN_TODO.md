@@ -27,7 +27,7 @@ Organization `usertrack` on npmjs.com with at least one owner.
 Nothing in the codebase unless the name changes.
 
 **Status**
-* [ ] Pending
+* [x] Done (2026-09-09) — the npm org `usertrack` exists and holds all three packages. Note: an org can only be created in the npm web UI; `PUT /-/org` returns 404 and `POST` returns 405, so no token can do it.
 
 ---
 
@@ -85,7 +85,7 @@ npm credentials only.
 Nowhere — interactive login.
 
 **Status**
-* [ ] Pending
+* [x] Done (2026-09-09) — published from a laptop with a classic publish token. Order: `@usertrack/protocol@0.1.0` → `@usertrack/node@0.1.0` → `@usertrack/better-auth@0.2.0`. Verified against the live registry: a clean `npm install @usertrack/better-auth` in an empty project pulls all three, the installed `@usertrack/node` carries `"@usertrack/protocol": "^0.1.0"` (no `workspace:` leftovers) and both `createUserTrackHandler` and `userTrack` import as functions.
 
 ---
 
