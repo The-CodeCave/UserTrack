@@ -1,6 +1,6 @@
 {
   "name": "@usertrack/node",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "UserTrack SDK for Node and edge runtimes: a signed metrics handler for any app (Prisma, Drizzle, Convex, Auth.js or custom) plus a fire-and-forget lifecycle event client. Aggregate counts only, no PII.",
   "keywords": ["usertrack", "analytics", "growth", "saas", "metrics", "prisma", "drizzle", "convex", "next-auth", "authjs"],
   "license": "MIT",
@@ -24,7 +24,7 @@
     "./package.json": "./package.json"
   },
   "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md", "AGENTS.md", "llms.txt"],
-  "engines": { "node": ">=18.17" },
+  "engines": { "node": ">=20" },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

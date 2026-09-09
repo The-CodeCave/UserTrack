@@ -1,6 +1,6 @@
 {
   "name": "@usertrack/better-auth",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Official UserTrack plugin for Better Auth: verified registered-user growth metrics without exposing user PII.",
   "keywords": [
     "better-auth",
@@ -43,7 +43,7 @@
     "llms.txt"
   ],
   "engines": {
-    "node": ">=18.17"
+    "node": ">=20"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",

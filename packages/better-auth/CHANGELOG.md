@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-09-09
+
+Raise the `@usertrack/protocol` and `@usertrack/node` floors to the fixed versions.
+
+- Same cause as `@usertrack/node@0.1.1`: a transitive `@usertrack/protocol@0.1.0` broke isolate-runtime bundles with `Could not resolve "node:crypto"`. The dependency ranges now exclude it.
+- `llms.txt` gained a *Runtime & known issues* section and pins `@latest` in the install commands.
+- `engines` raised to `>=20`.
+
 ## 0.2.0 — 2026-09-03
 
 Built on the shared UserTrack SDK. Wire-compatible with UserTrack (protocol v1); no configuration change needed.

@@ -4,7 +4,7 @@ Official UserTrack plugin for Better Auth. One plugin, two env vars, deploy, ver
 
 ## Exact steps
 1. Credential: UserTrack dashboard (project → Integrations → Users → Better Auth) or MCP `usertrack_create_integration { provider: "native", source: "better-auth" }`. The secret (`ut_int_…`) is shown once.
-2. Install with the repo's package manager: `npm install @usertrack/better-auth` / `pnpm add …` / `yarn add …` / `bun add …` (peer `better-auth >= 1.3`).
+2. Install with the repo's package manager: `npm install @usertrack/better-auth@latest` / `pnpm add …` / `yarn add …` / `bun add …` (peer `better-auth >= 1.3`).
 3. Locate the file calling `betterAuth({ ... })` (lib/auth.ts, src/lib/auth.ts, auth.ts, server/auth.ts, convex/auth.ts). Do not create a second instance. Append to the existing `plugins` array — never replace, reorder or remove other plugins or options:
    ```ts
    import { userTrack } from "@usertrack/better-auth";
@@ -13,6 +13,13 @@ Official UserTrack plugin for Better Auth. One plugin, two env vars, deploy, ver
 4. Env: add `USERTRACK_PROJECT_ID` and `USERTRACK_SECRET` to `.env.example` (empty) and set the real values in the git-ignored local env and every hosting environment. Never hardcode or commit the secret.
 5. Typecheck, test, deploy. The endpoint must be live at `<Better Auth base URL>/usertrack/metrics` (usually `https://<app>/api/auth/usertrack/metrics`).
 6. Verify: dashboard **Verify** or MCP `usertrack_verify_integration { projectId, role: "users" }`. 404 = plugin not deployed; 401 = env vars differ; stale = clock skew.
+
+## Runtime & known issues
+
+Runtime: Node 20+, or any runtime exposing `globalThis.crypto.subtle` (Convex, Deno, Bun, Cloudflare Workers, Vercel Edge). This package and its dependencies contain **no Node builtins** and need no polyfill.
+
+- **`Could not resolve "node:crypto"`** — or a Workers, Deno, Convex or Edge build failing on a node builtin while bundling. Cause: a transitive `@usertrack/protocol` below 0.1.1, which reached for `node:crypto` in a branch that never runs on an isolate runtime but that bundlers still resolve statically. Fix: `npm install @usertrack/better-auth@latest --prefer-online`, then confirm `npm ls @usertrack/protocol` reports 0.1.1 or newer; a lockfile pinned lower needs `npm update @usertrack/protocol`. Do **not** vendor, patch, alias or polyfill `node:crypto` — the fixed package does not need it.
+- **`UserTrack requires the Web Crypto API`** — the runtime predates unflagged Web Crypto, in practice Node 18 or older (end of life 2025-04-30). Upgrade to Node 20+.
 
 ## Options
 `userTrack({ projectId, secret, endpoint? = "https://usertrack.dev", events? = true, debug? = false })`. Anonymous-plugin users are excluded automatically. To also report activation / conversion from the same app, use `@usertrack/node` with `betterAuthUsers(adapter, { excludeAnonymous })` as the users source.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 — 2026-09-09
+
+Raise the `@usertrack/protocol` floor to `^0.1.1` so isolate-runtime builds cannot break.
+
+- 0.1.0 allowed a transitive `@usertrack/protocol@0.1.0`, whose `node:crypto` fallback made `npx convex deploy` and any Workers, Deno or Edge bundle fail with `Could not resolve "node:crypto"`. The range now excludes it, so a fresh install can no longer produce the broken tree.
+- `llms.txt` gained a *Runtime & known issues* section and pins `@latest` in the install commands, so an agent that still hits a cached or lockfile-pinned 0.1.0 has the fix in front of it.
+- `engines` raised to `>=20`.
+
 ## 0.1.0 — 2026-09-03
 
 Initial release.

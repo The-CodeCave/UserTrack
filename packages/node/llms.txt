@@ -5,7 +5,7 @@ Goal: make this app a **native, verified** UserTrack source. Install the package
 ## Exact steps
 
 1. Get the credential: UserTrack dashboard (project → Integrations → Users → *My app (SDK)*) or MCP `usertrack_create_integration { provider: "native", source: "<prisma|drizzle|convex|authjs|custom>" }`. The secret (`ut_int_…`) is shown once.
-2. Install with the repo's package manager: `npm install @usertrack/node` / `pnpm add @usertrack/node` / `yarn add @usertrack/node` / `bun add @usertrack/node`.
+2. Install with the repo's package manager: `npm install @usertrack/node@latest` / `pnpm add @usertrack/node@latest` / `yarn add @usertrack/node@latest` / `bun add @usertrack/node@latest`.
 3. Add the env vars to `.env.example` (empty) and to the git-ignored local env + the hosting provider (every environment that serves the product):
    ```
    USERTRACK_PROJECT_ID=
@@ -25,6 +25,13 @@ Goal: make this app a **native, verified** UserTrack source. Install the package
 5. Optional: `activation: <CountSource>` (a table with one row per activated user) and `conversion: { converted: <CountSource>, trial?: <CountSource>, mode?: "active_paid" }`. Optional push: Prisma `$extends(userTrackPrismaExtension({ projectId, secret }))`, Auth.js `events: { ...userTrackAuthjsEvents({ projectId, secret }) }`, or `createTracker(...).track("user.created", { id })` after your own insert.
 6. Run the repo's typecheck/tests. Deploy.
 7. Verify: dashboard **Verify** button or MCP `usertrack_verify_integration { projectId, role: "users" }`. 404 = handler not mounted / not deployed; 401 = env vars differ from the integration; stale = clock skew.
+
+## Runtime & known issues
+
+Runtime: Node 20+, or any runtime exposing `globalThis.crypto.subtle` (Convex, Deno, Bun, Cloudflare Workers, Vercel Edge). This package contains **no Node builtins** and needs no polyfill.
+
+- **`Could not resolve "node:crypto"`** — or `npx convex deploy` / a Workers, Deno or Edge build failing on a node builtin while bundling the handler. Cause: a transitive `@usertrack/protocol` below 0.1.1, which reached for `node:crypto` in a branch that never runs on an isolate runtime but that bundlers still resolve statically. Fix: `npm install @usertrack/node@latest --prefer-online`, then confirm `npm ls @usertrack/protocol` reports 0.1.1 or newer; a lockfile pinned lower needs `npm update @usertrack/protocol`. Do **not** vendor, patch, alias or polyfill `node:crypto` — the fixed package does not need it.
+- **`UserTrack requires the Web Crypto API`** — the runtime predates unflagged Web Crypto, in practice Node 18 or older (end of life 2025-04-30). Upgrade to Node 20+.
 
 ## Rules
 - Do not change authentication, billing or database code beyond adding the handler and (optionally) the push hook.

@@ -11,8 +11,14 @@ export const ENV_SECRET = "USERTRACK_SECRET";
 export const PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type PackageManager = (typeof PACKAGE_MANAGERS)[number];
 
+// Floors, not decoration: @usertrack/protocol < 0.1.1 carries a `node:crypto` fallback that breaks every
+// isolate-runtime bundler (Convex, Workers, Deno, Edge). Installing below these versions cannot be deployed there.
+export const MINIMUM_PACKAGE_VERSION: Record<string, string> = { "@usertrack/better-auth": "0.2.1", "@usertrack/node": "0.1.1", "@usertrack/protocol": "0.1.1" };
+
 const ADD: Record<PackageManager, string> = { npm: "npm install", pnpm: "pnpm add", yarn: "yarn add", bun: "bun add" };
-export const installCommands = (source: NativeSource): Record<PackageManager, string> => Object.fromEntries(PACKAGE_MANAGERS.map((pm) => [pm, `${ADD[pm]} ${NATIVE_PACKAGE[source]}`])) as Record<PackageManager, string>;
+// `@latest` on purpose: a bare add can be satisfied from a stale packument cache or lockfile entry and silently
+// resolve a pre-0.1.1 transitive @usertrack/protocol.
+export const installCommands = (source: NativeSource): Record<PackageManager, string> => Object.fromEntries(PACKAGE_MANAGERS.map((pm) => [pm, `${ADD[pm]} ${NATIVE_PACKAGE[source]}@latest`])) as Record<PackageManager, string>;
 export const INSTALL_COMMANDS = installCommands("better-auth");
 
 export const detectPackageManager = (hint?: string): PackageManager => {
@@ -118,6 +124,7 @@ export const CODE_MODIFICATION_RULES = [
 ];
 
 export const NODE_MODIFICATION_RULES = [
+  "Install with the @latest suffix and check `npm ls @usertrack/protocol` resolves to 0.1.1 or newer before writing code. Older versions bundle a node:crypto fallback that breaks Convex, Workers, Deno and Edge builds; if the lockfile pins an older one, update it rather than patching or aliasing the builtin.",
   "Add exactly one route file that exports the UserTrack handler; do not change authentication, billing or database code beyond that (and the optional push hook).",
   "The users count source must count registered users only (exclude anonymous / soft-deleted rows with a where filter) and must never return rows.",
   `Read projectId and secret from process.env.${ENV_PROJECT_ID} / process.env.${ENV_SECRET}. Never hardcode the secret and never commit it.`,
@@ -133,6 +140,23 @@ export const WHAT_IS_SENT = [
   "Optional lifecycle events user.created / user.deleted / user.activated / trial.started / user.converted with a pseudonymous HMAC-derived subject — never the user id, email, name or profile.",
   "Never: emails, names, passwords, password hashes, session tokens, verification tokens, account or provider metadata.",
 ];
+
+// Failure modes an agent can hit and fix without a human. `symptom` carries the literal error text so a search over
+// this plan matches what the toolchain printed.
+export const KNOWN_ISSUES = [
+  {
+    id: "node-crypto-bundle",
+    symptom: 'Could not resolve "node:crypto" — or `npx convex deploy` / any Workers, Deno or Edge build failing on a node builtin while bundling the UserTrack handler.',
+    cause: "@usertrack/protocol below 0.1.1 reached for node:crypto when globalThis.crypto.subtle was absent. That branch never runs on an isolate runtime, but bundlers resolve dynamic imports statically, so the build fails before it ever executes.",
+    fix: "Install the current versions and make sure the transitive @usertrack/protocol is >= 0.1.1: `npm install @usertrack/node@latest --prefer-online` (pnpm/bun/yarn equivalent), then confirm with `npm ls @usertrack/protocol`. A lockfile pinned to 0.1.0 needs `npm update @usertrack/protocol`. Do not vendor, patch or alias node:crypto — the fixed package needs no polyfill.",
+  },
+  {
+    id: "web-crypto-missing",
+    symptom: "UserTrack requires the Web Crypto API (globalThis.crypto.subtle)",
+    cause: "The runtime predates unflagged Web Crypto — in practice Node 18 or older. Every supported runtime (Node 20+, Convex, Deno, Bun, Workers, Edge) provides it.",
+    fix: "Upgrade the runtime to Node 20 or newer. Node 18 reached end of life on 2025-04-30 and is not supported.",
+  },
+] as const;
 
 export interface NativeSetupInput {
   source?: string;
@@ -159,7 +183,7 @@ export function nativeSetup(input: NativeSetupInput) {
   const defaultUrl = ba ? "<https://your-app.com/api/auth>" : source === "convex" ? "<https://your-deployment.convex.site>" : "<https://your-app.com/api/usertrack>";
   const steps = [
     ...(input.integrationExists ? [] : [{ id: "create", title: `Create the ${NATIVE_SOURCE_LABEL[source]} integration in UserTrack`, detail: `Call usertrack_create_integration with { projectId: "${projectRef}", provider: "native", source: "${source}", url: "${defaultUrl}" }. The response contains ${ENV_PROJECT_ID} and ${ENV_SECRET} exactly once; if you lose the secret call it again with rotate: true.`, action: "call_tool" as const, tool: "usertrack_create_integration" }]),
-    { id: "install", title: `Install ${pkg}`, detail: `${installCommands(source)[pm]}${ba ? ` (peer dependency better-auth >=${PLUGIN_MIN_BETTER_AUTH})` : ""}.`, action: "modify_repo" as const },
+    { id: "install", title: `Install ${pkg}`, detail: `${installCommands(source)[pm]}${ba ? ` (peer dependency better-auth >=${PLUGIN_MIN_BETTER_AUTH})` : ""}. Requires ${pkg} >= ${MINIMUM_PACKAGE_VERSION[pkg]} and a transitive @usertrack/protocol >= ${MINIMUM_PACKAGE_VERSION["@usertrack/protocol"]}; keep the @latest suffix so a stale cache or lockfile cannot resolve an older one. Verify with \`npm ls @usertrack/protocol\` (or the equivalent) before moving on — anything below ${MINIMUM_PACKAGE_VERSION["@usertrack/protocol"]} fails to bundle on Convex, Workers, Deno and Edge. Runtime: Node 20+ or any runtime with globalThis.crypto.subtle.`, action: "modify_repo" as const },
     { id: "config", title: files.route.title, detail: ba ? `${input.authConfigPath ? `Edit ${input.authConfigPath}: ` : ""}import userTrack and append userTrack({ projectId: process.env.${ENV_PROJECT_ID}!, secret: process.env.${ENV_SECRET}! }) to the plugins array. Keep everything else untouched.` : `Add ${files.route.path} from the code template (users = registered users; optionally activation / conversion sources). ${files.notes[0]}`, action: "modify_repo" as const },
     { id: "env", title: "Declare the environment variables", detail: `Add ${ENV_PROJECT_ID} and ${ENV_SECRET} to .env.example (empty) and set the real values in the git-ignored local env file and in the hosting provider (all environments serving the product). Never commit the secret.`, action: "modify_repo" as const },
     ...(files.push ? [{ id: "push", title: files.push.title, detail: `${files.push.path}: ${files.push.code.split("\n").slice(-1)[0]} — fire-and-forget, never blocks a signup. Skip if you prefer pull-only.`, action: "modify_repo" as const }] : []),
@@ -186,6 +210,10 @@ export function nativeSetup(input: NativeSetupInput) {
     configExample: files.route.code,
     files: codeFiles,
     notes: files.notes,
+    minimumPackageVersion: MINIMUM_PACKAGE_VERSION[pkg],
+    minimumProtocolVersion: MINIMUM_PACKAGE_VERSION["@usertrack/protocol"],
+    runtimeRequirement: "Node 20+, or any runtime exposing globalThis.crypto.subtle (Convex, Deno, Bun, Cloudflare Workers, Vercel Edge). The SDK contains no Node builtins and needs no polyfill.",
+    knownIssues: KNOWN_ISSUES,
     codeModificationRules: ba ? CODE_MODIFICATION_RULES : NODE_MODIFICATION_RULES,
     whatIsSent: WHAT_IS_SENT,
     endpoint: { path: ba ? "/usertrack/metrics" : "/metrics", method: "POST", auth: "HMAC-SHA256 request + response signatures with the integration secret; 5-minute timestamp window; nonce replay protection" },
