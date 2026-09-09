@@ -37,7 +37,7 @@ export default function DigestPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+    <div className="app-page space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <SectionLabel>Weekly digest</SectionLabel>
@@ -57,16 +57,18 @@ export default function DigestPage() {
       {latest && (
         <Panel className="space-y-6 p-5">
           <div className="flex items-center justify-between"><div className="text-label">Week {latest.weekKey}</div><div className="font-mono text-[11px] text-muted-foreground">{latest.sentAt ? `emailed ${formatDate(latest.sentAt)}` : "in-app"}</div></div>
-          <Section title="Your products" rows={latest.payload.own} />
-          <Section title="Products you follow" rows={latest.payload.followed} empty="Follow products to see their week here." />
-          {latest.payload.milestones.length > 0 && (
-            <div>
-              <div className="text-label">Milestones</div>
-              <div className="mt-2 space-y-2">{latest.payload.milestones.map((m, i) => <div key={i} className="border-b border-line pb-2 last:border-0"><Link href={`/s/${m.slug}`} className="text-sm font-medium hover:underline">{m.title}</Link><div className="text-xs text-muted-foreground">{m.copy}</div></div>)}</div>
-            </div>
-          )}
-          <Section title="Leaderboard movers" rows={latest.payload.movers} />
-          <Section title="Trending now" rows={latest.payload.trending} />
+          <div className="grid items-start gap-x-8 gap-y-6 lg:grid-cols-2">
+            <Section title="Your products" rows={latest.payload.own} />
+            <Section title="Products you follow" rows={latest.payload.followed} empty="Follow products to see their week here." />
+            {latest.payload.milestones.length > 0 && (
+              <div>
+                <div className="text-label">Milestones</div>
+                <div className="mt-2 space-y-2">{latest.payload.milestones.map((m, i) => <div key={i} className="border-b border-line pb-2 last:border-0"><Link href={`/s/${m.slug}`} className="text-sm font-medium hover:underline">{m.title}</Link><div className="text-xs text-muted-foreground">{m.copy}</div></div>)}</div>
+              </div>
+            )}
+            <Section title="Leaderboard movers" rows={latest.payload.movers} />
+            <Section title="Trending now" rows={latest.payload.trending} />
+          </div>
         </Panel>
       )}
     </div>

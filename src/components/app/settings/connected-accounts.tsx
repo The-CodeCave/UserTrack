@@ -68,7 +68,7 @@ export function ConnectedAccountsPanel() {
   const last = (accounts?.length ?? 0) <= 1;
 
   return (
-    <Panel id="connected-accounts" className="mt-4 space-y-4 p-5" data-testid="connected-accounts">
+    <Panel id="connected-accounts" className="space-y-4 p-5" data-testid="connected-accounts">
       <div>
         <SectionLabel>Connected accounts</SectionLabel>
         <p className="mt-2 text-sm text-muted-foreground">Sign-in methods for this account. Connecting X here is for signing in only — posting from your X account is set up under <Link href="/app/settings/social" className="underline underline-offset-4 hover:text-foreground">Social &amp; X</Link>.</p>

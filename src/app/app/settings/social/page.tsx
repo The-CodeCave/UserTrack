@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { track } from "@/lib/analytics";
 
 export default function SocialSettingsPage() {
-  return <Suspense fallback={<div className="mx-auto max-w-2xl p-6"><Skeleton className="h-8 w-48" /><Skeleton className="mt-6 h-64" /></div>}><SocialSettings /></Suspense>;
+  return <Suspense fallback={<div className="app-page"><Skeleton className="h-8 w-48" /><Skeleton className="mt-6 h-64" /></div>}><SocialSettings /></Suspense>;
 }
 
 function SocialSettings() {
@@ -50,7 +50,7 @@ function SocialSettings() {
     else if (st === "error") toast.error(params.get("reason") || "Could not connect X");
   }, [params]);
 
-  if (s === undefined) return <div className="mx-auto max-w-2xl p-6"><Skeleton className="h-8 w-48" /><Skeleton className="mt-6 h-64" /></div>;
+  if (s === undefined) return <div className="app-page"><Skeleton className="h-8 w-48" /><Skeleton className="mt-6 h-64" /></div>;
   if (s === null) return null;
 
   async function saveHandle() {
@@ -87,7 +87,7 @@ function SocialSettings() {
   const connected = s.state === "connected_via_oauth";
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4 p-4 sm:p-6">
+    <div className="app-page space-y-4">
       <div>
         <Link href="/app/settings" className="inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3" /> Settings</Link>
         <SectionLabel className="mt-4">Social</SectionLabel>
@@ -95,6 +95,7 @@ function SocialSettings() {
         <p className="mt-1 text-sm text-muted-foreground">Your X handle appears on your founder profile and share cards. Nothing is posted on your behalf unless you connect an account and switch a category on.</p>
       </div>
 
+      <div className="grid items-start gap-4 lg:grid-cols-2">
       <Panel className="space-y-4 p-5">
         <div className="flex items-center justify-between">
           <div className="text-label">X handle</div>
@@ -142,6 +143,9 @@ function SocialSettings() {
         )}
       </Panel>
 
+      </div>
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
       <Panel className="space-y-4 p-5">
         <div>
           <div className="text-label">Auto-share from your account</div>
@@ -171,6 +175,8 @@ function SocialSettings() {
           <Switch checked={s.prefs.allowTagging} disabled={!s.prefs.allowPromotion} onCheckedChange={(v) => setPref({ allowTagging: v })} />
         </label>
       </Panel>
+
+      </div>
 
       {s.recentPosts.length > 0 && (
         <Panel className="divide-y divide-line p-0">

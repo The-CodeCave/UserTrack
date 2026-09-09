@@ -4,7 +4,7 @@ import path from "node:path";
 import { ImageResponse } from "next/og";
 import { ogFonts } from "@/lib/og/fonts";
 import { SITE_HOST } from "@/lib/site";
-import type { CardStyle } from "@/lib/share-card";
+import { CARD_ACCENT_META, type CardAccent, type CardStyle } from "@/lib/share-card";
 
 export const OG_SIZE = { width: 1200, height: 630 };
 
@@ -60,47 +60,99 @@ interface FrameProps {
   align?: "center" | "flex-end";
   /** Render the chart as a full-bleed layer behind the content instead of a band under it. */
   chartFloat?: boolean;
-  /** Share-card preset. Blueprint is the house style; Aurora and Minimal keep the type, wordmark and footer. */
+  /** Share-card preset. Blueprint is the house style; every other preset keeps the type, wordmark and footer. */
   style?: CardStyle;
+  accent?: CardAccent;
 }
 
+// Palette a card renders with: one accent drives every layer, so a style stays recognisable in any colour.
+export function cardTheme(style: CardStyle, accent: CardAccent = "pink") {
+  const a = CARD_ACCENT_META[accent];
+  const onColor = style === "bold";
+  return {
+    ...a,
+    onColor,
+    eyebrow: style === "minimal" ? MUTED : onColor ? "rgba(255,255,255,0.9)" : a.base,
+    value: style === "minimal" || onColor ? INK : a.base,
+    chart: style === "aurora" || onColor ? "#ffffff" : a.base,
+    // Aurora and Bold live off their background: the chart's scrim and area fill stay light enough to let it through.
+    fadeOpacity: onColor ? 0.3 : style === "aurora" ? 0.5 : 0.97,
+    fillOpacity: onColor || style === "aurora" ? 0.2 : 0.42,
+    label: onColor ? "rgba(255,255,255,0.82)" : MUTED,
+  };
+}
+type Theme = ReturnType<typeof cardTheme>;
+
+// satori sizes absolute children from explicit pixel values only — `inset: 0` (and a percentage height inside a
+// percentage-sized root) collapses the layer to 0×0, which is why every backdrop used to render as plain black.
+const full = (w: number, h: number, backgroundImage: string) => ({ position: "absolute" as const, top: 0, left: 0, width: w, height: h, display: "flex" as const, backgroundImage });
+// satori parses rgba() reliably; 8-digit hex is not worth the risk inside gradient stops.
+const rgba = (hex: string, a: number) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
+
 // Background layers per preset. Everything else on the card (type, chips, chart, footer) is shared.
-function Backdrop({ style }: { style: CardStyle }) {
+function Backdrop({ style, t, w, h }: { style: CardStyle; t: Theme; w: number; h: number }) {
+  const layer = (backgroundImage: string) => full(w, h, backgroundImage);
+  const bar = (image: string) => <div style={{ position: "absolute", top: 0, left: 0, width: w, height: 5, display: "flex", backgroundImage: image }} />;
   if (style === "aurora") {
     return (
       <>
-        <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "linear-gradient(135deg, #150a1f 0%, #0a0b0d 46%, #061a22 100%)" }} />
-        <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(820px 560px at 8% 100%, rgba(251,1,132,0.55), transparent 62%)" }} />
-        <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(700px 520px at 100% 0%, rgba(96,165,250,0.34), transparent 64%)" }} />
-        <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(600px 420px at 60% 110%, rgba(167,139,250,0.30), transparent 66%)" }} />
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, display: "flex", backgroundImage: `linear-gradient(90deg, ${PINK}, #a78bfa 50%, #60a5fa)` }} />
+        <div style={layer(`linear-gradient(118deg, ${rgba(t.base, 0.55)} 0%, ${rgba(t.third, 0.3)} 46%, ${rgba(t.second, 0.5)} 100%)`)} />
+        <div style={layer(`radial-gradient(1020px 720px at 2% 0%, ${rgba(t.base, 0.92)}, ${rgba(t.base, 0)} 70%)`)} />
+        <div style={layer(`radial-gradient(940px 700px at 100% 6%, ${rgba(t.third, 0.78)}, ${rgba(t.third, 0)} 68%)`)} />
+        <div style={layer(`radial-gradient(900px 640px at 62% 106%, ${rgba(t.second, 0.72)}, ${rgba(t.second, 0)} 70%)`)} />
+        <div style={layer(`radial-gradient(700px 520px at 14% 104%, ${rgba(t.base, 0.6)}, ${rgba(t.base, 0)} 72%)`)} />
+        <div style={layer("linear-gradient(115deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 44%)")} />
+        <div style={layer("radial-gradient(132% 104% at 50% 44%, rgba(4,4,8,0) 48%, rgba(4,4,8,0.5) 100%)")} />
+        {bar(`linear-gradient(90deg, ${t.base}, ${t.second} 50%, ${t.third})`)}
+      </>
+    );
+  }
+  if (style === "spotlight") {
+    return (
+      <>
+        <div style={layer(`radial-gradient(820px 600px at 42% 66%, ${rgba(t.base, 0.55)}, ${rgba(t.base, 0)} 72%)`)} />
+        <div style={layer(`radial-gradient(560px 420px at 92% 4%, ${rgba(t.second, 0.34)}, ${rgba(t.second, 0)} 72%)`)} />
+        <div style={{ ...layer(`linear-gradient(${LINE_SOFT} 1px, rgba(255,255,255,0) 1px), linear-gradient(90deg, ${LINE_SOFT} 1px, rgba(255,255,255,0) 1px)`), backgroundSize: "44px 44px" }} />
+        <div style={layer("radial-gradient(110% 86% at 50% 50%, rgba(10,11,13,0) 40%, rgba(10,11,13,0.9) 100%)")} />
+        {bar(`linear-gradient(90deg, transparent, ${t.base} 50%, transparent)`)}
+      </>
+    );
+  }
+  if (style === "bold") {
+    return (
+      <>
+        <div style={layer(`linear-gradient(118deg, ${t.base} 0%, ${t.second} 58%, ${t.third} 100%)`)} />
+        <div style={layer("radial-gradient(820px 620px at 8% 0%, rgba(255,255,255,0.22), rgba(255,255,255,0) 62%)")} />
+        <div style={layer("radial-gradient(980px 740px at 98% 110%, rgba(0,0,0,0.55), rgba(0,0,0,0) 64%)")} />
+        <div style={layer("linear-gradient(180deg, rgba(0,0,0,0.06) 0%, rgba(0,0,0,0.34) 100%)")} />
       </>
     );
   }
   if (style === "minimal") {
     return (
       <>
-        <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(900px 500px at 50% 120%, rgba(251,1,132,0.12), transparent 70%)" }} />
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, display: "flex", background: "rgba(255,255,255,0.22)" }} />
+        <div style={layer(`radial-gradient(900px 500px at 50% 120%, ${rgba(t.base, 0.16)}, ${rgba(t.base, 0)} 70%)`)} />
+        {bar("linear-gradient(90deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22))")}
       </>
     );
   }
   return (
     <>
-      <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: `linear-gradient(${LINE_SOFT} 1px, transparent 1px), linear-gradient(90deg, ${LINE_SOFT} 1px, transparent 1px)`, backgroundSize: "48px 48px" }} />
-      <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(760px 620px at 14% 72%, rgba(251,1,132,0.30), transparent 66%)" }} />
-      <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(760px 420px at 98% -14%, rgba(255,255,255,0.11), transparent 68%)" }} />
-      <div style={{ position: "absolute", inset: 0, display: "flex", backgroundImage: "radial-gradient(520px 300px at 88% 118%, rgba(251,1,132,0.22), transparent 70%)" }} />
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, display: "flex", backgroundImage: `linear-gradient(90deg, ${PINK}, rgba(251,1,132,0.22) 52%, rgba(251,1,132,0) 88%)` }} />
+      <div style={{ ...layer(`linear-gradient(${LINE_SOFT} 1px, rgba(255,255,255,0) 1px), linear-gradient(90deg, ${LINE_SOFT} 1px, rgba(255,255,255,0) 1px)`), backgroundSize: "48px 48px" }} />
+      <div style={layer(`radial-gradient(760px 620px at 14% 72%, ${rgba(t.base, 0.3)}, transparent 66%)`)} />
+      <div style={layer("radial-gradient(760px 420px at 98% -14%, rgba(255,255,255,0.11), transparent 68%)")} />
+      <div style={layer(`radial-gradient(520px 300px at 88% 118%, ${rgba(t.second, 0.27)}, transparent 70%)`)} />
+      {bar(`linear-gradient(90deg, ${t.base}, ${rgba(t.base, 0.22)} 52%, ${rgba(t.base, 0)} 88%)`)}
     </>
   );
 }
 
-export function OgFrame({ wordmark, children, chips, top, chart, footerLeft, footerRight, square, align = "center", chartFloat, style = "blueprint" }: FrameProps) {
+export function OgFrame({ wordmark, children, chips, top, chart, footerLeft, footerRight, square, align = "center", chartFloat, style = "blueprint", accent = "pink" }: FrameProps) {
   const pad = square ? 72 : 60;
+  const t = cardTheme(style, accent);
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", background: BG, color: INK, fontFamily: "Geist", position: "relative" }}>
-      <Backdrop style={style} />
+      <Backdrop style={style} t={t} w={square ? 1080 : OG_SIZE.width} h={square ? 1080 : OG_SIZE.height} />
       {chartFloat && (
         <div style={{ position: "absolute", left: 0, right: 0, bottom: square ? 88 : 76, display: "flex" }}>{chart}</div>
       )}
@@ -116,8 +168,8 @@ export function OgFrame({ wordmark, children, chips, top, chart, footerLeft, foo
 
       {!chartFloat && chart}
 
-      <div style={{ display: "flex", alignItems: "center", height: square ? 88 : 76, padding: `0 ${pad}px`, borderTop: `1px solid ${LINE}`, fontFamily: "Geist Mono", fontSize: square ? 19 : 17, letterSpacing: 1.6, color: DIM }}>
-        <div style={{ display: "flex", color: MUTED }}>{(footerLeft ?? HOST).toUpperCase()}</div>
+      <div style={{ display: "flex", alignItems: "center", height: square ? 88 : 76, padding: `0 ${pad}px`, borderTop: `1px solid ${t.onColor ? "rgba(255,255,255,0.28)" : LINE}`, fontFamily: "Geist Mono", fontSize: square ? 19 : 17, letterSpacing: 1.6, color: t.onColor ? "rgba(255,255,255,0.72)" : DIM }}>
+        <div style={{ display: "flex", color: t.onColor ? "rgba(255,255,255,0.88)" : MUTED }}>{(footerLeft ?? HOST).toUpperCase()}</div>
         {footerRight && <div style={{ display: "flex", marginLeft: "auto" }}>{footerRight.toUpperCase()}</div>}
       </div>
     </div>
@@ -133,7 +185,7 @@ export function OgEyebrow({ children, color = PINK }: { children: string; color?
   );
 }
 
-export function OgChip({ children, tone = "ghost", icon }: { children: string; tone?: "ghost" | "pink" | "solid"; icon?: ReactNode }) {
+export function OgChip({ children, tone = "ghost", icon, color = PINK }: { children: string; tone?: "ghost" | "pink" | "solid"; icon?: ReactNode; color?: string }) {
   const pink = tone === "pink";
   const solid = tone === "solid";
   return (
@@ -142,9 +194,9 @@ export function OgChip({ children, tone = "ghost", icon }: { children: string; t
         display: "flex",
         alignItems: "center",
         padding: "9px 15px",
-        border: `1.5px solid ${pink ? PINK : solid ? "transparent" : LINE}`,
-        background: pink ? "rgba(251,1,132,0.14)" : solid ? INK : "rgba(255,255,255,0.03)",
-        color: pink ? PINK : solid ? BG : MUTED,
+        border: `1.5px solid ${pink ? color : solid ? "transparent" : LINE}`,
+        background: pink ? "rgba(255,255,255,0.10)" : solid ? INK : "rgba(255,255,255,0.03)",
+        color: pink ? color : solid ? BG : MUTED,
         fontFamily: "Geist Mono",
         fontSize: 17,
         letterSpacing: 2,
@@ -200,7 +252,7 @@ export function OgLogo({ name, src, size = 96, radius = 20 }: { name: string; sr
 }
 
 // Full-bleed data floor: the series drawn edge to edge under the content, with a glow, gradient fill and end marker.
-export function OgChart({ values, width = OG_SIZE.width, height = 176, color = PINK, fade }: { values: number[]; width?: number; height?: number; color?: string; fade?: boolean }) {
+export function OgChart({ values, width = OG_SIZE.width, height = 176, color = PINK, fade, fadeOpacity = 0.97, fillOpacity = 0.42 }: { values: number[]; width?: number; height?: number; color?: string; fade?: boolean; fadeOpacity?: number; fillOpacity?: number }) {
   const pts = values.length >= 2 ? values : null;
   if (!pts) return null;
   const min = Math.min(...pts);
@@ -217,7 +269,7 @@ export function OgChart({ values, width = OG_SIZE.width, height = 176, color = P
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
         <defs>
           <linearGradient id="ogFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.42" />
+            <stop offset="0%" stopColor={color} stopOpacity={fillOpacity} />
             <stop offset="100%" stopColor={color} stopOpacity="0.02" />
           </linearGradient>
           <linearGradient id="ogStroke" x1="0" y1="0" x2="1" y2="0">
@@ -226,17 +278,25 @@ export function OgChart({ values, width = OG_SIZE.width, height = 176, color = P
             <stop offset="100%" stopColor="#ffffff" stopOpacity="1" />
           </linearGradient>
           <linearGradient id="ogFade" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor={BG} stopOpacity="0.97" />
-            <stop offset="34%" stopColor={BG} stopOpacity="0.86" />
+            <stop offset="0%" stopColor={BG} stopOpacity={fadeOpacity} />
+            <stop offset="34%" stopColor={BG} stopOpacity={fadeOpacity * 0.89} />
             <stop offset="66%" stopColor={BG} stopOpacity="0" />
           </linearGradient>
+          {/* The scrim also ramps in vertically, so it never draws a visible seam where the chart band starts. */}
+          <linearGradient id="ogFadeV" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
+            <stop offset="55%" stopColor="#ffffff" stopOpacity="1" />
+          </linearGradient>
+          <mask id="ogFadeMask">
+            <rect x="0" y="0" width={width} height={height} fill="url(#ogFadeV)" />
+          </mask>
         </defs>
         <path d={area} fill="url(#ogFill)" />
         <path d={line} fill="none" stroke={color} strokeOpacity="0.35" strokeWidth="9" strokeLinejoin="round" strokeLinecap="round" />
         <path d={line} fill="none" stroke="url(#ogStroke)" strokeWidth="3.5" strokeLinejoin="round" strokeLinecap="round" />
         <circle cx={lx} cy={ly} r="13" fill={color} fillOpacity="0.28" />
         <circle cx={lx} cy={ly} r="6.5" fill={color} stroke={BG} strokeWidth="3" />
-        <path d={`M0 0H${width}V${height}H0Z`} fill={fade ? "url(#ogFade)" : "none"} />
+        {fade && <path d={`M0 0H${width}V${height}H0Z`} fill="url(#ogFade)" mask="url(#ogFadeMask)" />}
       </svg>
     </div>
   );
@@ -260,7 +320,7 @@ export function OgSpark({ values, width = 140, height = 40, color = PINK }: { va
 
 // Range chart for share cards: same faithful min→max scaling as the site charts, but the scale is printed (min / max
 // values and the first / last date) so the reader can see exactly what the curve spans. Never cropped or smoothed.
-export function OgRangeChart({ values, dates, width = OG_SIZE.width, height = 176, color = PINK, fade, labels = true }: { values: number[]; dates?: [number, number]; width?: number; height?: number; color?: string; fade?: boolean; labels?: boolean }) {
+export function OgRangeChart({ values, dates, width = OG_SIZE.width, height = 176, color = PINK, fade, fadeOpacity, fillOpacity, labels = true, labelColor = MUTED }: { values: number[]; dates?: [number, number]; width?: number; height?: number; color?: string; fade?: boolean; fadeOpacity?: number; fillOpacity?: number; labels?: boolean; labelColor?: string }) {
   if (values.length < 2) return null;
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -268,9 +328,9 @@ export function OgRangeChart({ values, dates, width = OG_SIZE.width, height = 17
   const day = (t: number) => new Date(t).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   return (
     <div style={{ display: "flex", position: "relative", width, height }}>
-      <OgChart values={values} width={width} height={height} color={color} fade={fade} />
+      <OgChart values={values} width={width} height={height} color={color} fade={fade} fadeOpacity={fadeOpacity} fillOpacity={fillOpacity} />
       {labels && (
-        <div style={{ position: "absolute", left: 60, right: 60, bottom: 8, display: "flex", justifyContent: "space-between", fontFamily: "Geist Mono", fontSize: 15, letterSpacing: 1.2, color: MUTED }}>
+        <div style={{ position: "absolute", left: 60, right: 60, bottom: 8, display: "flex", justifyContent: "space-between", fontFamily: "Geist Mono", fontSize: 15, letterSpacing: 1.2, color: labelColor }}>
           <div style={{ display: "flex" }}>{dates ? day(dates[0]).toUpperCase() : ""}</div>
           <div style={{ display: "flex", gap: 18 }}>
             <div style={{ display: "flex" }}>MIN {fmt(min)}</div>

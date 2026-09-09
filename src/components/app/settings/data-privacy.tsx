@@ -26,7 +26,7 @@ const REMOVED = [
 
 export function DataPrivacyPanel() {
   return (
-    <Panel id="data-privacy" className="mt-4 space-y-5 p-5">
+    <Panel id="data-privacy" className="grid items-start gap-5 p-5 lg:grid-cols-2">
       <div>
         <SectionLabel>Data &amp; privacy</SectionLabel>
         <p className="mt-2 text-sm text-muted-foreground">Everything UserTrack stores about you, as one JSON file (GDPR Art. 20). Credentials and secrets are never included. Details in the <Link href="/privacy#self-service" className="underline underline-offset-4 hover:text-foreground">privacy policy</Link>.</p>

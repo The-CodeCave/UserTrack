@@ -12,10 +12,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 export default function EmbedPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const saas = useQuery(api.saas.getMine, { id: id as Id<"saas"> });
-  if (saas === undefined) return <div className="mx-auto max-w-5xl space-y-4 p-6"><Skeleton className="h-8 w-56" /><Skeleton className="h-40" /><Skeleton className="h-64" /></div>;
+  if (saas === undefined) return <div className="app-page space-y-4"><Skeleton className="h-8 w-56" /><Skeleton className="h-40" /><Skeleton className="h-64" /></div>;
   if (saas === null) return <div className="p-6 text-sm text-muted-foreground">Not found.</div>;
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
+    <div className="app-page space-y-6">
       <div>
         <SectionLabel><Link href="/app/saas" className="hover:text-foreground">My SaaS</Link> / <Link href={`/app/saas/${id}`} className="hover:text-foreground">{saas.name}</Link> / Embed</SectionLabel>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">Embed UserTrack</h1>

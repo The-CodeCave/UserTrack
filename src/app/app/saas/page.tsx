@@ -14,7 +14,7 @@ import { formatCompact, formatDelta } from "@/lib/format";
 export default function SaasListPage() {
   const list = useQuery(api.saas.listMine);
   return (
-    <div className="mx-auto max-w-5xl p-4 sm:p-6">
+    <div className="app-page">
       <div className="flex items-end justify-between gap-4">
         <div>
           <SectionLabel>My SaaS</SectionLabel>

@@ -1,6 +1,6 @@
 import { publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
-import { OgFrame, OgRangeChart, OgEyebrow, OgLogo, OgBadge, OgChip, OgCheck, ogImage, ogWordmark, remoteImage, truncate, PINK, MUTED, DIM, INK, HOST } from "@/lib/og/frame";
+import { OgFrame, OgRangeChart, OgEyebrow, OgLogo, OgBadge, OgChip, OgCheck, cardTheme, ogImage, ogWordmark, remoteImage, truncate, MUTED, DIM, INK, HOST } from "@/lib/og/frame";
 import { parseShareKind, shareCopy, SHARE_SIZES, GRAPH_KINDS, type ShareEvent } from "@/lib/share";
 import { CARD_RANGE_LABEL, DEFAULT_CARD, verificationLine, type CardConfig } from "@/lib/share-card";
 import { formatCompact, formatDelta } from "@/lib/format";
@@ -43,6 +43,7 @@ export async function renderShareCard(slug: string, kind: string, cfg: CardConfi
   const c = d && base ? shareCopy(base, d.kind, d.m) : { eyebrow: "USERTRACK", value: "Not found", sub: "" };
   const logo = cfg.logo ? await remoteImage(base?.logoUrl) : null;
   const square = cfg.size === "square";
+  const t = cardTheme(cfg.style, cfg.accent);
   const dim = SHARE_SIZES[cfg.size];
   const showChart = Boolean(base) && cfg.chart && (GRAPH_KINDS.has(d?.kind ?? "") || !d?.m);
   const series = base && showChart ? await chartSeries(slug, cfg.range, base.spark) : null;
@@ -58,7 +59,7 @@ export async function renderShareCard(slug: string, kind: string, cfg: CardConfi
       {cfg.logo && <OgLogo name={base?.name ?? "?"} src={logo} size={square ? 82 : 62} radius={14} />}
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         <div style={{ display: "flex", fontSize: square ? 46 : 38, fontWeight: 600, letterSpacing: -1.2, color: INK }}>{truncate(base?.name ?? "Not found", 26)}</div>
-        {(square || founder) && <div style={{ display: "flex", fontSize: square ? 25 : 20, color: MUTED, fontFamily: founder ? "Geist Mono" : "Geist" }}>{founder ?? truncate(base?.description ?? "", 52)}</div>}
+        {(square || founder) && <div style={{ display: "flex", fontSize: square ? 25 : 20, color: t.onColor ? "rgba(255,255,255,0.82)" : MUTED, fontFamily: founder ? "Geist Mono" : "Geist" }}>{founder ?? truncate(base?.description ?? "", 52)}</div>}
       </div>
     </div>
   );
@@ -68,16 +69,17 @@ export async function renderShareCard(slug: string, kind: string, cfg: CardConfi
       wordmark={await ogWordmark()}
       square={square}
       style={cfg.style}
-      chips={base ? (cfg.verified && verified ? <OgChip tone="pink" icon={<OgCheck />}>Verified</OgChip> : <OgBadge trust={base.trust} />) : null}
+      accent={cfg.accent}
+      chips={base ? (cfg.verified && verified ? <OgChip tone={t.onColor ? "solid" : "pink"} color={t.base} icon={<OgCheck color={t.onColor ? "#0a0b0d" : t.base} />}>Verified</OgChip> : <OgBadge trust={base.trust} />) : null}
       top={square ? head : undefined}
       chartFloat
-      chart={series ? <OgRangeChart values={series.values} dates={cfg.dates ? series.dates : undefined} width={dim.width} height={square ? 400 : 268} fade labels={cfg.dates} color={cfg.style === "aurora" ? "#ffffff" : PINK} /> : null}
+      chart={series ? <OgRangeChart values={series.values} dates={cfg.dates ? series.dates : undefined} width={dim.width} height={square ? 400 : 268} fade fadeOpacity={t.fadeOpacity} fillOpacity={t.fillOpacity} labels={cfg.dates} labelColor={t.label} color={t.chart} /> : null}
       footerLeft={`${HOST}/s/${slug}`}
       footerRight={footerRight}
     >
       {!square && head}
       <div style={{ display: "flex", marginTop: square ? 0 : 30 }}>
-        <OgEyebrow color={cfg.style === "minimal" ? MUTED : PINK}>{eyebrow}</OgEyebrow>
+        <OgEyebrow color={t.eyebrow}>{eyebrow}</OgEyebrow>
       </div>
       <div
         style={{
@@ -87,15 +89,15 @@ export async function renderShareCard(slug: string, kind: string, cfg: CardConfi
           fontWeight: 700,
           lineHeight: 1.04,
           letterSpacing: short ? -8 : -2.4,
-          color: cfg.style === "minimal" ? INK : PINK,
+          color: t.value,
           maxWidth: square ? 940 : 1060,
         }}
       >
         {truncate(c.value, 46)}
       </div>
-      <div style={{ display: "flex", marginTop: 14, fontSize: square ? 34 : 30, color: MUTED, maxWidth: square ? 930 : 1000 }}>{truncate(c.sub, 84)}</div>
+      <div style={{ display: "flex", marginTop: 14, fontSize: square ? 34 : 30, color: t.onColor ? "rgba(255,255,255,0.86)" : MUTED, maxWidth: square ? 930 : 1000 }}>{truncate(c.sub, 84)}</div>
       {cfg.dates && d && GRAPH_KINDS.has(d.kind) && !series && (
-        <div style={{ display: "flex", marginTop: 10, fontFamily: "Geist Mono", fontSize: 17, letterSpacing: 1.6, color: DIM }}>{CARD_RANGE_LABEL[cfg.range].toUpperCase()}</div>
+        <div style={{ display: "flex", marginTop: 10, fontFamily: "Geist Mono", fontSize: 17, letterSpacing: 1.6, color: t.onColor ? "rgba(255,255,255,0.7)" : DIM }}>{CARD_RANGE_LABEL[cfg.range].toUpperCase()}</div>
       )}
     </OgFrame>,
     dim,
@@ -106,6 +108,7 @@ export async function renderShareCard(slug: string, kind: string, cfg: CardConfi
 export async function renderFounderCard(username: string, cfg: CardConfig = DEFAULT_CARD) {
   const p = await publicQuery(api.public.profileByUsername, { username });
   const square = cfg.size === "square";
+  const t = cardTheme(cfg.style, cfg.accent);
   const dim = SHARE_SIZES[cfg.size];
   const h = p && cfg.chart ? await publicQuery(api.public.founderHistory, { username, range: cfg.range === "7d" ? "7d" : cfg.range }) : null;
   const projects = p?.saas.slice(0, square ? 3 : 4) ?? [];
@@ -121,24 +124,25 @@ export async function renderFounderCard(username: string, cfg: CardConfig = DEFA
       wordmark={await ogWordmark()}
       square={square}
       style={cfg.style}
+      accent={cfg.accent}
       chartFloat
-      chart={points.length >= 2 ? <OgRangeChart values={points.map((x) => x.total)} dates={cfg.dates ? [points[0].t, points[points.length - 1].t] : undefined} width={dim.width} height={square ? 380 : 250} fade labels={cfg.dates} color={cfg.style === "aurora" ? "#ffffff" : PINK} /> : null}
+      chart={points.length >= 2 ? <OgRangeChart values={points.map((x) => x.total)} dates={cfg.dates ? [points[0].t, points[points.length - 1].t] : undefined} width={dim.width} height={square ? 380 : 250} fade fadeOpacity={t.fadeOpacity} fillOpacity={t.fillOpacity} labels={cfg.dates} labelColor={t.label} color={t.chart} /> : null}
       footerLeft={`${HOST}/u/${username}`}
       footerRight={footerRight}
-      chips={cfg.founder && p?.x ? <OgChip>{`@${p.x}${p.xFollowers !== undefined ? ` · ${formatCompact(p.xFollowers)} followers` : ""}`}</OgChip> : null}
+      chips={cfg.founder && p?.x ? <OgChip color={t.base}>{`@${p.x}${p.xFollowers !== undefined ? ` · ${formatCompact(p.xFollowers)} followers` : ""}`}</OgChip> : null}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
         <OgLogo name={name} src={avatar} size={square ? 110 : 92} radius={square ? 55 : 46} />
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 18, letterSpacing: 3, color: cfg.style === "minimal" ? MUTED : PINK }}>{(cfg.title ?? "FOUNDER").toUpperCase()}</div>
+          <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 18, letterSpacing: 3, color: t.eyebrow }}>{(cfg.title ?? "FOUNDER").toUpperCase()}</div>
           <div style={{ display: "flex", fontSize: square ? 60 : name.length > 14 ? 50 : 60, fontWeight: 700, letterSpacing: -2, lineHeight: 1.02 }}>{name}</div>
-          <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 21, color: MUTED, letterSpacing: 1 }}>@{truncate(username, 24)}</div>
+          <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 21, color: t.onColor ? "rgba(255,255,255,0.86)" : MUTED, letterSpacing: 1 }}>@{truncate(username, 24)}</div>
         </div>
       </div>
       <div style={{ display: "flex", gap: square ? 46 : 56, marginTop: square ? 44 : 36 }}>
-        <Stat label="Users" value={formatCompact(a?.totalUsers ?? 0)} accent size={square ? 84 : 72} minimal={cfg.style === "minimal"} />
-        <Stat label="New · 30 days" value={formatDelta(a?.newUsers30d ?? 0)} size={square ? 84 : 72} />
-        <Stat label={a?.projectCount === 1 ? "Product" : "Products"} value={String(a?.projectCount ?? 0)} size={square ? 84 : 72} />
+        <Stat label="Users" value={formatCompact(a?.totalUsers ?? 0)} color={t.value} labelColor={t.label} size={square ? 84 : 72} />
+        <Stat label="New · 30 days" value={formatDelta(a?.newUsers30d ?? 0)} labelColor={t.label} size={square ? 84 : 72} />
+        <Stat label={a?.projectCount === 1 ? "Product" : "Products"} value={String(a?.projectCount ?? 0)} labelColor={t.label} size={square ? 84 : 72} />
       </div>
       {projects.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: square ? 40 : 30 }}>
@@ -146,10 +150,10 @@ export async function renderFounderCard(username: string, cfg: CardConfig = DEFA
             <div key={s.slug} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px 8px 8px", border: "1px solid rgba(255,255,255,0.14)", background: "rgba(0,0,0,0.25)" }}>
               <OgLogo name={s.name} src={logos[i]} size={30} radius={7} />
               <div style={{ display: "flex", fontSize: 21, fontWeight: 600, letterSpacing: -0.4 }}>{truncate(s.name, 16)}</div>
-              <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 15, color: DIM }}>{formatCompact(s.totalUsers)}</div>
+              <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 15, color: t.label }}>{formatCompact(s.totalUsers)}</div>
             </div>
           ))}
-          {p && p.saas.length > projects.length && <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 17, color: DIM, letterSpacing: 1.4 }}>+{p.saas.length - projects.length} MORE</div>}
+          {p && p.saas.length > projects.length && <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 17, color: t.label, letterSpacing: 1.4 }}>+{p.saas.length - projects.length} MORE</div>}
         </div>
       )}
     </OgFrame>,
@@ -157,11 +161,11 @@ export async function renderFounderCard(username: string, cfg: CardConfig = DEFA
   );
 }
 
-function Stat({ label, value, accent, size, minimal }: { label: string; value: string; accent?: boolean; size: number; minimal?: boolean }) {
+function Stat({ label, value, color = INK, labelColor = DIM, size }: { label: string; value: string; color?: string; labelColor?: string; size: number }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 17, letterSpacing: 2.4, color: DIM }}>{label.toUpperCase()}</div>
-      <div style={{ display: "flex", fontSize: size, fontWeight: 700, lineHeight: 1.02, letterSpacing: -2.6, color: accent && !minimal ? PINK : INK }}>{value}</div>
+      <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 17, letterSpacing: 2.4, color: labelColor }}>{label.toUpperCase()}</div>
+      <div style={{ display: "flex", fontSize: size, fontWeight: 700, lineHeight: 1.02, letterSpacing: -2.6, color }}>{value}</div>
     </div>
   );
 }

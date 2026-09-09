@@ -15,6 +15,12 @@ import { DataPrivacyPanel } from "@/components/app/settings/data-privacy";
 import { ConnectedAccountsPanel } from "@/components/app/settings/connected-accounts";
 import { track } from "@/lib/analytics";
 
+const LINKS = [
+  { href: "/app/settings/notifications", label: "Email notifications", blurb: "Reminders, milestones, alerts, reports.", Icon: Bell },
+  { href: "/app/settings/social", label: "Social & X", blurb: "X handle, connected account, auto-share.", Icon: Share2 },
+  { href: "/app/reports", label: "Monthly reports", blurb: "Every completed month, all products.", Icon: FileBarChart },
+];
+
 export default function SettingsPage() {
   const me = useQuery(api.profiles.me);
   const prefs = useQuery(api.email.prefs.mine);
@@ -31,50 +37,44 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-6">
-      <SectionLabel>Settings</SectionLabel>
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight">Account</h1>
-      <Panel className="mt-6 space-y-4 p-5">
-        <div>
-          <div className="text-label">Email</div>
-          <div className="mt-1 flex flex-wrap items-center gap-3 font-mono text-sm">
-            {me?.user.email ?? "…"}
-            {prefs && !prefs.emailVerified && (
-              <Button variant="outline" size="xs" onClick={resendVerification} disabled={sending}>Verify email</Button>
-            )}
-            {prefs?.emailVerified && <span className="font-mono text-[10px] uppercase tracking-wider text-pink">verified</span>}
-          </div>
-        </div>
-        <div>
-          <div className="text-label">Sync schedule</div>
-          <div className="mt-1 text-sm text-muted-foreground">Every 4 hours, automatically, spread over 10 minutes. Failed syncs retry twice. Snapshots are immutable.</div>
-        </div>
-        <Button variant="outline" onClick={async () => { track("sign_out"); await authClient.signOut(); router.push("/"); router.refresh(); }}>Sign out</Button>
-      </Panel>
-      <Suspense><ConnectedAccountsPanel /></Suspense>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <Link href="/app/settings/notifications" className="group">
-          <Panel className="flex h-full items-center gap-3 p-4 transition-colors group-hover:border-line-strong">
-            <Bell className="size-4 text-pink" />
-            <div className="flex-1"><div className="text-sm font-medium">Email notifications</div><div className="text-xs text-muted-foreground">Reminders, milestones, alerts, reports.</div></div>
-            <ChevronRight className="size-4 text-muted-foreground" />
-          </Panel>
-        </Link>
-        <Link href="/app/settings/social" className="group">
-          <Panel className="flex h-full items-center gap-3 p-4 transition-colors group-hover:border-line-strong">
-            <Share2 className="size-4 text-pink" />
-            <div className="flex-1"><div className="text-sm font-medium">Social &amp; X</div><div className="text-xs text-muted-foreground">X handle, connected account, auto-share.</div></div>
-            <ChevronRight className="size-4 text-muted-foreground" />
-          </Panel>
-        </Link>
-        <Link href="/app/reports" className="group">
-          <Panel className="flex h-full items-center gap-3 p-4 transition-colors group-hover:border-line-strong">
-            <FileBarChart className="size-4 text-pink" />
-            <div className="flex-1"><div className="text-sm font-medium">Monthly reports</div><div className="text-xs text-muted-foreground">Every completed month, all products.</div></div>
-            <ChevronRight className="size-4 text-muted-foreground" />
-          </Panel>
-        </Link>
+    <div className="app-page space-y-4">
+      <div>
+        <SectionLabel>Settings</SectionLabel>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Account</h1>
       </div>
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
+          <Panel className="space-y-4 p-5">
+            <div>
+              <div className="text-label">Email</div>
+              <div className="mt-1 flex flex-wrap items-center gap-3 font-mono text-sm">
+                {me?.user.email ?? "…"}
+                {prefs && !prefs.emailVerified && (
+                  <Button variant="outline" size="xs" onClick={resendVerification} disabled={sending}>Verify email</Button>
+                )}
+                {prefs?.emailVerified && <span className="font-mono text-[10px] uppercase tracking-wider text-pink">verified</span>}
+              </div>
+            </div>
+            <div>
+              <div className="text-label">Sync schedule</div>
+              <div className="mt-1 text-sm text-muted-foreground">Every 4 hours, automatically, spread over 10 minutes. Failed syncs retry twice. Snapshots are immutable.</div>
+            </div>
+            <Button variant="outline" onClick={async () => { track("sign_out"); await authClient.signOut(); router.push("/"); router.refresh(); }}>Sign out</Button>
+          </Panel>
+          {LINKS.map(({ href, label, blurb, Icon }) => (
+            <Link key={href} href={href} className="group block">
+              <Panel className="flex items-center gap-3 p-4 transition-colors group-hover:border-line-strong">
+                <Icon className="size-4 shrink-0 text-pink" />
+                <div className="min-w-0 flex-1"><div className="text-sm font-medium">{label}</div><div className="text-xs text-muted-foreground">{blurb}</div></div>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              </Panel>
+            </Link>
+          ))}
+        </div>
+        <Suspense><ConnectedAccountsPanel /></Suspense>
+      </div>
+
       <DataPrivacyPanel />
     </div>
   );

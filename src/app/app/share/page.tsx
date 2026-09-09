@@ -30,7 +30,7 @@ export default function ShareCenterPage() {
   const [copied, setCopied] = useState<string | null>(null);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
+    <div className="app-page space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <SectionLabel>Share Center</SectionLabel>

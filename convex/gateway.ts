@@ -34,7 +34,7 @@ import { normalizePrefs } from "./lib/shareRules";
 import { xConnectionState, xIntentUrl } from "../src/lib/social";
 import { attributedUrl } from "../src/lib/site";
 import { xDraft, type DraftKind } from "../src/lib/x-drafts";
-import { CARD_RANGES, CARD_STYLES, cardQuery, type CardConfig } from "../src/lib/share-card";
+import { CARD_ACCENTS, CARD_RANGES, CARD_STYLES, cardQuery, type CardConfig } from "../src/lib/share-card";
 import { shareStatus } from "./schema";
 import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, STAGE_ORDER, funnelFor, funnelHistoryFor, funnelSources } from "./domain/funnel";
 import { cohortView } from "./cohorts";
@@ -917,11 +917,12 @@ export const shareEventsTool = query({
 });
 
 const cardStyleArg = v.union(...CARD_STYLES.map((s) => v.literal(s)));
+const cardAccentArg = v.union(...CARD_ACCENTS.map((a) => v.literal(a)));
 const cardRangeArg = v.union(...CARD_RANGES.map((r) => v.literal(r)));
 
 // Builds a card configuration + URLs. Marks the share event as shared when one is referenced (the agent is about to post it).
 export const createShareCardTool = mutation({
-  args: { auth: authArg, ...refArg, kind: v.optional(v.string()), shareEventId: v.optional(v.id("shareEvents")), style: v.optional(cardStyleArg), size: v.optional(v.union(v.literal("og"), v.literal("square"))), range: v.optional(cardRangeArg), chart: v.optional(v.boolean()), logo: v.optional(v.boolean()), founder: v.optional(v.boolean()), verified: v.optional(v.boolean()), dates: v.optional(v.boolean()), title: v.optional(v.string()) },
+  args: { auth: authArg, ...refArg, kind: v.optional(v.string()), shareEventId: v.optional(v.id("shareEvents")), style: v.optional(cardStyleArg), accent: v.optional(cardAccentArg), size: v.optional(v.union(v.literal("og"), v.literal("square"))), range: v.optional(cardRangeArg), chart: v.optional(v.boolean()), logo: v.optional(v.boolean()), founder: v.optional(v.boolean()), verified: v.optional(v.boolean()), dates: v.optional(v.boolean()), title: v.optional(v.string()) },
   handler: async (ctx, { auth, projectId, slug, kind, shareEventId, ...config }) =>
     run(async () => {
       const { profile } = await authenticate(ctx, auth, "mcp", "profile:write");
@@ -937,7 +938,7 @@ export const createShareCardTool = mutation({
       const urls = cardUrls(projectUrls(saas).page, k, config);
       if (event) await ctx.db.patch(event._id, { status: "shared", sharedAt: Date.now() });
       const draft = event ? draftFor(event, saas, profile, urls.page) : (() => { const text = xDraft({ kind: (k.split("-")[0] as DraftKind), name: saas.name, value: saas.totalUsers, totalUsers: saas.totalUsers, newUsers30d: saas.newUsers30d, newUsers7d: saas.newUsers7d, growth30dPct: saas.growth30dPct, rank: k === "trending" ? saas.trendingRank : saas.rank, verified: saas.trust === "verified", author: "founder", seed: k }); return { text, xIntent: xIntentUrl(text, mcpShare(urls.page, k)) }; })();
-      return { project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic }, config: { style: "blueprint", size: "og", range: "30d", chart: true, logo: true, founder: true, verified: true, dates: true, ...config }, card: urls, draft, styles: CARD_STYLES, ranges: CARD_RANGES, verificationLine: saas.trust === "verified" ? "Verified by UserTrack" : "Tracked on UserTrack", note: saas.isPublic ? undefined : "Publish the project first; share images 404 for drafts." };
+      return { project: { id: saas._id, slug: saas.slug, name: saas.name, isPublic: saas.isPublic }, config: { style: "blueprint", accent: "pink", size: "og", range: "30d", chart: true, logo: true, founder: true, verified: true, dates: true, ...config }, card: urls, draft, styles: CARD_STYLES, accents: CARD_ACCENTS, ranges: CARD_RANGES, verificationLine: saas.trust === "verified" ? "Verified by UserTrack" : "Tracked on UserTrack", note: saas.isPublic ? undefined : "Publish the project first; share images 404 for drafts." };
     }),
 });
 

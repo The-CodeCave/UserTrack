@@ -5,7 +5,7 @@ import { api } from "@convex/_generated/api";
 import { RANGES } from "@convex/lib/time";
 import { TIMEFRAMES } from "@convex/domain/metrics";
 import type { Scope } from "@convex/lib/tokens";
-import { CARD_RANGES, CARD_STYLES } from "@/lib/share-card";
+import { CARD_ACCENTS, CARD_RANGES, CARD_STYLES } from "@/lib/share-card";
 import type { Id } from "@convex/_generated/dataModel";
 import { WEBHOOK_EVENTS } from "@convex/lib/webhooks";
 import { DATASET_WINDOWS } from "@/lib/api/datasets";
@@ -454,7 +454,7 @@ const TOOLS_SHARE: Tool[] = [
   tool({
     name: "usertrack_create_share_card",
     title: "Create share card",
-    description: "Build a share card configuration and get its deterministic PNG URLs: pass a project + kind (users, growth, week, rank, trending, activation, conversion, benchmark, milestone-<id>, spike-<id>) or a shareEventId, plus optional style (blueprint | aurora | minimal), size (og | square), range (7d | 30d | 90d | 1y | all, for the chart), chart / logo / founder / verified / dates toggles and a short custom title. Returns page, image and square URLs, the X draft and the verification wording. Referencing a share event marks it as shared.",
+    description: "Build a share card configuration and get its deterministic PNG URLs: pass a project + kind (users, growth, week, rank, trending, activation, conversion, benchmark, milestone-<id>, spike-<id>) or a shareEventId, plus optional style (blueprint | aurora | spotlight | bold | minimal), accent (pink | violet | cyan | amber | lime), size (og | square), range (7d | 30d | 90d | 1y | all, for the chart), chart / logo / founder / verified / dates toggles and a short custom title. Returns page, image and square URLs, the X draft and the verification wording. Referencing a share event marks it as shared.",
     scope: "profile:write",
     readOnly: false,
     input: {
@@ -462,6 +462,7 @@ const TOOLS_SHARE: Tool[] = [
       kind: z.string().optional(),
       shareEventId: z.string().optional(),
       style: z.enum(CARD_STYLES).optional(),
+      accent: z.enum(CARD_ACCENTS).optional(),
       size: z.enum(["og", "square"]).optional(),
       range: z.enum(CARD_RANGES).optional(),
       chart: z.boolean().optional(),

@@ -33,7 +33,7 @@ export default function DeveloperPage() {
   const mcpTokens = tokens?.filter((t) => t.type === "mcp") ?? [];
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6">
+    <div className="app-page space-y-6">
       <div>
         <SectionLabel>Developer</SectionLabel>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">API keys &amp; MCP tokens</h1>
@@ -90,15 +90,17 @@ export default function DeveloperPage() {
         <Button variant="outline" className="h-10 shrink-0" render={<Link href="/app/developer/webhooks" />}><Webhook className="size-4" /> Manage webhooks</Button>
       </Panel>
 
-      <Panel className="space-y-4 p-4 sm:p-5">
-        <SectionLabel>Usage</SectionLabel>
-        {tokens === undefined ? <Skeleton className="h-16" /> : <UsagePanel tokens={tokens} />}
-      </Panel>
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <Panel className="space-y-4 p-4 sm:p-5">
+          <SectionLabel>Usage</SectionLabel>
+          {tokens === undefined ? <Skeleton className="h-16" /> : <UsagePanel tokens={tokens} />}
+        </Panel>
 
-      <Panel className="space-y-4 p-4 sm:p-5">
-        <SectionLabel>Recent activity</SectionLabel>
-        {activity === undefined ? <ListSkeleton /> : <ActivityPanel rows={activity} />}
-      </Panel>
+        <Panel className="space-y-4 p-4 sm:p-5">
+          <SectionLabel>Recent activity</SectionLabel>
+          {activity === undefined ? <ListSkeleton /> : <ActivityPanel rows={activity} />}
+        </Panel>
+      </div>
     </div>
   );
 }

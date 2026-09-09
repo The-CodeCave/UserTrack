@@ -32,7 +32,7 @@ export default function NotificationSettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-6">
+    <div className="app-page">
       <SectionLabel><Link href="/app/settings" className="hover:text-foreground">Settings</Link> / Notifications</SectionLabel>
       <h1 className="mt-2 text-2xl font-semibold tracking-tight">Email notifications</h1>
       <p className="mt-1 text-sm text-muted-foreground">Every email should earn its place in your inbox. Turn off anything that does not.</p>
@@ -50,7 +50,7 @@ export default function NotificationSettingsPage() {
               <Button variant="outline" size="sm" onClick={() => setTimezone({ timezone: browserTz }).then(() => toast.success(`Timezone set to ${browserTz}`))}>Use {browserTz}</Button>
             )}
           </Panel>
-          <NotificationPreferences prefs={prefs} onChange={change} />
+          <NotificationPreferences prefs={prefs} onChange={change} className="space-y-4 lg:columns-2 lg:gap-4 lg:space-y-0 lg:[&>*]:mb-4 lg:[&>*]:break-inside-avoid" />
         </div>
       )}
     </div>

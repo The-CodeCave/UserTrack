@@ -33,7 +33,7 @@ export default function OverviewPage() {
   const totals = list?.reduce((a, s) => ({ users: a.users + s.totalUsers, new7: a.new7 + s.newUsers7d, new30: a.new30 + s.newUsers30d }), { users: 0, new7: 0, new30: 0 });
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
+    <div className="app-page space-y-6">
       <div className="flex items-end justify-between gap-4">
         <div>
           <SectionLabel>Overview</SectionLabel>
@@ -118,34 +118,37 @@ export default function OverviewPage() {
         </section>
       )}
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <SectionLabel>From your watchlist · 7d</SectionLabel>
-            {watch && watch.unseenCount > 0 && <span className="inline-flex items-center border border-new/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-new">{watch.unseenCount} new</span>}
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <SectionLabel>From your watchlist · 7d</SectionLabel>
+              {watch && watch.unseenCount > 0 && <span className="inline-flex items-center border border-new/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-new">{watch.unseenCount} new</span>}
+            </div>
+            <Link href="/app/following" className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">See all →</Link>
           </div>
-          <Link href="/app/following" className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">See all →</Link>
-        </div>
-        {watch === undefined ? (
-          <Skeleton className="h-16" />
-        ) : !watch || (watched === 0 && watch.founders.length === 0) ? (
-          <Panel className="p-4">
-            <div className="text-sm font-medium">Following</div>
-            <p className="mt-1 text-xs text-muted-foreground">Follow products and founders to get their milestones and weekly movement in one feed.</p>
-            <div className="mt-3 flex gap-2"><Button variant="outline" size="sm" render={<Link href="/discover" />}>Discover</Button><Button variant="outline" size="sm" render={<Link href="/trending" />}>Trending</Button></div>
-          </Panel>
-        ) : watch.feed.length === 0 ? (
-          <Panel className="p-4 text-sm text-muted-foreground">Quiet week for the {watched} {watched === 1 ? "product" : "products"} you follow.</Panel>
-        ) : (
-          <Panel className="divide-y divide-line p-0">{watch.feed.map((e) => <WatchlistFeedItem key={e.id} item={e} />)}</Panel>
-        )}
-      </section>
+          {watch === undefined ? (
+            <Skeleton className="h-16" />
+          ) : !watch || (watched === 0 && watch.founders.length === 0) ? (
+            <Panel className="p-4">
+              <div className="text-sm font-medium">Following</div>
+              <p className="mt-1 text-xs text-muted-foreground">Follow products and founders to get their milestones and weekly movement in one feed.</p>
+              <div className="mt-3 flex gap-2"><Button variant="outline" size="sm" render={<Link href="/discover" />}>Discover</Button><Button variant="outline" size="sm" render={<Link href="/trending" />}>Trending</Button></div>
+            </Panel>
+          ) : watch.feed.length === 0 ? (
+            <Panel className="p-4 text-sm text-muted-foreground">Quiet week for the {watched} {watched === 1 ? "product" : "products"} you follow.</Panel>
+          ) : (
+            <Panel className="divide-y divide-line p-0">{watch.feed.map((e) => <WatchlistFeedItem key={e.id} item={e} />)}</Panel>
+          )}
+        </section>
 
-      <Panel className="p-4">
-        <div className="flex items-center gap-2 text-sm font-medium"><Flame className="size-4 text-pink" /> Weekly digest</div>
-        <p className="mt-1 text-xs text-muted-foreground">{digest?.length ? `Latest: week ${digest[0].weekKey}.` : "Your first digest is generated on Monday morning, or preview one now."}</p>
-        <Button variant="outline" size="sm" className="mt-3" render={<Link href="/app/digest" />}>Open digest</Button>
-      </Panel>
+        <Panel className="p-4">
+          <div className="flex items-center gap-2 text-sm font-medium"><Flame className="size-4 text-pink" /> Weekly digest</div>
+          <p className="mt-1 text-xs text-muted-foreground">{digest?.length ? `Latest: week ${digest[0].weekKey}.` : "Your first digest is generated on Monday morning, or preview one now."}</p>
+          <Button variant="outline" size="sm" className="mt-3" render={<Link href="/app/digest" />}>Open digest</Button>
+        </Panel>
+      </div>
+
     </div>
   );
 }

@@ -13,12 +13,12 @@ import { cn } from "@/lib/utils";
 export default function ReportPage({ params }: { params: Promise<{ period: string }> }) {
   const { period } = use(params);
   const report = useQuery(api.email.reports.getMine, { period });
-  if (report === undefined) return <div className="mx-auto max-w-3xl p-6"><Skeleton className="h-8 w-56" /><Skeleton className="mt-6 h-64" /></div>;
+  if (report === undefined) return <div className="app-page"><Skeleton className="h-8 w-56" /><Skeleton className="mt-6 h-64" /></div>;
   if (report === null) return <div className="p-6 text-sm text-muted-foreground">No report for {period}.</div>;
   const p = report.payload;
   const s = p.summary;
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+    <div className="app-page space-y-6">
       <div>
         <SectionLabel><Link href="/app/reports" className="hover:text-foreground">Reports</Link> / {p.label}</SectionLabel>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">Your {p.label.split(" ")[0]} on UserTrack</h1>

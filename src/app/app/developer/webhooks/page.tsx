@@ -28,7 +28,7 @@ const HEADERS = [
 export default function WebhooksPage() {
   const data = useQuery(api.webhooks.list);
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6">
+    <div className="app-page space-y-6">
       <div>
         <SectionLabel><Link href="/app/developer" className="hover:text-foreground">Developer</Link> · Webhooks</SectionLabel>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">Webhooks</h1>

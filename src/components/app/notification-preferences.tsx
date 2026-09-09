@@ -59,9 +59,9 @@ function Row({ item, checked, disabled, onChange, small }: { item: Item; checked
   );
 }
 
-export function NotificationPreferences({ prefs, onChange, disabled }: { prefs: Prefs; onChange: (key: PrefKey, value: boolean) => void; disabled?: boolean }) {
+export function NotificationPreferences({ prefs, onChange, disabled, className = "space-y-4" }: { prefs: Prefs; onChange: (key: PrefKey, value: boolean) => void; disabled?: boolean; className?: string }) {
   return (
-    <div className="space-y-4">
+    <div className={className}>
       {GROUPS.map((g) => (
         <Panel key={g.title} className="p-5">
           <div className="text-label">{g.title}</div>

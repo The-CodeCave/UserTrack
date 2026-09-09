@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { CARD_RANGE_LABEL, CARD_RANGES, CARD_STYLE_META, CARD_STYLES, DEFAULT_CARD, cardImageUrl, fileName, verificationLine, type CardConfig, type CardStyle } from "@/lib/share-card";
+import { CARD_ACCENTS, CARD_ACCENT_META, CARD_RANGE_LABEL, CARD_RANGES, CARD_STYLE_META, CARD_STYLES, DEFAULT_CARD, cardImageUrl, fileName, verificationLine, type CardAccent, type CardConfig, type CardStyle } from "@/lib/share-card";
 import { xIntentUrl } from "@/lib/social";
 import { attributedUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
@@ -32,10 +32,14 @@ export interface StudioTarget {
   initial?: Partial<CardConfig>;
 }
 
-const SWATCH: Record<CardStyle, string> = {
-  blueprint: "linear-gradient(135deg,#0b0c0e 0%,#1a1b1f 55%,rgba(251,1,132,0.55) 100%)",
-  aurora: "linear-gradient(135deg,#150a1f 0%,rgba(251,1,132,0.7) 45%,rgba(96,165,250,0.7) 100%)",
-  minimal: "linear-gradient(135deg,#0a0b0d 0%,#16171a 100%)",
+// Miniature of what each preset does to the background, in the accent the founder picked.
+const swatch = (style: CardStyle, a: CardAccent) => {
+  const { base, second, third } = CARD_ACCENT_META[a];
+  if (style === "aurora") return `radial-gradient(70% 120% at 10% 10%, ${base} 0%, transparent 60%), radial-gradient(70% 120% at 95% 0%, ${third} 0%, transparent 62%), radial-gradient(80% 130% at 70% 110%, ${second} 0%, transparent 64%), linear-gradient(125deg,#170a22,#0c0a14)`;
+  if (style === "spotlight") return `radial-gradient(60% 130% at 50% 60%, ${base} 0%, transparent 68%), #0a0b0d`;
+  if (style === "bold") return `linear-gradient(118deg, ${base} 0%, ${second} 58%, ${third} 100%)`;
+  if (style === "minimal") return "linear-gradient(135deg,#0a0b0d 0%,#16171a 100%)";
+  return `linear-gradient(135deg,#0b0c0e 0%,#1a1b1f 55%,${base} 140%)`;
 };
 
 export function ShareStudio({ target, open, onOpenChange }: { target: StudioTarget; open: boolean; onOpenChange: (o: boolean) => void }) {
@@ -133,15 +137,29 @@ export function ShareStudio({ target, open, onOpenChange }: { target: StudioTarg
 
           <div className="space-y-5 p-4 sm:p-5">
             <Group label="Style">
-              <div className="grid grid-cols-3 gap-2">
-                {CARD_STYLES.map((s) => (
-                  <button key={s} type="button" onClick={() => set("style", s)} aria-pressed={cfg.style === s} className={cn("group flex min-h-[64px] flex-col items-start justify-end border p-2 text-left transition-colors", cfg.style === s ? "border-pink" : "border-line hover:border-line-strong")}>
-                    <span className="mb-2 block h-5 w-full border border-line" style={{ background: SWATCH[s] }} />
-                    <span className="text-xs font-medium">{CARD_STYLE_META[s].label}</span>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                {CARD_STYLES.map((v) => (
+                  <button key={v} type="button" onClick={() => set("style", v)} aria-pressed={cfg.style === v} title={CARD_STYLE_META[v].blurb} className={cn("group flex flex-col items-start justify-end border p-1.5 text-left transition-colors", cfg.style === v ? "border-pink" : "border-line hover:border-line-strong")}>
+                    <span className="mb-1.5 block h-9 w-full border border-line" style={{ background: swatch(v, cfg.accent) }} />
+                    <span className="text-[11px] font-medium">{CARD_STYLE_META[v].label}</span>
                   </button>
                 ))}
               </div>
               <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">{CARD_STYLE_META[cfg.style].blurb}</p>
+            </Group>
+
+            <Group label="Accent">
+              <div className="flex flex-wrap gap-2">
+                {CARD_ACCENTS.map((v) => {
+                  const a = CARD_ACCENT_META[v];
+                  return (
+                    <button key={v} type="button" onClick={() => set("accent", v)} aria-pressed={cfg.accent === v} title={a.label} aria-label={a.label} className={cn("size-9 border p-[3px] transition-colors", cfg.accent === v ? "border-pink" : "border-line hover:border-line-strong")}>
+                      <span className="block size-full" style={{ background: `linear-gradient(135deg, ${a.base}, ${a.second} 60%, ${a.third})` }} />
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">Colours the gradient, the headline and the curve. {CARD_ACCENT_META[cfg.accent].label}.</p>
             </Group>
 
             <Group label="Format">

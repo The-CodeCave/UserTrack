@@ -27,7 +27,7 @@ export default function FollowingPage() {
   useEffect(() => { void markSeen().catch(() => undefined); }, [markSeen]);
   const nothing = feed && feed.saas.length === 0 && feed.founders.length === 0;
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
+    <div className="app-page space-y-6">
       <div>
         <SectionLabel>Following</SectionLabel>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">Your SaaS intelligence feed</h1>
