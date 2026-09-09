@@ -136,11 +136,12 @@ export type VerifyResult = { ok: true; timestamp: number; nonce: string } | { ok
 
 const enc = new TextEncoder();
 
+// No `node:crypto` fallback on purpose: a static `import("node:crypto")` makes bundlers for isolate
+// runtimes (Convex, Workers, Deno, Edge) fail to build even though the branch never runs there.
 async function subtle(): Promise<SubtleCrypto> {
   const c = (globalThis as { crypto?: Crypto }).crypto;
   if (c?.subtle) return c.subtle;
-  const mod = await import("node:crypto");
-  return (mod.webcrypto as unknown as Crypto).subtle;
+  throw new Error("UserTrack requires the Web Crypto API (globalThis.crypto.subtle), available in Node 19+, Convex, Deno, Bun, Cloudflare Workers and Edge runtimes.");
 }
 
 function hex(bytes: ArrayBuffer): string {

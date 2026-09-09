@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 — 2026-09-09
+
+Fix: drop the `node:crypto` fallback so the package builds on isolate runtimes.
+
+- `subtle()` used `await import("node:crypto")` when `globalThis.crypto.subtle` was missing. The branch never ran on Convex, Workers, Deno or Edge — but bundlers resolve dynamic imports statically, so `esbuild` failed with `Could not resolve "node:crypto"` and `npx convex deploy` refused any `convex/http.ts` that mounted `@usertrack/node/convex`.
+- The fallback now throws a descriptive error instead. The package contains no Node builtins at all and bundles for every runtime.
+- `engines` raised to `>=20`: `globalThis.crypto` is only unflagged from Node 19, and Node 18 reached end of life on 2025-04-30.
+
 ## 0.1.0 — 2026-09-03
 
 Initial release — extracted from `@usertrack/better-auth` 0.1.0 (wire-compatible, protocol v1).

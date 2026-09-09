@@ -1,8 +1,15 @@
 {
   "name": "@usertrack/protocol",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "UserTrack native integration protocol (v1): HMAC-SHA256 request/response signing, nonce cache, wire types. WebCrypto only, zero dependencies.",
-  "keywords": ["usertrack", "protocol", "hmac", "analytics", "growth", "saas"],
+  "keywords": [
+    "usertrack",
+    "protocol",
+    "hmac",
+    "analytics",
+    "growth",
+    "saas"
+  ],
   "license": "MIT",
   "homepage": "https://usertrack.dev/developers/integrations/native",
   "bugs": "https://github.com/The-CodeCave/UserTrack/issues",
@@ -22,8 +29,17 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md", "AGENTS.md", "llms.txt"],
-  "engines": { "node": ">=18.17" },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "AGENTS.md",
+    "llms.txt"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
