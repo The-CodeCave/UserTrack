@@ -70,6 +70,34 @@ export function normalizeBaseUrl(raw: string, source: NativeSource = "better-aut
 // Better Auth mounts the plugin endpoint under its own base path; @usertrack/node handlers are mounted at <base>/metrics.
 export const metricsUrl = (base: string, source: NativeSource = "better-auth") => (source === "better-auth" ? `${base}${METRICS_PATH}` : `${base}/metrics`);
 
+const MAX_CANDIDATES = 6;
+// @usertrack/node mounts at the one path our own snippet hardcodes, so the only thing left to get wrong is which origin
+// the app runs on (a marketing site and its app are rarely the same host). Verify probes these instead of asking the
+// founder for a URL they cannot know before installing; a candidate is adopted only once it answers with a valid
+// signature, which no foreign host can forge. Convex is excluded: a *.convex.site deployment name is not derivable.
+const basePaths = (source: NativeSource) => (source === "better-auth" ? ["/api/auth", "/auth"] : [defaultBasePath(source)]);
+export function candidateBaseUrls(stored: string, websiteUrl: string, source: NativeSource = "better-auth"): string[] {
+  if (source === "convex") return [];
+  const hosts: string[] = [];
+  for (const raw of [stored, websiteUrl]) {
+    let host: string;
+    try {
+      host = new URL(raw).host;
+    } catch {
+      continue;
+    }
+    const bare = host.replace(/^www\./, "");
+    for (const h of [host, bare, `app.${bare}`, `api.${bare}`]) if (!hosts.includes(h)) hosts.push(h);
+  }
+  const out: string[] = [];
+  for (const path of basePaths(source))
+    for (const host of hosts) {
+      const c = normalizeBaseUrl(`https://${host}${path}`, source);
+      if (c.ok && c.url !== stored && !out.includes(c.url)) out.push(c.url);
+    }
+  return out.slice(0, MAX_CANDIDATES);
+}
+
 // Actionable, secret-free messages for every failure mode of the pull.
 export function explainStatus(status: number, code: string | undefined, url: string, source: NativeSource = "better-auth"): { message: string; retryable: boolean } {
   const host = hostOf(url) ?? url;

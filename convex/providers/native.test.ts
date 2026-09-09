@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { explainStatus, metricsUrl, native, normalizeBaseUrl, parseMetrics, type NativeStoredConfig } from "./native";
+import { candidateBaseUrls, explainStatus, metricsUrl, native, normalizeBaseUrl, parseMetrics, type NativeStoredConfig } from "./native";
 import { HEADER_NONCE, HEADER_PROJECT, HEADER_SIGNATURE, METRICS_PATH, signedHeaders, verify } from "../lib/nativeProtocol";
 import { ProviderError } from "./types";
 
@@ -159,4 +159,23 @@ describe("registry", () => {
     expect(providerLabel("better_auth", cfg)).toBe("Better Auth");
   });
   it(HEADER_SIGNATURE, () => expect(HEADER_SIGNATURE).toBe("x-usertrack-signature"));
+});
+
+describe("candidateBaseUrls", () => {
+  it("probes the app / api origins of the same site, never the URL that already failed", () => {
+    const c = candidateBaseUrls("https://example.com/api/auth", "https://example.com", "better-auth");
+    expect(c).not.toContain("https://example.com/api/auth");
+    expect(c).toContain("https://app.example.com/api/auth");
+    expect(c).toContain("https://api.example.com/api/auth");
+    expect(c).toContain("https://example.com/auth");
+    expect(c.length).toBeLessThanOrEqual(6);
+  });
+  it("strips www and keeps the one path our own snippet hardcodes for @usertrack/node", () => {
+    const c = candidateBaseUrls("https://www.example.com/api/usertrack", "https://www.example.com", "prisma");
+    expect(c).toEqual(["https://example.com/api/usertrack", "https://app.example.com/api/usertrack", "https://api.example.com/api/usertrack"]);
+  });
+  it("cannot guess a convex.site deployment, and drops candidates the SSRF policy refuses", () => {
+    expect(candidateBaseUrls("https://x.convex.site/usertrack", "https://example.com", "convex")).toEqual([]);
+    expect(candidateBaseUrls("https://localhost/api/auth", "http://127.0.0.1", "better-auth")).toEqual([]);
+  });
 });

@@ -28,7 +28,8 @@ const SOURCE_HINT: Record<NativeSource, string> = {
   authjs: "Auth.js / NextAuth on Prisma or Drizzle.",
   custom: "Any app: one route + your own count().",
 };
-const defaultUrl = (websiteUrl: string, source: NativeSource) => (websiteUrl ? `${websiteUrl.replace(/\/+$/, "")}${source === "better-auth" ? "/api/auth" : "/api/usertrack"}` : "");
+const metricsUrl = (base: string, source: NativeSource) => `${base}${source === "better-auth" ? "/usertrack/metrics" : "/metrics"}`;
+const hostOf = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
 // Wizard for native SDK sources: pick the adapter, UserTrack generates the credential, the founder installs, deploys, verifies.
 export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onConnected }: { saasId: Id<"saas">; websiteUrl: string; existing?: { url?: string; source?: string; secretPrefix?: string; awaiting: boolean } | null; initialSource?: NativeSource; onConnected?: () => void }) {
@@ -36,8 +37,8 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
   const verify = useAction(api.integrations.verifyStored);
   const [source, setSource] = useState<NativeSource>(normalizeSource(existing?.source ?? initialSource ?? "better-auth"));
   const [step, setStep] = useState<Step>(existing ? "install" : "create");
-  const [url, setUrl] = useState(existing?.url ?? defaultUrl(websiteUrl, source));
-  const [urlTouched, setUrlTouched] = useState(Boolean(existing?.url));
+  const [base, setBase] = useState(existing?.url ?? "");
+  const [override, setOverride] = useState("");
   const [cred, setCred] = useState<{ projectId: string; secret: string; url: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
@@ -45,10 +46,6 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
   const files = SOURCE_FILES[source];
   const label = NATIVE_SOURCE_LABEL[source];
 
-  function pickSource(s: NativeSource) {
-    setSource(s);
-    if (!urlTouched) setUrl(defaultUrl(websiteUrl, s));
-  }
   async function run(fn: () => Promise<void>) {
     setBusy(true);
     try {
@@ -61,14 +58,20 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
   }
   const onCreate = (rotate = false) =>
     run(async () => {
-      const c = await create({ saasId, url, source, rotate });
-      if (!c.secret) {
-        toast.message("Integration already exists", { description: "Rotate the secret if your app does not have it." });
-        setStep("install");
-        return;
-      }
-      setCred({ projectId: c.projectId, secret: c.secret, url: c.url });
+      const c = await create({ saasId, source, rotate });
+      setBase(c.url);
       setStep("install");
+      if (c.secret) setCred({ projectId: c.projectId, secret: c.secret, url: c.url });
+      else toast.message("Integration already exists", { description: "Rotate the secret if your app does not have it." });
+    });
+  // The base URL is derived, not asked. This is the escape hatch for Convex (own domain) and for a failed auto-discovery.
+  const onSaveUrl = () =>
+    run(async () => {
+      const c = await create({ saasId, url: override.trim(), source });
+      setBase(c.url);
+      setOverride("");
+      setResult(null);
+      toast.success(`UserTrack will call ${hostOf(metricsUrl(c.url, source))}`);
     });
   const onVerify = () =>
     run(async () => {
@@ -94,18 +97,14 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
           <p className="text-sm text-muted-foreground">Your app answers signed aggregate requests itself — verified, without sharing database credentials or any user PII. Pick how your app stores users; UserTrack generates a project id and a secret for it now.</p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="SDK adapter">
             {NATIVE_SOURCES.map((s) => (
-              <button key={s} type="button" role="radio" aria-checked={source === s} onClick={() => pickSource(s)} className={cn("flex min-h-[60px] flex-col items-start gap-0.5 border p-2.5 text-left transition-colors", source === s ? "border-pink bg-pink/5" : "border-line hover:border-line-strong")}>
+              <button key={s} type="button" role="radio" aria-checked={source === s} onClick={() => setSource(s)} className={cn("flex min-h-[60px] flex-col items-start gap-0.5 border p-2.5 text-left transition-colors", source === s ? "border-pink bg-pink/5" : "border-line hover:border-line-strong")}>
                 <span className="text-sm font-medium">{NATIVE_SOURCE_LABEL[s]}</span>
                 <span className="text-[11px] leading-snug text-muted-foreground">{SOURCE_HINT[s]}</span>
               </button>
             ))}
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="native-url" className="text-label">{source === "better-auth" ? "Better Auth base URL" : "Base URL"}</Label>
-            <Input id="native-url" value={url} onChange={(e) => { setUrl(e.target.value); setUrlTouched(true); }} placeholder={source === "better-auth" ? "https://app.example.com/api/auth" : source === "convex" ? "https://your-deployment.convex.site" : "https://app.example.com/api/usertrack"} className="h-11 bg-background font-mono text-sm" autoComplete="off" />
-            <p className="font-mono text-[11px] text-muted-foreground">{source === "better-auth" ? "baseURL + basePath of your Better Auth instance (default /api/auth). UserTrack will call POST …/usertrack/metrics." : source === "convex" ? "Your Convex site URL. UserTrack will call POST …/usertrack/metrics." : "Where you mount the handler. UserTrack will call POST …/metrics."}</p>
-          </div>
           <Button className="h-11" disabled={busy} onClick={() => onCreate(false)}>{busy ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />} Create integration &amp; generate secret</Button>
+          <p className="font-mono text-[11px] text-muted-foreground">No URL to fill in{websiteUrl ? ` — UserTrack derives it from ${hostOf(websiteUrl)}` : ""} and finds your app on its own when you verify.</p>
         </div>
       )}
 
@@ -139,10 +138,28 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
               envSnippet: cred ? envSnippet(cred.projectId, cred.secret) : `${ENV_PROJECT_ID}=${saasId}\n${ENV_SECRET}=<the secret shown once at creation>`,
               pushCode: files.push?.code,
               pushPath: files.push?.path,
-              verifyUrl: cred?.url ?? url,
+              verifyUrl: cred?.url ?? base,
               notes: files.notes,
             })}
           />
+          {base && (
+            <div className="border border-line p-3">
+              <div className="text-label text-muted-foreground">UserTrack will call</div>
+              <div className="mt-1 font-mono text-[12px] break-all">POST {metricsUrl(base, source)}</div>
+              {source === "convex" ? (
+                <div className="mt-2.5 space-y-1.5">
+                  <Label htmlFor="native-convex-url" className="text-label">Your Convex site URL</Label>
+                  <div className="flex gap-2">
+                    <Input id="native-convex-url" value={override} onChange={(e) => setOverride(e.target.value)} placeholder="https://your-deployment.convex.site" className="h-10 bg-background font-mono text-sm" autoComplete="off" />
+                    <Button variant="outline" className="h-10" disabled={busy || !override.trim()} onClick={onSaveUrl}>Save</Button>
+                  </div>
+                  <p className="font-mono text-[11px] text-muted-foreground">Convex serves the handler from its own domain, so this is the one URL UserTrack cannot derive from your website.</p>
+                </div>
+              ) : (
+                <p className="mt-1 font-mono text-[11px] text-muted-foreground">Mounted somewhere else? Leave it — verify checks the likely origins for you.</p>
+              )}
+            </div>
+          )}
           <div>
             <div className="mb-1 text-label">1 · Install {NATIVE_PACKAGE[source]}</div>
             <Tabs defaultValue="npm">
@@ -165,10 +182,23 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
           {result && <TestResultCard r={result} role="users" />}
           {result?.ok && <CapabilityList caps={result.capabilities} />}
           {step === "done" ? (
-            <div className="flex items-center gap-2 text-sm text-pink"><CheckCircle2 className="size-4" /> Verified via {label} — first snapshot recorded, syncing every 4 hours. Activation and conversion attach automatically when your handler reports them.</div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-pink"><CheckCircle2 className="size-4" /> Verified via {label} — first snapshot recorded, syncing every 4 hours. Activation and conversion attach automatically when your handler reports them.</div>
+              {result?.ok && result.discoveredUrl && <p className="font-mono text-[11px] text-muted-foreground">Found your app at {hostOf(result.discoveredUrl)} and saved it — the first guess was a different origin.</p>}
+            </div>
           ) : (
             <>
               <p className="text-sm text-muted-foreground">UserTrack calls your app once, checks the signature and reads the total user count. Nothing else is stored until this succeeds.</p>
+              {result && !result.ok && result.tried && result.tried.length > 0 && (
+                <div className="space-y-1.5 border border-line p-3">
+                  <Label htmlFor="native-origin" className="text-label">Where does your app run?</Label>
+                  <div className="flex gap-2">
+                    <Input id="native-origin" value={override} onChange={(e) => setOverride(e.target.value)} placeholder="https://app.example.com" className="h-10 bg-background font-mono text-sm" autoComplete="off" />
+                    <Button variant="outline" className="h-10" disabled={busy || !override.trim()} onClick={onSaveUrl}>Save</Button>
+                  </div>
+                  <p className="font-mono text-[11px] text-muted-foreground">Also tried {result.tried.map(hostOf).join(", ")} — none of them answered.</p>
+                </div>
+              )}
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Button className="h-11" disabled={busy} onClick={onVerify}>{busy ? <Loader2 className="size-4 animate-spin" /> : <FlaskConical className="size-4" />} Verify integration</Button>
                 <Button variant="ghost" className="h-11" onClick={() => setStep("install")}>Back to install</Button>
