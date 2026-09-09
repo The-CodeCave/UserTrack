@@ -311,8 +311,8 @@ export async function recomputeDerived(ctx: MutationCtx, saasId: Id<"saas">, rep
   });
 }
 
-// A first users sync is the end of setup, so the page goes live like the dashboard onboarding does. Only ever on the
-// very first success: a founder who switches back to Draft stays there.
+// A first users sync is the end of setup, so the page goes live instead of sitting as a draft nobody knows about.
+// Only ever on the very first success: a founder who switches back to Draft stays there.
 async function publishOnFirstSync(ctx: MutationCtx, saas: Doc<"saas">) {
   const owner = await ctx.db.get(saas.ownerId);
   if (!owner) return;

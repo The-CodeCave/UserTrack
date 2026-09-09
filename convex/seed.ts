@@ -164,6 +164,10 @@ export const removeBySlug = internalMutation({
   handler: async (ctx, { slug }) => {
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
     if (!s) return "not found";
+    // Audit rows are keyed by profile, not by project, so the cascade cannot reach them: they are dropped here or
+    // they outlive the project as dangling references.
+    const logs = await ctx.db.query("auditLogs").withIndex("by_profile_time", (q) => q.eq("profileId", s.ownerId)).collect();
+    for (const l of logs) if (l.saasId === s._id) await ctx.db.delete(l._id);
     await removeSaas(ctx, s._id);
     await ctx.scheduler.runAfter(0, internal.leaderboard.rerank, {});
     return `removed ${slug}`;
