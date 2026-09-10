@@ -7,7 +7,7 @@ const day = (d: number) => new Date(Date.UTC(2026, 0, 1) + d * DAY).toISOString(
 describe("resolutionFor", () => {
   it("maps ranges to storage resolutions", () => {
     expect(resolutionFor("24h")).toBe("raw");
-    expect(resolutionFor("7d")).toBe("raw");
+    expect(resolutionFor("7d")).toBe("day");
     expect(resolutionFor("30d")).toBe("day");
     expect(resolutionFor("90d")).toBe("day");
     expect(resolutionFor("1y")).toBe("week");

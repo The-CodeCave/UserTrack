@@ -30,8 +30,8 @@ When storage optimisation becomes necessary the plan is: keep every daily row an
 
 | Chart range | Resolution | Source |
 |---|---|---|
-| `24h`, `7d` | raw 4-hour snapshots | `snapshots` |
-| `30d`, `90d` | daily | `dailyMetrics` |
+| `24h` | raw 4-hour snapshots | `snapshots` |
+| `7d`, `30d`, `90d` | daily (one point per day, inclusive of today: N days → N buckets) | `dailyMetrics` |
 | `1y` | weekly (last total of the ISO week, new users summed) | `dailyMetrics` |
 | `all` | weekly, monthly once the project has more than two years of history | `dailyMetrics` |
 

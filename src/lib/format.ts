@@ -37,7 +37,7 @@ export function formatTick(t: number, range: Range) {
 
 export function formatPointDate(t: number, range: Range) {
   const d = new Date(t);
-  return range === "24h" || range === "7d"
+  return range === "24h"
     ? d.toLocaleString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })
     : d.toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" });
 }

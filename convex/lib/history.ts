@@ -7,10 +7,10 @@ export interface Gap { from: number; to: number; days: number }
 
 export type Resolution = "raw" | "day" | "week" | "month";
 
-// UI ranges → storage resolution. Raw 4h snapshots for a week, daily rows up to a year, weekly / monthly beyond.
+// UI ranges → storage resolution. Raw 4h snapshots within a day, one point per day up to 90 days, weekly / monthly beyond.
 export function resolutionFor(range: Range, spanDays = 0): Resolution {
-  if (range === "24h" || range === "7d") return "raw";
-  if (range === "30d" || range === "90d") return "day";
+  if (range === "24h") return "raw";
+  if (range === "7d" || range === "30d" || range === "90d") return "day";
   if (range === "1y") return "week";
   return spanDays > 2 * 365 ? "month" : "week";
 }

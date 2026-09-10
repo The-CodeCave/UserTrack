@@ -308,7 +308,8 @@ export async function historyFor(ctx: QueryCtx, s: Doc<"saas">, range: Range) {
   if (resolution === "raw") points = await seriesFor(ctx, s, range);
   else {
     const ms = RANGE_MS[range];
-    const cutoff = ms === null ? 0 : Date.now() - ms;
+    // Inclusive of today, so a range of N days spans exactly N daily buckets.
+    const cutoff = ms === null ? 0 : Date.now() - ms + DAY;
     const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).gte("day", dayKey(cutoff))).collect();
     const vis = visibilityOf(s);
     points = downsample(rows.map((r) => ({ day: r.day, totalUsers: r.totalUsers, newUsers: r.newUsers, activatedUsers: vis.activationRate ? r.activatedUsers : undefined, visitors: vis.traffic ? r.visitors : undefined, convertedUsers: vis.convertedCount ? r.convertedUsers : undefined })), resolution);

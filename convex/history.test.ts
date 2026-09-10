@@ -94,18 +94,21 @@ describe("growth history", () => {
         await ctx.db.insert("dailyMetrics", { saasId: id, day: dayKey(Date.now() - d * DAY), totalUsers: 1000 + (400 - d) * 3, newUsers: 3 });
       }
     });
+    const w = (await tx.query(api.public.history, { slug: "acme", range: "7d" }))!;
+    expect(w.resolution).toBe("day");
+    expect(w.points.length).toBe(7);
     const m = (await tx.query(api.public.history, { slug: "acme", range: "30d" }))!;
     expect(m.resolution).toBe("day");
-    expect(m.points.length).toBe(31);
+    expect(m.points.length).toBe(30);
     expect(m.gaps).toEqual([]);
     const q = (await tx.query(api.public.history, { slug: "acme", range: "90d" }))!;
     expect(q.gaps.length).toBe(1);
     expect(q.gaps[0].days).toBe(11);
-    expect(q.points.length).toBe(91 - 10);
+    expect(q.points.length).toBe(90 - 10);
     const y = (await tx.query(api.public.history, { slug: "acme", range: "1y" }))!;
     expect(y.resolution).toBe("week");
     expect(y.points.length).toBeLessThan(60);
-    expect(y.points.reduce((a, p) => a + p.delta, 0)).toBe(m.points.length === 31 ? y.points.reduce((a, p) => a + p.delta, 0) : 0);
+    expect(y.points.reduce((a, p) => a + p.delta, 0)).toBe(m.points.length === 30 ? y.points.reduce((a, p) => a + p.delta, 0) : 0);
     const all = (await tx.query(api.public.history, { slug: "acme", range: "all" }))!;
     expect(all.resolution).toBe("week");
     expect(all.points[all.points.length - 1].total).toBe(1000 + 400 * 3);
