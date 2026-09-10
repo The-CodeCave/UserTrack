@@ -5,12 +5,11 @@ import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { Loader2, Plus } from "lucide-react";
 import { api } from "@convex/_generated/api";
-import { SITE_URL } from "@/lib/site";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CopyBlock, SecretReveal, errMsg } from "./copy-block";
+import { errMsg } from "./copy-block";
 import { CopyForAgent } from "@/components/site/copy-for-agent";
 import { apiKeyAgentPrompt } from "@/lib/llm-prompts";
 import { track } from "@/lib/analytics";
@@ -46,9 +45,8 @@ export function CreateApiKeyDialog() {
         </DialogHeader>
         {secret ? (
           <div className="space-y-4">
-            <SecretReveal secret={secret} />
-            <CopyForAgent surface="api-key-dialog" prompt={apiKeyAgentPrompt({ key: secret })} hint="Builds a typed, cached, server-side client against the OpenAPI spec." className="border border-pink/30 bg-pink/5 p-3" />
-            <CopyBlock label="Example" text={`curl -H "Authorization: Bearer ${secret}" ${SITE_URL}/api/v1/saas`} />
+            <CopyForAgent surface="api-key-dialog" label="Copy to LLM" prompt={apiKeyAgentPrompt({ key: secret })} hint="One paste — includes the API key, OpenAPI URL, implementation plan and safety rules." className="border border-pink/30 bg-pink/5 p-3" />
+            <p className="font-mono text-[11px] text-muted-foreground">The API key is embedded in the copied instructions and should never be committed or exposed to the browser.</p>
             <Button variant="outline" className="h-10 w-full" onClick={() => setOpen(false)}>Done</Button>
           </div>
         ) : (

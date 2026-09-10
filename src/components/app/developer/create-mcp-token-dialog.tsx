@@ -7,14 +7,12 @@ import { toast } from "sonner";
 import { Loader2, Plus, Sparkles } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { DEFAULT_MCP_SCOPES, SCOPES, type Scope } from "@convex/lib/tokens";
-import { AGENT_PROMPT, mcpSnippets } from "@/lib/mcp/snippets";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CopyBlock, SecretReveal, errMsg } from "./copy-block";
+import { errMsg } from "./copy-block";
 import { CopyForAgent } from "@/components/site/copy-for-agent";
 import { mcpAgentPrompt } from "@/lib/llm-prompts";
 import { track } from "@/lib/analytics";
@@ -56,27 +54,18 @@ export function CreateMcpTokenDialog() {
     }
   }
 
-  const snippets = secret ? mcpSnippets(secret) : [];
-
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v) track("token_create_opened", { type: "mcp" }); else reset(); }}>
       <DialogTrigger render={<Button className="h-10" />}><Plus className="size-4" /> Create MCP token</DialogTrigger>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{secret ? "Your new MCP token" : "Create MCP token"}</DialogTitle>
-          <DialogDescription>{secret ? "Add it to your coding agent, then paste the prompt." : "Lets an AI coding agent set up and read your projects. Scopes limit what it can do."}</DialogDescription>
+          <DialogDescription>{secret ? "Copy once, then paste into your coding agent." : "Lets an AI coding agent set up and read your projects. Scopes limit what it can do."}</DialogDescription>
         </DialogHeader>
         {secret ? (
           <div className="space-y-4">
-            <SecretReveal secret={secret} />
-            <Tabs defaultValue={snippets[0].id}>
-              <TabsList variant="line" className="h-auto! max-w-full flex-wrap justify-start">
-                {snippets.map((s) => <TabsTrigger key={s.id} value={s.id} className="flex-none font-mono text-[11px] uppercase tracking-wider">{s.label}</TabsTrigger>)}
-              </TabsList>
-              {snippets.map((s) => <TabsContent key={s.id} value={s.id} className="mt-2"><CopyBlock text={s.text} hint={s.hint} onCopy={() => track("mcp_config_copied", { client: s.id })} /></TabsContent>)}
-            </Tabs>
-            <CopyForAgent surface="mcp-token-dialog" label="Copy full setup for AI agent" prompt={mcpAgentPrompt({ token: secret })} hint="MCP config + token + the full setup plan in one paste." className="border border-pink/30 bg-pink/5 p-3" />
-            <CopyBlock label="Short prompt for your agent" text={AGENT_PROMPT} />
+            <CopyForAgent surface="mcp-token-dialog" label="Copy to LLM" prompt={mcpAgentPrompt({ token: secret })} hint="One paste — includes the MCP config, token, full setup plan and safety rules." className="border border-pink/30 bg-pink/5 p-3" />
+            <p className="font-mono text-[11px] text-muted-foreground">The token is embedded in the copied instructions, shown only once here, and should never be committed.</p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button className="h-10 flex-1" render={<Link href="/app/saas/new" />}><Sparkles className="size-4" /> Set up a project with AI</Button>
               <Button variant="outline" className="h-10" onClick={() => setOpen(false)}>Done</Button>

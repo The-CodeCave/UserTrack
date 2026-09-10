@@ -14,11 +14,9 @@ import { SectionLabel } from "@/components/blueprint/section-label";
 import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { Button } from "@/components/ui/button";
 import { Confetti } from "@/components/ui/confetti";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HelpCallout, ReportProblemButton } from "@/components/site/feedback";
 import { CopyForAgent } from "@/components/site/copy-for-agent";
 import { formatCompact, timeAgo } from "@/lib/format";
-import { AGENT_PROMPT, mcpSnippets } from "@/lib/mcp/snippets";
 import { saasUrl, shareLinkUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
@@ -40,64 +38,30 @@ function useCopy(text: string, onCopy?: () => void) {
   return { copied, copy };
 }
 
-function CopyBlock({ text, className }: { text: string; className?: string }) {
-  const { copied, copy } = useCopy(text);
+export function TokenSetup({ prompt, shortPrompt, onCopyPrompt }: { prompt: string; shortPrompt?: string; onCopyPrompt: () => void }) {
   return (
-    <div className="relative border border-line bg-background">
-      <pre className={cn("overflow-x-auto whitespace-pre-wrap break-all p-3 pr-11 font-mono text-[12px] leading-relaxed", className)}>{text}</pre>
-      <button type="button" onClick={copy} aria-label="Copy" className="absolute right-1.5 top-1.5 flex size-8 items-center justify-center text-muted-foreground hover:text-foreground">
-        {copied ? <Check className="size-4 text-pink" /> : <Copy className="size-4" />}
-      </button>
-    </div>
-  );
-}
-
-export function TokenSetup({ secret, prompt, shortPrompt = AGENT_PROMPT, onCopyPrompt }: { secret: string; prompt: string; shortPrompt?: string; onCopyPrompt: () => void }) {
-  const snippets = mcpSnippets(secret);
-  const short = useCopy(shortPrompt, onCopyPrompt);
-  return (
-    <div className="space-y-5">
+    <div className="border border-pink/40 bg-pink/5 p-4">
       <div>
-        <div className="text-label mb-1.5">Your secret key</div>
-        <CopyBlock text={secret} className="text-pink" />
-        <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
-          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
-          This key will only be shown once. It expires in 7 days and can be revoked under Developer.
-        </p>
-      </div>
-      <div>
-        <div className="text-label mb-1.5">Add the UserTrack MCP server</div>
-        <Tabs defaultValue={snippets[0].id}>
-          <TabsList variant="line" className="w-full flex-wrap justify-start gap-x-2 gap-y-1 p-0 group-data-horizontal/tabs:h-auto">
-            {snippets.map((s) => <TabsTrigger key={s.id} value={s.id} className="h-8 flex-none px-1.5 font-mono text-xs">{s.label}</TabsTrigger>)}
-          </TabsList>
-          {snippets.map((s) => (
-            <TabsContent key={s.id} value={s.id} className="mt-2">
-              <CopyBlock text={s.text} />
-              {s.hint && <p className="mt-1.5 text-xs text-muted-foreground">{s.hint}</p>}
-            </TabsContent>
-          ))}
-        </Tabs>
-      </div>
-      <div className="border border-pink/40 bg-pink/5 p-4">
         <div className="text-label text-pink">Tell your agent:</div>
-        <blockquote className="mt-2 border-l-2 border-pink pl-3 font-mono text-[13px] leading-relaxed">&ldquo;{shortPrompt}&rdquo;</blockquote>
+        {shortPrompt && <blockquote className="mt-2 border-l-2 border-pink pl-3 font-mono text-[13px] leading-relaxed">&ldquo;{shortPrompt}&rdquo;</blockquote>}
         <CopyForAgent
           surface="mcp-setup"
           className="mt-3"
-          label="Copy instructions to LLM"
+          label="Copy to LLM"
           prompt={prompt}
-          hint="Includes the MCP config, your key, the stack-detection plan and the safety rules."
+          hint="One paste — includes the MCP config, your key, the full task and all safety rules."
+          onCopy={onCopyPrompt}
         />
-        <button type="button" onClick={short.copy} className="mt-3 inline-flex h-8 items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">
-          {short.copied ? <Check className="size-3.5 text-pink" /> : <Copy className="size-3.5" />} {short.copied ? "Copied" : "Copy the short prompt instead"}
-        </button>
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+          The embedded key is shown once, expires in 7 days and can be revoked under Developer.
+        </p>
       </div>
     </div>
   );
 }
 
-export function Live({ status, secret, prompt, shortPrompt, onCopyPrompt, onManual, onReset }: { status: Status; secret: string; prompt: string; shortPrompt?: string; onCopyPrompt: () => void; onManual: () => void; onReset: () => void }) {
+export function Live({ status, prompt, shortPrompt, onCopyPrompt, onManual, onReset }: { status: Status; prompt: string; shortPrompt?: string; onCopyPrompt: () => void; onManual: () => void; onReset: () => void }) {
   const [showSetup, setShowSetup] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const setPublic = useMutation(api.saas.setPublic);
@@ -190,7 +154,7 @@ export function Live({ status, secret, prompt, shortPrompt, onCopyPrompt, onManu
       <AnimatePresence initial={false}>
         {showSetup && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-            <div className="pt-4"><TokenSetup secret={secret} prompt={prompt} shortPrompt={shortPrompt} onCopyPrompt={onCopyPrompt} /></div>
+            <div className="pt-4"><TokenSetup prompt={prompt} shortPrompt={shortPrompt} onCopyPrompt={onCopyPrompt} /></div>
           </motion.div>
         )}
       </AnimatePresence>

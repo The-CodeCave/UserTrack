@@ -252,13 +252,18 @@ WHAT TO BUILD
 ${OUTRO}`);
 }
 
-export function webhookAgentPrompt(o: { url: string; events: string[]; verifySnippet: string; payloadExample: string; toleranceNote?: string }) {
+export function webhookAgentPrompt(o: { url: string; secret: string; events: string[]; verifySnippet: string; payloadExample: string; toleranceNote?: string }) {
   return trim(`Implement a UserTrack webhook receiver in this project.
 
 WHAT IT IS
 UserTrack (${SITE_URL}) POSTs a signed JSON payload to my endpoint whenever one of my subscribed events happens.
 Endpoint to implement: ${o.url}
 Subscribed events: ${o.events.join(", ")}
+
+SIGNING SECRET
+${o.secret}
+Put it in the local environment as USERTRACK_WEBHOOK_SECRET and add USERTRACK_WEBHOOK_SECRET= to .env.example.
+Never hardcode, print, log or commit it.
 
 SIGNATURE VERIFICATION (do this first, before parsing anything):
 ${o.verifySnippet}

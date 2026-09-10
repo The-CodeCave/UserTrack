@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CopyBlock, SecretReveal, errMsg } from "@/components/app/developer/copy-block";
+import { CopyBlock, errMsg } from "@/components/app/developer/copy-block";
 import { CopyForAgent } from "@/components/site/copy-for-agent";
 import { nativeSdkAgentPrompt } from "@/lib/llm-prompts";
 import { CapabilityList, TestResultCard, type TestResult } from "./test-result";
@@ -126,13 +126,7 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
 
       {step === "install" && (
         <div className="space-y-4">
-          {cred ? (
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Your integration secret</div>
-              <SecretReveal secret={cred.secret} />
-              <p className="font-mono text-[11px] text-muted-foreground">Add both to your local env file and to your hosting provider for every environment. Never commit the secret.</p>
-            </div>
-          ) : (
+          {!cred && (
             <div className="flex flex-wrap items-center justify-between gap-2 border border-line p-3 text-sm">
               <span className="text-muted-foreground">{label} · secret {existing?.secretPrefix ? `${existing.secretPrefix}…` : ""} was shown once. Lost it?</span>
               <Button size="sm" variant="outline" className="h-9" disabled={busy} onClick={() => onCreate(true)}><RefreshCw className={cn("size-4", busy && "animate-spin")} /> Rotate secret</Button>
@@ -140,9 +134,9 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
           )}
           <CopyForAgent
             surface="native-setup"
-            label="Copy full setup for AI agent"
+            label="Copy to LLM"
             className="border border-pink/30 bg-pink/5 p-3"
-            hint="Install, route file, env vars and deploy — your agent does all four steps."
+            hint="One paste — includes the secret, install command, route code, env vars and deployment steps."
             prompt={nativeSdkAgentPrompt({
               sourceLabel: label,
               source,
@@ -176,16 +170,21 @@ export function NativeSetup({ saasId, websiteUrl, existing, initialSource, onCon
               )}
             </div>
           )}
-          <div>
-            <div className="mb-1 text-label">1 · Install {NATIVE_PACKAGE[source]}</div>
-            <Tabs defaultValue="npm">
-              <TabsList className="h-8">{PACKAGE_MANAGERS.map((pm) => <TabsTrigger key={pm} value={pm} className="font-mono text-[11px]">{pm}</TabsTrigger>)}</TabsList>
-              {PACKAGE_MANAGERS.map((pm) => <TabsContent key={pm} value={pm}><CopyBlock text={installCommands(source)[pm]} /></TabsContent>)}
-            </Tabs>
-          </div>
-          <CopyBlock label={`2 · ${files.route.title} — ${files.route.path}`} text={files.route.code} hint={files.notes[0]} />
-          <CopyBlock label="3 · Environment" text={cred ? envSnippet(cred.projectId, cred.secret) : `${ENV_PROJECT_ID}=${saasId}\n${ENV_SECRET}=ut_int_… (shown once at creation)`} hint="Then deploy your app." />
-          {files.push && <CopyBlock label={`${files.push.title} — ${files.push.path}`} text={files.push.code} hint="Signups show up on the dashboard between syncs. Fire-and-forget, never blocks a signup." />}
+          <details className="border border-line p-3">
+            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Set it up manually instead</summary>
+            <div className="mt-4 space-y-4">
+              <div>
+                <div className="mb-1 text-label">1 · Install {NATIVE_PACKAGE[source]}</div>
+                <Tabs defaultValue="npm">
+                  <TabsList className="h-8">{PACKAGE_MANAGERS.map((pm) => <TabsTrigger key={pm} value={pm} className="font-mono text-[11px]">{pm}</TabsTrigger>)}</TabsList>
+                  {PACKAGE_MANAGERS.map((pm) => <TabsContent key={pm} value={pm}><CopyBlock text={installCommands(source)[pm]} /></TabsContent>)}
+                </Tabs>
+              </div>
+              <CopyBlock label={`2 · ${files.route.title} — ${files.route.path}`} text={files.route.code} hint={files.notes[0]} />
+              <CopyBlock label="3 · Environment" text={cred ? envSnippet(cred.projectId, cred.secret) : `${ENV_PROJECT_ID}=${saasId}\n${ENV_SECRET}=ut_int_… (shown once at creation)`} hint="Then deploy your app." />
+              {files.push && <CopyBlock label={`${files.push.title} — ${files.push.path}`} text={files.push.code} hint="Signups show up on the dashboard between syncs. Fire-and-forget, never blocks a signup." />}
+            </div>
+          </details>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button className="h-11" onClick={() => setStep("verify")}>Deployed — verify now</Button>
             <Button variant="ghost" className="h-11" render={<a href={source === "better-auth" ? "/developers/integrations/better-auth" : `/developers/integrations/native#${source}`} target="_blank" rel="noreferrer" />}>Docs <ExternalLink className="size-4" /></Button>

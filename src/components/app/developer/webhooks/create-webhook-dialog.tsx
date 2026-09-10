@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CopyBlock, SecretReveal, errMsg } from "../copy-block";
+import { errMsg } from "../copy-block";
 import { nodeVerifySnippet, PAYLOAD_EXAMPLE } from "./snippets";
 import { CopyForAgent } from "@/components/site/copy-for-agent";
 import { webhookAgentPrompt } from "@/lib/llm-prompts";
@@ -56,9 +56,8 @@ export function CreateWebhookDialog({ projects, disabled }: { projects: { id: Id
         </DialogHeader>
         {secret ? (
           <div className="space-y-4">
-            <SecretReveal secret={secret} />
-            <CopyForAgent surface="webhook-dialog" prompt={webhookAgentPrompt({ url: createdUrl, events, verifySnippet: nodeVerifySnippet(), payloadExample: PAYLOAD_EXAMPLE })} hint="Signature verification, idempotency and a test — written into this codebase." className="border border-pink/30 bg-pink/5 p-3" />
-            <CopyBlock label="Verify (Node)" text={nodeVerifySnippet()} hint="Compare against the raw request body, not a re-serialized one." />
+            <CopyForAgent surface="webhook-dialog" label="Copy to LLM" prompt={webhookAgentPrompt({ url: createdUrl, secret, events, verifySnippet: nodeVerifySnippet(), payloadExample: PAYLOAD_EXAMPLE })} hint="One paste — includes the signing secret, verification code, idempotency rules and tests." className="border border-pink/30 bg-pink/5 p-3" />
+            <p className="font-mono text-[11px] text-muted-foreground">The signing secret is embedded in the copied instructions and should never be committed or logged.</p>
             <Button variant="outline" className="h-10 w-full" onClick={() => setOpen(false)}>Done</Button>
           </div>
         ) : (

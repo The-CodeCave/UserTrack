@@ -73,7 +73,7 @@ export function ActivationAgentSetup({ saasId, name, websiteUrl, connected, onMa
         )}
       </div>
 
-      {session && <TokenSetup secret={session.secret} prompt={prompt} shortPrompt={shortPrompt} onCopyPrompt={() => {}} />}
+      {session && <TokenSetup prompt={prompt} shortPrompt={shortPrompt} onCopyPrompt={() => {}} />}
 
       <button type="button" onClick={onManual} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
         <Wrench className="size-3.5" /> Set up a provider manually instead

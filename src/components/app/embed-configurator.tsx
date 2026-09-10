@@ -49,7 +49,7 @@ function WidgetConfigurator({ slug, name }: { slug: string; name: string }) {
         </div>
       </Panel>
       <Panel className="space-y-4 p-4 sm:p-5">
-        <CopyForAgent surface="embed-widget" label="Copy for AI agent" prompt={widgetAgentPrompt({ name, slug, type, script: s.script, iframe: s.iframe, jsonUrl: s.jsonUrl, width: s.width, height: s.height })} className="border border-pink/30 bg-pink/5 p-3" />
+        <CopyForAgent surface="embed-widget" label="Copy to LLM" prompt={widgetAgentPrompt({ name, slug, type, script: s.script, iframe: s.iframe, jsonUrl: s.jsonUrl, width: s.width, height: s.height })} className="border border-pink/30 bg-pink/5 p-3" />
         <Snippet label="Script (recommended)" text={s.script} onCopy={() => track("embed_snippet_copied", { widget: type })} />
         <Snippet label="iframe" text={s.iframe} onCopy={() => track("embed_snippet_copied", { widget: type })} />
         <Snippet label="JSON" text={s.jsonUrl} onCopy={() => track("embed_snippet_copied", { widget: type })} />
@@ -98,7 +98,7 @@ function BadgeConfigurator({ slug, name }: { slug: string; name: string }) {
         </div>
       </Panel>
       <Panel className="space-y-4 p-4 sm:p-5">
-        <CopyForAgent surface="embed-badge" label="Copy for AI agent" prompt={badgeAgentPrompt({ name, slug, kind: type, height, html, markdown: md, imageUrl: src, pageUrl: page })} className="border border-pink/30 bg-pink/5 p-3" />
+        <CopyForAgent surface="embed-badge" label="Copy to LLM" prompt={badgeAgentPrompt({ name, slug, kind: type, height, html, markdown: md, imageUrl: src, pageUrl: page })} className="border border-pink/30 bg-pink/5 p-3" />
         <Snippet label="HTML" text={html} onCopy={() => track("badge_snippet_copied")} />
         <Snippet label="Markdown" text={md} onCopy={() => track("badge_snippet_copied")} />
         <Snippet label="Image URL" text={src} onCopy={() => track("badge_snippet_copied")} />

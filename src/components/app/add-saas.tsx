@@ -147,7 +147,7 @@ export function AddSaas({ extraSteps = [], resume, onDone }: { extraSteps?: read
               <SectionLabel>Step 3 of {steps.length}</SectionLabel>
               <h1 className="mt-2 text-2xl font-semibold tracking-tight">Hand it to your coding agent</h1>
               <p className="mb-5 mt-1 text-sm text-muted-foreground">Copy the instructions below into Claude Code, Cursor or Codex. Your agent reads the repo, connects the right data source, deploys and verifies it — this screen follows along.</p>
-              <TokenSetup secret={session.secret} prompt={prompt} shortPrompt={shortPrompt} onCopyPrompt={copyPrompt} />
+              <TokenSetup prompt={prompt} shortPrompt={shortPrompt} onCopyPrompt={copyPrompt} />
               <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center">
                 <Button className="h-11" onClick={() => setSession({ ...session, told: true })}>I&apos;ve told my agent →</Button>
                 <button type="button" onClick={goManual} className={cn(link, "h-11 px-2")}>Connect a source myself instead</button>
@@ -158,7 +158,7 @@ export function AddSaas({ extraSteps = [], resume, onDone }: { extraSteps?: read
 
           {phase === "live" && session && status && !manual && (
             <>
-              <Live status={status} secret={session.secret ?? ""} prompt={prompt} shortPrompt={shortPrompt} onCopyPrompt={copyPrompt} onManual={goManual} onReset={() => setSession({ ...session, tokenId: undefined, secret: undefined, told: undefined })} />
+              <Live status={status} prompt={prompt} shortPrompt={shortPrompt} onCopyPrompt={copyPrompt} onManual={goManual} onReset={() => setSession({ ...session, tokenId: undefined, secret: undefined, told: undefined })} />
               {restart}
             </>
           )}

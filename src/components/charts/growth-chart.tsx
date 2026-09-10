@@ -1,9 +1,10 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, ReferenceArea, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { cn } from "@/lib/utils";
 import { formatCompact, formatDelta, formatPointDate, formatTick, RANGES, type Range } from "@/lib/format";
+import { activationDeltaAt } from "@/lib/chart-series";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export interface SeriesPoint { t: number; total: number; delta: number; activated?: number; visitors?: number }
@@ -12,7 +13,7 @@ export type Resolution = "raw" | "day" | "week" | "month";
 export interface Annotation { id: string; t: number; kind: "milestone" | "spike" | "activation_spike" | "traffic_spike" | "reconnect" | "source_changed" | "launched" | "verified" | "rank_jump" | "traction" | "benchmark"; title: string; detail: string }
 type Metric = "total" | "new";
 // A plotted point may be a gap marker (total null) so the line breaks instead of bridging an outage.
-type Plotted = Omit<SeriesPoint, "total" | "activated"> & { total: number | null; activated?: number | null; gap?: true };
+type Plotted = Omit<SeriesPoint, "total" | "activated"> & { total: number | null; activated?: number | null; activatedDelta?: number | null; gap?: true };
 
 const WHITE = "#f4f4f5";
 const PINK = "#fb0184";
@@ -48,8 +49,12 @@ export function GrowthChart({
   const gradId = useId();
   const hatchId = useId();
   const points = useMemo(() => data ?? [], [data]);
-  // Insert one null point per gap so the area/line break there; the time axis then shows the hole at true width.
-  const plotted = useMemo<Plotted[]>(() => [...points, ...gaps.map((g) => ({ t: (g.from + g.to) / 2, total: null, delta: 0, activated: null, gap: true as const }))].sort((a, b) => a.t - b.t), [points, gaps]);
+  const plotted = useMemo<Plotted[]>(() => {
+    const measured = points.map((point, index) => {
+      return { ...point, activatedDelta: activationDeltaAt(points, index) };
+    });
+    return [...measured, ...gaps.map((g) => ({ t: (g.from + g.to) / 2, total: null, delta: 0, activated: null, activatedDelta: null, gap: true as const }))].sort((a, b) => a.t - b.t);
+  }, [points, gaps]);
   const last = points[points.length - 1];
   const hasActivated = points.some((p) => p.activated !== undefined);
   const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -73,9 +78,9 @@ export function GrowthChart({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-1 pb-3">
         <Segmented value={range} options={RANGES.map((r) => ({ v: r, label: r.toUpperCase() }))} onChange={onRangeChange} />
         <div className="flex items-center gap-2">
-          {hasActivated && metric === "total" && (
-            <button onClick={() => setShowActivated((v) => !v)} className={cn("flex items-center gap-1.5 border border-line px-2 py-1.5 font-mono text-[11px] uppercase tracking-wider", showActivated ? "text-foreground" : "text-muted-foreground")}>
-              <span className="h-0.5 w-3" style={{ background: SKY, opacity: showActivated ? 1 : 0.3 }} /> Activated
+          {hasActivated && (
+            <button aria-pressed={showActivated} onClick={() => setShowActivated((v) => !v)} className={cn("flex items-center gap-1.5 border border-line px-2 py-1.5 font-mono text-[11px] uppercase tracking-wider", showActivated ? "text-foreground" : "text-muted-foreground")}>
+              <span className="h-0.5 w-3" style={{ background: SKY, opacity: showActivated ? 1 : 0.3 }} /> Activation
             </button>
           )}
           <Segmented value={metric} options={[{ v: "total", label: "Total" }, { v: "new", label: "New" }]} onChange={setMetric} />
@@ -100,29 +105,32 @@ export function GrowthChart({
                 </defs>
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} tickFormatter={(t) => formatTick(t, range)} tick={AXIS} axisLine={false} tickLine={false} minTickGap={40} />
-                <YAxis tickFormatter={formatCompact} tick={AXIS} axisLine={false} tickLine={false} width={44} domain={["auto", "auto"]} />
-                <Tooltip cursor={{ stroke: "rgba(255,255,255,0.35)", strokeWidth: 1 }} content={<PointTooltip range={range} metric={metric} marks={marks} reconstructedUntil={reconstructedUntil} />} />
+                <YAxis yAxisId="users" tickFormatter={formatCompact} tick={AXIS} axisLine={false} tickLine={false} width={44} domain={["auto", "auto"]} />
+                {hasActivated && showActivated && <YAxis yAxisId="activation" orientation="right" tickFormatter={formatCompact} tick={{ ...AXIS, fill: SKY }} axisLine={false} tickLine={false} width={44} domain={["auto", "auto"]} />}
+                <Tooltip cursor={{ stroke: "rgba(255,255,255,0.35)", strokeWidth: 1 }} content={<PointTooltip range={range} metric={metric} marks={marks} reconstructedUntil={reconstructedUntil} showActivated={showActivated} />} />
                 {gaps.map((g) => (
-                  <ReferenceArea key={g.from} x1={g.from} x2={g.to} fill={`url(#${hatchId})`} stroke="rgba(255,255,255,0.12)" strokeDasharray="3 3" ifOverflow="visible" label={<GapLabel days={g.days} />} />
+                  <ReferenceArea yAxisId="users" key={g.from} x1={g.from} x2={g.to} fill={`url(#${hatchId})`} stroke="rgba(255,255,255,0.12)" strokeDasharray="3 3" ifOverflow="visible" label={<GapLabel days={g.days} />} />
                 ))}
-                <Area type="monotone" dataKey="total" connectNulls={false} stroke={WHITE} strokeWidth={2} fill={`url(#${gradId})`} dot={false} activeDot={{ r: 4, fill: PINK, stroke: "#0b0c0e", strokeWidth: 2 }} animationDuration={anim} isAnimationActive={!reduced} />
-                {hasActivated && showActivated && <Line type="monotone" dataKey="activated" connectNulls={false} stroke={SKY} strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: SKY }} animationDuration={anim} isAnimationActive={!reduced} />}
-                {last && <ReferenceDot x={last.t} y={last.total} r={4} fill={PINK} stroke="#0b0c0e" strokeWidth={2} />}
+                <Area yAxisId="users" type="monotone" dataKey="total" connectNulls={false} stroke={WHITE} strokeWidth={2} fill={`url(#${gradId})`} dot={false} activeDot={{ r: 4, fill: PINK, stroke: "#0b0c0e", strokeWidth: 2 }} animationDuration={anim} isAnimationActive={!reduced} />
+                {hasActivated && showActivated && <Line yAxisId="activation" type="monotone" dataKey="activated" connectNulls={false} stroke={SKY} strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: SKY }} animationDuration={anim} isAnimationActive={!reduced} />}
+                {last && <ReferenceDot yAxisId="users" x={last.t} y={last.total} r={4} fill={PINK} stroke="#0b0c0e" strokeWidth={2} />}
                 {marks.map((m) => (
-                  <ReferenceDot key={m.id} x={m.x} y={m.y} r={0} shape={<Marker kind={m.kind} />} />
+                  <ReferenceDot yAxisId="users" key={m.id} x={m.x} y={m.y} r={0} shape={<Marker kind={m.kind} />} />
                 ))}
               </AreaChart>
             ) : (
-              <BarChart data={points} margin={{ top: 20, right: 28, bottom: 0, left: 0 }} barCategoryGap="30%">
+              <ComposedChart data={plotted} margin={{ top: 20, right: 0, bottom: 0, left: 0 }} barCategoryGap="30%">
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="t" tickFormatter={(t) => formatTick(t, range)} tick={AXIS} axisLine={false} tickLine={false} minTickGap={40} />
-                <YAxis tickFormatter={formatCompact} tick={AXIS} axisLine={false} tickLine={false} width={44} />
-                <Tooltip cursor={{ fill: "rgba(255,255,255,0.06)" }} content={<PointTooltip range={range} metric={metric} marks={marks} reconstructedUntil={reconstructedUntil} />} />
-                <Bar dataKey="delta" fill={PINK} maxBarSize={24} radius={[4, 4, 0, 0]} animationDuration={reduced ? 0 : 700} isAnimationActive={!reduced} />
+                <YAxis yAxisId="users" tickFormatter={formatCompact} tick={AXIS} axisLine={false} tickLine={false} width={44} />
+                {hasActivated && showActivated && <YAxis yAxisId="activation" orientation="right" tickFormatter={formatCompact} tick={{ ...AXIS, fill: SKY }} axisLine={false} tickLine={false} width={44} domain={["auto", "auto"]} />}
+                <Tooltip cursor={{ fill: "rgba(255,255,255,0.06)" }} content={<PointTooltip range={range} metric={metric} marks={marks} reconstructedUntil={reconstructedUntil} showActivated={showActivated} />} />
+                <Bar yAxisId="users" dataKey="delta" fill={PINK} maxBarSize={24} radius={[4, 4, 0, 0]} animationDuration={reduced ? 0 : 700} isAnimationActive={!reduced} />
+                {hasActivated && showActivated && <Line yAxisId="activation" type="monotone" dataKey="activatedDelta" connectNulls={false} stroke={SKY} strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: SKY }} animationDuration={anim} isAnimationActive={!reduced} />}
                 {marks.map((m) => (
-                  <ReferenceDot key={m.id} x={m.x} y={m.y} r={0} shape={<Marker kind={m.kind} />} />
+                  <ReferenceDot yAxisId="users" key={m.id} x={m.x} y={m.y} r={0} shape={<Marker kind={m.kind} />} />
                 ))}
-              </BarChart>
+              </ComposedChart>
             )}
           </ResponsiveContainer>
         )}
@@ -180,7 +188,7 @@ function Segmented<T extends string>({ value, options, onChange }: { value: T; o
   );
 }
 
-function PointTooltip({ active, payload, range, metric, marks, reconstructedUntil }: { active?: boolean; payload?: { payload: Plotted }[]; range: Range; metric: Metric; marks: (Annotation & { x: number })[]; reconstructedUntil?: number }) {
+function PointTooltip({ active, payload, range, metric, marks, reconstructedUntil, showActivated }: { active?: boolean; payload?: { payload: Plotted }[]; range: Range; metric: Metric; marks: (Annotation & { x: number })[]; reconstructedUntil?: number; showActivated: boolean }) {
   const p = payload?.[0]?.payload;
   if (!active || !p) return null;
   if (p.gap || p.total === null) return <div className="border border-line bg-background/95 px-3 py-2 font-mono text-[11px] text-muted-foreground shadow-lg backdrop-blur">No snapshots stored here</div>;
@@ -196,8 +204,8 @@ function PointTooltip({ active, payload, range, metric, marks, reconstructedUnti
       </div>
       {metric === "total" && p.delta !== 0 && <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{formatDelta(p.delta)} vs previous</div>}
       {reconstructed && <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">Rebuilt from signup dates, not observed live</div>}
-      {metric === "total" && p.activated != null && (
-        <div className="mt-0.5 flex items-center gap-2 font-mono text-[11px]" style={{ color: SKY }}><span className="h-0.5 w-3" style={{ background: SKY }} />{formatCompact(p.activated)} activated</div>
+      {showActivated && (metric === "total" ? p.activated != null : p.activatedDelta != null) && (
+        <div className="mt-0.5 flex items-center gap-2 font-mono text-[11px]" style={{ color: SKY }}><span className="h-0.5 w-3" style={{ background: SKY }} />{metric === "total" ? formatCompact(p.activated!) : formatDelta(p.activatedDelta!)} activated</div>
       )}
       {here.map((m) => (
         <div key={m.id} className="mt-1.5 border-t border-line pt-1.5">

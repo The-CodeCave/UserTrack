@@ -19,7 +19,7 @@ describe("agent prompts", () => {
       mcpAgentPrompt({ token: "ut_mcp_secret" }),
       activationAgentPrompt({ token: "ut_mcp_secret", project: { id: "project_123", name: "Acme", websiteUrl: "https://acme.test" } }),
       apiKeyAgentPrompt({ key: "ut_api_secret" }),
-      webhookAgentPrompt({ url: "https://x.dev/hooks", events: ["milestone.reached"], verifySnippet: "code", payloadExample: "{}" }),
+      webhookAgentPrompt({ url: "https://x.dev/hooks", secret: "whsec_secret", events: ["milestone.reached"], verifySnippet: "code", payloadExample: "{}" }),
       nativeSdkAgentPrompt({ sourceLabel: "Better Auth", source: "better-auth", packageName: "@usertrack/better-auth", installCommand: "npm i", routeTitle: "Register the plugin", routePath: "lib/auth.ts", routeCode: "code", envSnippet: "ENV=1", verifyUrl: "https://x.dev/api/auth", notes: ["a note"] }),
     ];
     for (const p of all) {
@@ -48,6 +48,13 @@ describe("agent prompts", () => {
   it("passes the secret through so the agent can actually configure the client", () => {
     expect(mcpAgentPrompt({ token: "ut_mcp_secret" })).toContain("ut_mcp_secret");
     expect(apiKeyAgentPrompt({ key: "ut_api_secret" })).toContain("ut_api_secret");
+    expect(nativeSdkAgentPrompt({ sourceLabel: "Better Auth", source: "better-auth", packageName: "@usertrack/better-auth", installCommand: "npm i", routeTitle: "Register", routePath: "lib/auth.ts", routeCode: "code", envSnippet: "USERTRACK_SECRET=ut_int_secret", verifyUrl: "https://acme.test/api/usertrack", notes: [] })).toContain("ut_int_secret");
     expect(apiKeyAgentPrompt({})).toContain("process.env.USERTRACK_API_KEY");
+  });
+
+  it("includes the webhook signing secret in the one-paste agent prompt", () => {
+    const prompt = webhookAgentPrompt({ url: "https://acme.test/webhooks/usertrack", secret: "whsec_secret", events: ["saas.updated"], verifySnippet: "verify(rawBody)", payloadExample: "{}" });
+    expect(prompt).toContain("whsec_secret");
+    expect(prompt).toContain("USERTRACK_WEBHOOK_SECRET");
   });
 });
