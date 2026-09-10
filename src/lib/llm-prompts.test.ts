@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apiKeyAgentPrompt, badgeAgentPrompt, mcpAgentPrompt, nativeSdkAgentPrompt, webhookAgentPrompt, widgetAgentPrompt } from "./llm-prompts";
+import { activationAgentPrompt, apiKeyAgentPrompt, badgeAgentPrompt, mcpAgentPrompt, nativeSdkAgentPrompt, webhookAgentPrompt, widgetAgentPrompt } from "./llm-prompts";
 import { AGENT_PROMPT, BETTER_AUTH_AGENT_PROMPT, MOBILE_AGENT_PROMPT, NATIVE_AGENT_PROMPT } from "./mcp/snippets";
 
 const badge = badgeAgentPrompt({ name: "Acme", slug: "acme", kind: "users", height: 28, html: '<a href="P"><img src="I" alt="Acme on UserTrack" height="28"></a>', markdown: "[![Acme](I)](P)", imageUrl: "I", pageUrl: "P" });
@@ -17,6 +17,7 @@ describe("agent prompts", () => {
       badge,
       widgetAgentPrompt({ name: "Acme", slug: "acme", type: "users", script: "<script>", iframe: "<iframe>", jsonUrl: "J", width: 200, height: 28 }),
       mcpAgentPrompt({ token: "ut_mcp_secret" }),
+      activationAgentPrompt({ token: "ut_mcp_secret", project: { id: "project_123", name: "Acme", websiteUrl: "https://acme.test" } }),
       apiKeyAgentPrompt({ key: "ut_api_secret" }),
       webhookAgentPrompt({ url: "https://x.dev/hooks", events: ["milestone.reached"], verifySnippet: "code", payloadExample: "{}" }),
       nativeSdkAgentPrompt({ sourceLabel: "Better Auth", source: "better-auth", packageName: "@usertrack/better-auth", installCommand: "npm i", routeTitle: "Register the plugin", routePath: "lib/auth.ts", routeCode: "code", envSnippet: "ENV=1", verifyUrl: "https://x.dev/api/auth", notes: ["a note"] }),
@@ -27,6 +28,15 @@ describe("agent prompts", () => {
       expect(p.length).toBeGreaterThan(400);
       expect(p).toMatch(/AFTER THE CHANGE/);
     }
+  });
+
+  it("makes activation agent-first without letting the agent guess an ambiguous product decision", () => {
+    const prompt = activationAgentPrompt({ token: "ut_mcp_secret", project: { id: "project_123", name: "Acme", websiteUrl: "https://acme.test" }, context: "Value starts after the first report." });
+    expect(prompt).toContain("usertrack_get_activation_setup");
+    expect(prompt).toContain("ask me exactly one concise question");
+    expect(prompt).toContain("project_123");
+    expect(prompt).toContain("first report");
+    expect(prompt).toContain("must never exceed total users");
   });
 
   it("tells the agent to publish, so the URL it reports back is not a 404", () => {

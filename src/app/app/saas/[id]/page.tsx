@@ -17,6 +17,7 @@ import { TrustBadge } from "@/components/blueprint/trust-badge";
 import { StreakChip } from "@/components/blueprint/streak-chip";
 import { SaasForm } from "@/components/app/saas-form";
 import { ConnectSource, SourceStatus } from "@/components/app/connect-source";
+import { ActivationAgentSetup } from "@/components/app/activation-agent-setup";
 import { BenchmarkCards } from "@/components/app/benchmark-cards";
 import { SaasGrowth } from "@/components/public/saas-growth";
 import { CohortTable, Funnel } from "@/components/public/funnel";
@@ -65,6 +66,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
   const backfills = useQuery(api.integrations.backfills, { saasId });
   const [replacing, setReplacing] = useState<Role | null>(null);
   const [adding, setAdding] = useState<Role | null>(null);
+  const [manualActivation, setManualActivation] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   // The hash is the tab: every existing deep link (#integrations, #sharing …) keeps working, in-page links included.
   const [tab, setTab] = useState<Tab>("growth");
@@ -83,14 +85,24 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
   const mobile = saas.projectType === "mobile";
   const byRole = (r: Role) => saas.integrations.find((i) => i.role === r);
   const publish = (v: boolean) => setPublic({ id: saasId, isPublic: v }).then(() => track(v ? "project_published" : "project_unpublished")).catch((e: Error) => toast.error(/Uncaught \w*Error: ([^\n]*)/.exec(e.message)?.[1] ?? "Could not update the page"));
+  const selectTab = (next: Tab) => {
+    setTab(next);
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${next}`);
+  };
+  const openActivation = () => {
+    setAdding("activation");
+    setReplacing(null);
+    setManualActivation(false);
+    selectTab("integrations");
+  };
   const copy = async (key: string, text: string) => { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(null), 1500); };
   const runBackfill = (days: number | "all", rebuild = false) => backfill({ saasId, role: "users", days, rebuild }).then(() => track("backfill_triggered")).then(() => toast.success(rebuild ? "Rebuild started — the reconstructed days are being re-imported" : days === "all" ? "Backfill started — a long history can take a few minutes" : "Backfill started — points land within a minute")).catch((e) => toast.error(errMsg(e)));
   // Derived from state only; disappears as the founder completes each item.
   const nextSteps = [
     ...(!saas.isPublic ? [{ label: "Publish your page", onClick: () => publish(true) }] : []),
-    ...(!byRole("activation") ? [{ label: "Connect an activation source", href: "#integrations" }] : []),
-    ...(saas.isPublic ? [{ label: "Add the widget to your site", href: embedHref }, { label: "Share your growth card", href: "#sharing" }] : []),
-    ...(saas.isPublic && saas.trust === "verified" ? [{ label: "See how you compare", href: "#benchmarks" }] : []),
+    ...(!byRole("activation") ? [{ label: "Connect an activation source", onClick: openActivation }] : []),
+    ...(saas.isPublic ? [{ label: "Add the widget to your site", href: embedHref }, { label: "Share your growth card", onClick: () => selectTab("sharing") }] : []),
+    ...(saas.isPublic && saas.trust === "verified" ? [{ label: "See how you compare", onClick: () => selectTab("benchmarks") }] : []),
   ];
   const chip = "inline-flex items-center gap-1.5 border border-line px-2.5 py-1 text-xs transition-colors hover:border-pink hover:text-pink";
   const users = byRole("users"), activation = byRole("activation"), conversion = byRole("conversion");
@@ -133,7 +145,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
               type="button"
               role="tab"
               aria-selected={tab === key}
-              onClick={() => { setTab(key); history.replaceState(null, "", `#${key}`); }}
+              onClick={() => selectTab(key)}
               className={cn(
                 "relative shrink-0 whitespace-nowrap px-3 py-3 font-mono text-[11px] uppercase tracking-wider transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:content-['']",
                 tab === key ? "text-foreground after:bg-pink" : "text-muted-foreground hover:text-foreground",
@@ -205,7 +217,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
               {saas.retentionRatePct !== undefined && <Stat label="Retention · 30d" value={formatRate(saas.retentionRatePct)} sub={`estimated · ${formatCompact(saas.churnedUsers ?? 0)} churned`} />}
             </div>
           ) : (
-            <Panel className="p-4 text-sm text-muted-foreground">Connect an activation source under <a href="#integrations" className="text-foreground underline-offset-2 hover:underline">Integrations</a> to see activated users and the activation rate.</Panel>
+            <Panel className="flex flex-col gap-3 p-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between"><span>Connect an activation source to see activated users and the activation rate.</span><Button variant="outline" size="sm" onClick={openActivation}>Connect with your agent <ArrowRight className="size-3.5" /></Button></Panel>
           )}
         </section>
       )}
@@ -225,7 +237,7 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
               <p className="font-mono text-[11px] text-muted-foreground">{NO_REVENUE_NOTE}</p>
             </>
           ) : (
-            <Panel className="p-4 text-sm text-muted-foreground">Connect a payment provider under <a href="#integrations" className="text-foreground underline-offset-2 hover:underline">Integrations</a> to see trial and converted users. {NO_REVENUE_NOTE}</Panel>
+            <Panel className="flex flex-col gap-3 p-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between"><span>Connect a payment provider to see trial and converted users. {NO_REVENUE_NOTE}</span><Button variant="outline" size="sm" onClick={() => { setAdding("conversion"); selectTab("integrations"); }}>Open integrations <ArrowRight className="size-3.5" /></Button></Panel>
           )}
         </section>
       )}
@@ -267,10 +279,14 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
                   {role === "conversion" && <p className="mt-1 font-mono text-[11px] text-muted-foreground">{NO_REVENUE_NOTE}</p>}
                 </div>
                 {integ && !open ? (
-                  <SourceStatus saasId={saasId} integration={integ} totalUsers={role === "users" ? saas.totalUsers : undefined} trust={saas.trust} trustLabel={saas.trustLabel} onReplace={() => setReplacing(role)} onDisconnect={() => setAdding(null)} />
+                  <SourceStatus saasId={saasId} integration={integ} totalUsers={role === "users" ? saas.totalUsers : undefined} trust={saas.trust} trustLabel={saas.trustLabel} onReplace={() => { setReplacing(role); if (role === "activation") setManualActivation(false); }} onDisconnect={() => setAdding(null)} />
                 ) : open ? (
                   <Panel className="p-4">
-                    <ConnectSource saasId={saasId} role={role} current={integ ?? undefined} websiteUrl={saas.websiteUrl} onConnected={() => { setReplacing(null); setAdding(null); }} />
+                    {role === "activation" && !manualActivation ? (
+                      <ActivationAgentSetup saasId={saasId} name={saas.name} websiteUrl={saas.websiteUrl} connected={Boolean(integ)} onManual={() => setManualActivation(true)} onDone={() => { setReplacing(null); setAdding(null); selectTab("engagement"); }} />
+                    ) : (
+                      <ConnectSource saasId={saasId} role={role} current={integ ?? undefined} websiteUrl={saas.websiteUrl} onConnected={() => { setReplacing(null); setAdding(null); setManualActivation(false); }} />
+                    )}
                     {(integ || role !== "users") && <Button variant="ghost" size="sm" className="mt-3" onClick={() => { setReplacing(null); setAdding(null); }}>Cancel</Button>}
                   </Panel>
                 ) : (

@@ -138,6 +138,58 @@ HARD RULES
 ${OUTRO}`);
 }
 
+export function activationAgentPrompt(o: { token: string; project: { id: string; name: string; websiteUrl: string }; context?: string }) {
+  const client = mcpSnippets(o.token);
+  const claude = client.find((s) => s.id === "claude-code")!.text;
+  const generic = client.find((s) => s.id === "generic")!.text;
+  const context = o.context?.trim()
+    ? `\nFOUNDER CONTEXT\n${o.context.trim()}\nTreat this as a useful clue, not proof. Verify it against the product code.`
+    : "";
+  return trim(`Define and connect the activation event for "${o.project.name}" in UserTrack. Work in this product's repository.
+
+CONNECT USERTRACK
+If you are Claude Code, run:
+${claude}
+
+Any other MCP client — register this Streamable HTTP server:
+${generic}
+
+The existing UserTrack project is ${o.project.id} (${o.project.websiteUrl}). Pass that projectId to every UserTrack
+tool. Do not create another project. The token is short-lived and scoped to the founder's projects. Keep it in the
+MCP client config only; never write it to source files, committed env files, documentation or logs.${context}
+
+FIRST: UNDERSTAND ACTIVATION
+1. Inspect the actual product code: product copy, onboarding, routes, domain models, existing analytics calls and the
+   actions repeated by successful users. Search for candidate event names and the records created by core workflows.
+2. Activation means the earliest action where a new user has received real product value. Signup, login, pageview,
+   app_open, a generic click, starting checkout or payment are not activation.
+3. Prefer one existing, durable outcome event or one row-per-activated-user table. Do not invent an event merely
+   because its name sounds good.
+4. Briefly report the strongest candidate and why it represents value. If one candidate is clearly supported by the
+   code, proceed. If two or more product meanings remain plausible, ask me exactly one concise question with the
+   concrete candidates and wait for my answer before changing code or configuring UserTrack.
+
+THEN: INTEGRATE IT
+1. Detect the analytics/data stack and call usertrack_get_activation_setup with projectId "${o.project.id}",
+   detectedProviders and every candidate event name you found.
+2. Use the safest recommended verified source: an existing PostHog event, the existing Supabase/Postgres data via a
+   read-only aggregate query, or the existing native UserTrack handler. Use the endpoint fallback only when none of
+   those fits. Never use a manual/self-reported count when a verified source is possible.
+3. Ask me only for a credential or deployment action that is genuinely missing. Request the least privilege possible
+   and never print, log, commit or paste credentials into chat.
+4. Call usertrack_get_integration_setup with role "activation", implement only the required wiring, then configure and
+   verify the activation integration. The activated count must never exceed total users. Trigger a sync after success.
+5. Do not change the existing users or conversion definitions, public visibility, auth behavior or billing behavior.
+
+REPORT BACK
+- The exact activation definition in one sentence.
+- The event/table/query and provider used.
+- Verification result and detected activated-user count.
+- Any code or environment changes still requiring deployment.
+
+${OUTRO}`);
+}
+
 export function nativeSdkAgentPrompt(o: { sourceLabel: string; source: string; packageName: string; installCommand: string; routeTitle: string; routePath: string; routeCode: string; envSnippet: string; pushCode?: string; pushPath?: string; verifyUrl: string; notes: string[] }) {
   return trim(`Install the UserTrack native SDK in this project (${o.sourceLabel}).
 
