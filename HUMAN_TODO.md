@@ -17,7 +17,7 @@ Last updated: 2026-09-08 · code state: **v1.0 launch hardening + v1.0.1 review 
 | 1 | **Confirm `UT_GATEWAY_SECRET` on both sides** | Since SEC-1 the gateway **fails closed**: if the value is missing or different on either side, every API key, MCP call, badge, embed and native event is rejected. It was set in v0.6 — this is a verification, not a new secret. | below, *1. Gateway secret* |
 | 2 | **`RESEND_API_KEY` on Convex prod** | Since SEC-1 email+password accounts must verify their address before they can sign in. Without the key every new password sign-up is stuck at "Check your inbox". Google/GitHub/X sign-in is unaffected. | *Resend — verify `mail.usertrack.dev` and add the API key* |
 | 3 | **`GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`** | "Continue with GitHub" renders disabled until the OAuth App exists. | *GitHub sign-in + X sign-in callback (AUTH-1)* |
-| 4 | **X callback + email permission on the existing X app** | Adds "Continue with X" (Better Auth `twitter`) to the existing Connect X app; no new variable. Without the email permission X sign-in fails with a clear `email_not_found`. | *GitHub sign-in + X sign-in callback (AUTH-1)* |
+| ~~4~~ | ~~**X callback + email permission on the existing X app**~~ — **done 2026-09-12**: app created and configured, all six `X_*` variables set on Convex prod, `auth:providers` → `twitter: true`. | | |
 | 5 | **`TRUSTMRR_API_KEY` on Convex prod** | "Import from TrustMRR" shows "Not configured" and the MCP tool answers `not_configured` without it. Also: run one real import and paste the JSON into the fixtures (the mapper is written against the published example, not a live response). | *TrustMRR operator API key (IMPORT-1)* |
 | 6 | **Rybbit goals + funnels (incl. `waitlist_join`) + `NEXT_PUBLIC_RYBBIT_SITE_ID` on Railway** | Rybbit has no API for goals/funnels. Without them every funnel in the dashboard stays empty — including the waitlist phase. Since FIX-1 the site id is only *implied* for a production build of `https://usertrack.dev`, so set it explicitly (empty string = kill switch). | *Rybbit — site settings, goals, funnels and API key (ANALYTICS-1)* |
 | 7 | **Google OAuth consent screen with `/privacy` + `/terms`** | Both pages exist since LEGAL-1. Google needs them before the app can leave "Testing" (100 manually added users). | *Google sign-in — create the OAuth client*, step 2 |
@@ -128,7 +128,7 @@ Then, **once**: Railway → project `usertrack` → service `usertrack` → Sett
    npx convex env set --prod SITE_URL https://usertrack.dev
    railway up --service usertrack --ci     # the public URL is baked into the client bundle
    ```
-4. Update the exact-match callbacks that contain the host: Google (`https://usertrack.dev/api/auth/callback/google`), GitHub (`/api/auth/callback/github`), X (`/api/auth/callback/twitter` **and** `/api/social/x/callback`).
+4. Update the exact-match callbacks that contain the host: Google (`https://usertrack.dev/api/auth/callback/google`), GitHub (`/api/auth/callback/github`), X (`/api/auth/callback/twitter` **and** `/api/social/x/callback` — both `usertrack.dev` variants are already registered since 2026-09-12, so X needs no change here). Note that the X app's consent screen points at `https://usertrack.dev/terms` and `/privacy`; during Phase A those resolve to the waitlist SPA (which serves one `index.html` for every path), so the links are only real after this switch.
 5. Google Search Console → add property `usertrack.dev` → submit `https://usertrack.dev/sitemap.xml`.
 
 **Phase C — trust the Cloudflare client-IP headers** (the moment the DNS record is switched from *DNS only* to **proxied / orange cloud**, for either service)
@@ -312,11 +312,11 @@ X Developer Portal → https://developer.x.com/en/portal/dashboard (log in with 
 Convex dashboard → usertrack → **Production** → Settings → Environment Variables (or the CLI above). Not Railway.
 
 **Status**
-- [ ] Pending
+- [x] Done (2026-09-12) — app configured in the new **console.x.com** UI (the old `developer.x.com/en/portal/dashboard` now redirects there; auth settings live behind the **Settings** button on the app page, and "Request email from users" is a toggle in the same form as the Terms/Privacy URLs). Permissions **Read and write**, type **Web App, Automated App or Bot**, email permission on. Six callback URLs saved: `/api/social/x/callback` and `/api/auth/callback/twitter` each for `https://usertrack.dev`, `https://usertrack-production.up.railway.app` and `http://localhost:3000`. `X_CLIENT_ID` / `X_CLIENT_SECRET` set on Convex prod (`handsome-warthog-21`); `auth:providers` returns `twitter: true`. Verified end to end: `POST /api/auth/sign-in/social {"provider":"twitter"}` on the Railway host returns a real `https://x.com/i/oauth2/authorize` URL carrying our client id, PKCE S256 and scope `users.read tweet.read offline.access users.email`, with `redirect_uri` = `https://usertrack-production.up.railway.app/api/auth/callback/twitter` (prod `SITE_URL`, and in the saved callback list). **Dev deployment deliberately left unset** — dev `SITE_URL` is `http://localhost:3212`, which is *not* in the callback list; add that origin to the app before enabling X locally.
 
 ---
 
-### UserTrack X account (@usertrack) — bot posting credentials
+### UserTrack X account (@UserTrack_dev) — bot posting credentials
 
 **Why**
 The separate "UserTrack-owned account" pathway posts major **verified** milestones (1K+ users, Top 10, new best rank ≤ #3, at most 3 posts/day platform-wide) and tags founders who allow it. It uses OAuth 1.0a user-context credentials of the @usertrack account (long-lived, no refresh), completely separate from founder connections. Off until all four variables exist.
@@ -343,7 +343,7 @@ Consumer key + secret, access token + secret (OAuth 1.0a, Read and Write).
 Convex prod env (see above).
 
 **Status**
-- [ ] Pending
+- [x] Done (2026-09-12) — the brand account is **@UserTrack_dev**, not `@usertrack` (that handle was not registered; every reference to `@usertrack` in this section means `@UserTrack_dev`). Consumer key/secret regenerated (the old key was unrecoverable — the portal's reveal only exposes the last 6 characters), then the access token regenerated *afterwards*, so it genuinely inherits **Read and write**; regenerating the consumer key second would have invalidated the fresh token. All four `X_BOT_*` set on Convex prod. Identity verified independently of the portal label via a signed OAuth 1.0a `GET /2/users/me` → `{"id":"2095485145432084481","name":"UserTrack","username":"UserTrack_dev"}`. Note the token's user-id prefix (`2095485145432084481`) differs from the number in the console path (`2098691979169218560`) — the latter is the **app** id, not a user id, so this is expected and not a mismatch. The hourly `social auto-post` cron is now live for this account (verified data only, ≤ 3 posts/day, founder opt-outs).
 
 ---
 
@@ -522,7 +522,7 @@ GitHub → Settings → Developer settings → OAuth Apps → New OAuth App (htt
 `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` (Convex dev + prod). X: no new variable.
 
 **Status**
-* [x] GitHub done (2026-09-05) — `auth:providers` returns `github: true`; the app's redirect URIs already cover the Railway host, `usertrack.dev` and localhost (the current GitHub UI allows up to 10, so the domain switch needs no change here). · * [ ] X pending — no X app exists yet, `X_CLIENT_ID` is unset on Convex prod, so "Connect X" is off too (this section's claim that the app already exists is wrong).
+* [x] GitHub done (2026-09-05) — `auth:providers` returns `github: true`; the app's redirect URIs already cover the Railway host, `usertrack.dev` and localhost (the current GitHub UI allows up to 10, so the domain switch needs no change here). · * [x] X done (2026-09-12) — the app now exists (see *Create X Developer App*), `X_CLIENT_ID` / `X_CLIENT_SECRET` are set on Convex prod, `auth:providers` returns `twitter: true` and "Connect X" is enabled. The callback that actually matters today is the **Railway** one, because prod `SITE_URL` is `https://usertrack-production.up.railway.app`; the `usertrack.dev` callbacks are pre-registered for the domain switch.
 
 ---
 
