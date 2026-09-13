@@ -10,6 +10,18 @@ Last updated: 2026-09-08 · code state: **v1.0 launch hardening + v1.0.1 review 
 
 ## Launch checklist
 
+### Launched 2026-09-13 — what is still open
+
+`usertrack.dev` + `www` now serve the main app (service `usertrack`, proxied, Full strict, certs valid). Done by the agent today: domain moved off `usertrack-waitlist`, CNAMEs repointed, `NEXT_PUBLIC_SITE_URL` / `SITE_URL` = `https://usertrack.dev`, `UT_TRUST_CF_HEADERS=1`, cache rule (step 14, with the session-cookie bypass in the expression because cache-key cookie bypass is Enterprise-only), dedicated Rybbit key `usertrack-server` on Railway + Convex prod, `TRUSTMRR_API_KEY` on Convex prod + dev (mapper confirmed against a live response), duplicate goal `Waitlist Beitritt` (87) deleted, `EFFECTIVE_DATE` = 2026-09-13, Cloudflare Email Routing enabled (MX + SPF on the root), SEC-4 encryption verified (all stored secrets `enc.v1.`). Also fixed: onboarding can always be skipped, and the auth proxy no longer forwards `cf-connecting-ip` to `*.convex.site` (Cloudflare error 1000 broke every `/api/auth` call behind the proxy). Verified on `usertrack.dev` at `47028fe`: email sign-up → verification mail delivered (`emailEvents.deliveredAt`) → verify link → onboarding → *Skip for now* → dashboard (survives reload) → account deleted from Settings; board + API edge cache MISS → HIT; server-side Rybbit events arrive with the new key and hostname `usertrack.dev`.
+
+Still needs a human:
+* [ ] **Email routing destination** — Cloudflare → Email → Email Routing → Destination addresses → add `jovanovic@thecodecave.de`, click the link in the verification mail, then add the rule `hello@usertrack.dev` → that address. The API token has no account-level *Email Routing Addresses* permission, so the agent could not do this. Until then replies to `hello@` bounce.
+* [ ] **Google OAuth consent screen** → Privacy `https://usertrack.dev/privacy`, Terms `https://usertrack.dev/terms` → *Publish app* (step 7).
+* [ ] **Test Google, GitHub and X sign-in** once in a real browser on `usertrack.dev`.
+* [ ] **Lawyer review + DPAs** (step 8).
+* [ ] **Sentry** — the only org (`the-codecave-gmbh`) is in the US region, while the CSP expects `*.ingest.de.sentry.io` and `/privacy` does not mention Sentry at all. Decide EU org vs US org, then add Sentry to `/privacy` before setting the DSN.
+* [ ] **Railway config-as-code** — `railway.toml` is deprecated and stops working on 2026-12-01 (`railway config migrate`).
+
 ### Required — in this order
 
 | # | Step | Why it is here | Where the details are |
@@ -144,7 +156,7 @@ then reachable directly and anyone can forge those headers. Unset it again if yo
 
 Everything else (OG images, badges, embed snippets, MCP config snippets, email links, the OpenAPI server URL) renders `NEXT_PUBLIC_SITE_URL` / `SITE_URL` and becomes correct automatically.
 
-**Status** — * [x] Phase A done (2026-09-04, `usertrack.dev` + `www` → `usertrack-waitlist`, proxied, cert VALID) · * [ ] Phase B pending · * [ ] Phase C pending (`UT_TRUST_CF_HEADERS=1` — the record is already proxied, so set it the moment Phase B lands)
+**Status** — * [x] Phase A done (2026-09-04) · * [x] Phase B done (2026-09-13, both domains on `usertrack`, targets `8pod2lg6.up.railway.app` / `lsiaj5on.up.railway.app`, URLs switched, deployed) · * [x] Phase C done (2026-09-13, `UT_TRUST_CF_HEADERS=1`) · * [ ] Google consent-screen links + Search Console
 
 ---
 
@@ -202,7 +214,7 @@ curl -sI https://usertrack.dev/leaderboard | grep -i "cf-cache-status\|cache-con
 curl -sI https://usertrack.dev/api/v1/leaderboard | grep -i cf-cache-status
 ```
 
-**Status** — * [ ] Pending
+**Status** — * [x] Done 2026-09-13 via API (`cf-cache-status` MISS → HIT on `/leaderboard` and `/api/v1/leaderboard`). The cookie bypass is `not http.cookie contains "better-auth.session_token"` inside the expression.
 
 ---
 
@@ -493,7 +505,7 @@ https://trustmrr.com/dashboard-dev (TrustMRR account → developer dashboard →
 `TRUSTMRR_API_KEY` (Convex dev + prod). Never commit it; never put it in Railway.
 
 **Status**
-* [ ] Pending
+* [x] Done 2026-09-13 — `TRUSTMRR_API_KEY` set on Convex prod + dev; the key answers real data, and `mapTrustmrrStartup` maps a live `/startups/gumroad` response with no unmapped fields. One real import through the UI is still worth a click.
 
 ---
 
@@ -557,7 +569,7 @@ Typing an X or GitHub handle fills the profile picture automatically; pressing *
 4. If the Impressum data changes, change it on thecodecave.de first and mirror it in `OPERATOR` (`src/lib/legal.ts`).
 
 **Status**
-* [ ] Lawyer review pending · [ ] Effective date confirmed · [ ] Google links pasted
+* [ ] Lawyer review pending · [x] Effective date confirmed (2026-09-13, launch day) · [ ] Google links pasted
 
 ---
 
@@ -576,7 +588,7 @@ nameservers exist, **no A or CNAME record does**, so the name does not resolve.
 Every email sets `Reply-To: hello@usertrack.dev` (`EMAIL_REPLY_TO`, already configured). Replies land nowhere until that address exists. Options: Cloudflare **Email Routing** (free: Cloudflare → usertrack.dev → Email → Email Routing → route `hello@usertrack.dev` → your inbox; Cloudflare adds its own MX records on the **root** domain, which do not clash with Resend's `send.mail` MX) or Google Workspace. If you prefer no mailbox, `npx convex env set --prod EMAIL_REPLY_TO noreply@mail.usertrack.dev`.
 
 **Status**
-* [ ] Decide
+* [x] Decided 2026-09-13: Cloudflare Email Routing → `jovanovic@thecodecave.de`. Routing enabled (MX + SPF); the destination still needs verifying in the dashboard (see *Launched 2026-09-13* at the top).
 
 ---
 
@@ -610,9 +622,9 @@ The tracker, the event catalog (`docs/ANALYTICS.md`) and the server-side events 
 
 **Status**
 * [x] Env vars done (2026-09-08) — `NEXT_PUBLIC_RYBBIT_SITE_ID` + `RYBBIT_API_KEY` on Railway (redeployed, live), `RYBBIT_SITE_ID` + `RYBBIT_HOST` + `RYBBIT_API_KEY` on Convex prod.
-* [ ] **Dedicated API key still missing** — the key currently in use is CodeRank's org key (same Rybbit instance, same org `g7aqJU09aKEPDOFoYBS7yz2AtdCWhMoi`), borrowed because Rybbit has no API to mint one. If CodeRank rotates it, UserTrack's server events go silent. Create `usertrack-server` in the dashboard and replace it in both places.
-* [ ] **Client events stay dropped until the domain switch** (step 12, phase B). Verified 2026-09-08 on the live deployment: the tracker loads and `POST /api/track` answers `200`, but Rybbit discards the event because the hostname does not match the site domain — zero rows with `hostname` containing `railway`. Server events are unaffected: with the API key an event carrying the Railway hostname *was* stored, so the key really does bypass domain validation. Nothing more to do here; the switch fixes it.
-* [ ] **Check the goals for duplicates** — the MCP `get_goals` tool is broken (Rybbit returns `meta.total` as a string, the hub's schema wants a number), so idempotency could not be verified before the 11 goals were created. `waitlist_join` is the likely duplicate.
+* [x] **Dedicated API key** — done 2026-09-13, `usertrack-server` set on Railway + Convex prod. ~~Dedicated API key still missing~~ — the key currently in use is CodeRank's org key (same Rybbit instance, same org `g7aqJU09aKEPDOFoYBS7yz2AtdCWhMoi`), borrowed because Rybbit has no API to mint one. If CodeRank rotates it, UserTrack's server events go silent. Create `usertrack-server` in the dashboard and replace it in both places.
+* [x] **Domain switched 2026-09-13** — client events now carry the right hostname. ~~Client events stay dropped until the domain switch~~ (step 12, phase B). Verified 2026-09-08 on the live deployment: the tracker loads and `POST /api/track` answers `200`, but Rybbit discards the event because the hostname does not match the site domain — zero rows with `hostname` containing `railway`. Server events are unaffected: with the API key an event carrying the Railway hostname *was* stored, so the key really does bypass domain validation. Nothing more to do here; the switch fixes it.
+* [x] **Goals checked 2026-09-13** — `Waitlist Beitritt` (87) was a duplicate of 94 and is deleted; 11 goals remain. ~~Check the goals for duplicates~~ — the MCP `get_goals` tool is broken (Rybbit returns `meta.total` as a string, the hub's schema wants a number), so idempotency could not be verified before the 11 goals were created. `waitlist_join` is the likely duplicate.
 
 ---
 
@@ -817,4 +829,4 @@ Verify afterwards: `npx convex data --prod integrations` — every `config.servi
 
 **Status**
 * [x] `CONFIG_ENCRYPTION_KEY` set on Convex prod
-* [ ] `migrations:encryptSecretsV1` run on prod
+* [x] Verified 2026-09-13: every stored secret on prod starts with `enc.v1.` and every row has `publicConfig`
