@@ -1,0 +1,21 @@
+diff --git a/dist/nextjs/index.js b/dist/nextjs/index.js
+index e9d357fac1f073aa61c0cdeac36fd4ebb00fe583..528f15dd3ab6267e0b32ebe78bff133b8467a4dd 100644
+--- a/dist/nextjs/index.js
++++ b/dist/nextjs/index.js
+@@ -31,6 +31,8 @@ const handler = async (request, siteUrl) => {
+     headers.delete("transfer-encoding");
+     headers.delete("content-length");
+     headers.delete("connection");
++    // Cloudflare answers 403 (error 1000) when a proxied request to *.convex.site still carries cf-connecting-ip.
++    headers.delete("cf-connecting-ip");
+     headers.set("accept-encoding", "application/json");
+     headers.set("host", new URL(siteUrl).host);
+     headers.set("x-forwarded-host", requestUrl.host);
+@@ -64,6 +66,7 @@ export const convexBetterAuthNextJs = (opts) => {
+         const mutableHeaders = new Headers(headers);
+         mutableHeaders.delete("content-length");
+         mutableHeaders.delete("transfer-encoding");
++        mutableHeaders.delete("cf-connecting-ip");
+         mutableHeaders.set("accept-encoding", "identity");
+         return getToken(siteUrl, mutableHeaders, { ...opts, forceRefresh });
+     });

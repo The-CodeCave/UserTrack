@@ -5,3 +5,5 @@ packages:
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+patchedDependencies:
+  '@convex-dev/better-auth': patches/@convex-dev__better-auth.patch
