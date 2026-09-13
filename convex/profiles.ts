@@ -188,3 +188,12 @@ export const completeOnboarding = mutation({
     await ctx.db.patch(profile._id, { onboardingCompleted: true });
   },
 });
+
+// Leaves the wizard without publishing anything: an unconfirmed handle keeps the founder page hidden until it is confirmed.
+export const skipOnboarding = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const { profile } = await requireProfile(ctx);
+    await ctx.db.patch(profile._id, { onboardingCompleted: true });
+  },
+});

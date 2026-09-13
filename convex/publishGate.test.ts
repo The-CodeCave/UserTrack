@@ -102,3 +102,12 @@ describe("publishing requires a verified email", () => {
     expect(p).toMatchObject({ displayName: "Ada Lovelace", onboardingCompleted: true });
   });
 });
+
+describe("profiles.skipOnboarding", () => {
+  it("leaves the wizard without a product, a confirmed handle or a verified email, and publishes nothing", async () => {
+    const tx = t();
+    const profileId = await tx.mutation(api.profiles.ensure, {});
+    await tx.mutation(api.profiles.skipOnboarding, {});
+    expect(await tx.run(async (ctx) => (await ctx.db.get(profileId))!)).toMatchObject({ onboardingCompleted: true, handleConfirmed: false });
+  });
+});

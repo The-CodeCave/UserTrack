@@ -56,6 +56,7 @@ All props are primitives. Never emails, handles, URLs of third parties or secret
 | `password_reset_completed` | — | `/reset-password` submit, after the password is actually changed |
 | `onboarding_step` | `step, platform?` | Every `setStep` in `/app/onboarding` (`Profile … Publish`, `done`) |
 | `onboarding_completed` | — | Publish step + AI flow completion |
+| `onboarding_skipped` | `hasProduct: yes \| no` | "Skip for now" / "Finish this later" in `/app/onboarding` |
 | `project_created` | `source: form \| mcp \| trustmrr` | `SaasForm` (`form`); `mcp` / `trustmrr` reserved (an import prefills the form, the save is still `form`) |
 | `project_updated` | `fields` (comma-joined names) | `SaasForm` edit |
 | `project_published` / `project_unpublished` | — | Publish switch, onboarding publish |

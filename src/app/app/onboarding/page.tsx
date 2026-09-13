@@ -30,6 +30,7 @@ export default function OnboardingPage() {
   const [done, setDone] = useState(false);
   const ensure = useMutation(api.profiles.ensure);
   const complete = useMutation(api.profiles.completeOnboarding);
+  const skip = useMutation(api.profiles.skipOnboarding);
   const first = mine?.[0];
 
   useEffect(() => {
@@ -58,7 +59,8 @@ export default function OnboardingPage() {
 
   // Leaving mid-setup must not trap the founder behind the onboarding redirect on their next visit.
   async function leave() {
-    await complete();
+    await skip();
+    analytics("onboarding_skipped", { hasProduct: first ? "yes" : "no" });
     router.replace(first ? `/app/saas/${first._id}` : "/app");
   }
 
@@ -86,11 +88,9 @@ export default function OnboardingPage() {
         ) : (
           <>
             <AddSaas extraSteps={["Profile"]} resume={first ? { saasId: first._id, name: first.name, websiteUrl: first.websiteUrl } : null} onDone={setProject} />
-            {first && (
-              <button type="button" onClick={leave} className="mt-4 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-                Finish this later — take me to the dashboard
-              </button>
-            )}
+            <button type="button" onClick={leave} className="mt-4 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+              {first ? "Finish this later — take me to the dashboard" : "Skip for now — I just want to look around"}
+            </button>
           </>
         )}
 

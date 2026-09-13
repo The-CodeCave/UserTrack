@@ -50,6 +50,7 @@ export type Events = {
   preview_signup_click: undefined;
   onboarding_step: { step: string; platform?: string };
   onboarding_completed: undefined;
+  onboarding_skipped: { hasProduct: "yes" | "no" };
   project_created: { source: "form" | "mcp" | "trustmrr" };
   project_updated: { fields: string };
   project_published: undefined;
@@ -128,6 +129,7 @@ export const EVENTS = {
   preview_signup_click: "preview_signup_click",
   onboarding_step: "onboarding_step",
   onboarding_completed: "onboarding_completed",
+  onboarding_skipped: "onboarding_skipped",
   project_created: "project_created",
   project_updated: "project_updated",
   project_published: "project_published",
