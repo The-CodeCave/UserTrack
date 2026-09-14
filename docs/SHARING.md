@@ -6,7 +6,7 @@
 
 | URL | Renders |
 |---|---|
-| `/s/<slug>/share/<kind>` | Share page (metadata + OG image = the card) |
+| `/s/<slug>/share/<kind>[?config]` | Share page; `og:image` / `twitter:image` = `/card` with the same config (`size` ignored) |
 | `/s/<slug>/share/<kind>/card[?config]` | PNG 1200×630 (or 1080×1080 with `size=square`) |
 | `/u/<username>/card[?config]` | Founder card PNG |
 
@@ -24,7 +24,7 @@ Query parameters, defaults omitted so plain `/card` links stay stable and cachea
 | `chart`, `logo`, `founder`, `verified`, `dates` | `1` / `0` | all on |
 | `title` | ≤60 chars, plain text (control characters stripped, satori escapes text — no markup ever renders) | — |
 
-The renderer (`src/lib/og/share-card.tsx`, `next/og` + vendored Geist) is used for the share page's `opengraph-image`, the `/card` PNG and the founder card, so what a founder downloads is exactly what unfurls.
+The renderer (`src/lib/og/share-card.tsx`, `next/og` + vendored Geist) is used for the share page's `og:image` (which points at `/card`), the `/card` PNG and the founder card, so what a founder downloads is exactly what unfurls.
 
 ### Presets
 
@@ -49,8 +49,8 @@ Dialog: preview left (desktop) / top (mobile), controls right / below, sticky ac
 
 - **Download PNG** — fetches the card, saves `<slug>-<kind>-<style>[-square].png`.
 - **Copy image** — `ClipboardItem` when the browser supports it, falls back to download.
-- **Copy link** — the share page URL (unfurls with the same image).
-- **Post to X** — `x.com/intent/post` with a data-driven draft (`src/lib/x-drafts.ts`) + the share URL.
+- **Copy link** — the share page URL with the Studio config in the query (unfurls with the same image, timeframe included).
+- **Post to X** — `x.com/intent/post` with a data-driven draft (`src/lib/x-drafts.ts`) + that same share URL.
 
 The preview cross-fades between configurations; the studio never screenshots the DOM.
 

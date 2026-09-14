@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { CARD_ACCENTS, CARD_ACCENT_META, CARD_RANGE_LABEL, CARD_RANGES, CARD_STYLE_META, CARD_STYLES, DEFAULT_CARD, cardImageUrl, fileName, verificationLine, type CardAccent, type CardConfig, type CardStyle } from "@/lib/share-card";
+import { CARD_ACCENTS, CARD_ACCENT_META, CARD_RANGE_LABEL, CARD_RANGES, CARD_STYLE_META, CARD_STYLES, DEFAULT_CARD, cardImageUrl, cardQuery, fileName, verificationLine, type CardAccent, type CardConfig, type CardStyle } from "@/lib/share-card";
 import { xIntentUrl } from "@/lib/social";
 import { attributedUrl } from "@/lib/site";
 import { cn } from "@/lib/utils";
@@ -103,8 +103,8 @@ export function ShareStudio({ target, open, onOpenChange }: { target: StudioTarg
       setBusy(null);
     }
   }
-  // Outbound links are attributed per channel; the preview / canonical `target.page` stays clean.
-  const outbound = (channel: string) => attributedUrl(target.page, { ref: "share", source: channel, medium: "share-card", campaign: target.kind });
+  // Outbound links carry the card settings (so the unfurl matches the preview) plus per-channel attribution.
+  const outbound = (channel: string) => attributedUrl(`${target.page}${cardQuery({ ...cfg, size: "og" })}`, { ref: "share", source: channel, medium: "share-card", campaign: target.kind });
   async function copyLink() {
     await navigator.clipboard.writeText(outbound("link"));
     void track({ kind: target.kind, action: "copied_link" });
