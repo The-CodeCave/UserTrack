@@ -1,5 +1,5 @@
 import { handler } from "@/lib/auth-server";
-import { CLIENT_IP_HEADER, clientIp } from "@/lib/client-ip";
+import { CLIENT_IP_HEADER, CLIENT_IP_PROOF_HEADER, clientIp } from "@/lib/client-ip";
 
 // Better Auth runs inside Convex, one proxy hop away, so the trusted address is resolved here and forwarded explicitly;
 // its durable rate limit (convex/authRateLimits.ts) reads exactly this header.
@@ -8,6 +8,7 @@ import { CLIENT_IP_HEADER, clientIp } from "@/lib/client-ip";
 const withClientIp = (fn: (req: Request) => Promise<Response>) => async (req: Request) => {
   const headers = new Headers(req.headers);
   headers.set(CLIENT_IP_HEADER, clientIp(req));
+  headers.set(CLIENT_IP_PROOF_HEADER, process.env.UT_GATEWAY_SECRET ?? "");
   const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer();
   return fn(new Request(req.url, { method: req.method, headers, body }));
 };

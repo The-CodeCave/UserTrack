@@ -3,10 +3,14 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { authComponent, createAuth } from "./auth";
 import { handle as resendWebhook } from "./email/webhook";
+import { withVouchedClientIp } from "./lib/gateway";
 
 const http = httpRouter();
 
-authComponent.registerRoutes(http, createAuth);
+authComponent.registerRoutes(http, (ctx) => {
+  const auth = createAuth(ctx);
+  return { ...auth, handler: async (req: Request) => auth.handler(await withVouchedClientIp(req)) };
+});
 
 http.route({ path: "/webhooks/resend", method: "POST", handler: resendWebhook });
 

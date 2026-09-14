@@ -80,6 +80,9 @@ describe("follows", () => {
     const g = await t.run((ctx) => watchlistFeed(ctx, ada, 30, 50));
     expect(g.saas.map((s) => [s.slug, s.via, s.followed])).toEqual([["acme", "direct", true]]);
     expect(g.feed.length).toBe(4);
+    // An anonymous project of a followed founder never appears, so following cannot unmask its owner.
+    await t.run(async (ctx) => { await ctx.db.insert("saas", { ...(await ctx.db.get(acme))!, _id: undefined, _creationTime: undefined, slug: "stealth", name: "stealth", rank: undefined, anonymous: true } as never); });
+    expect((await t.run((ctx) => watchlistFeed(ctx, ada, 30, 50))).saas.map((s) => s.slug)).toEqual(["acme"]);
     // Making Acme private removes it from the watchlist without deleting the follow.
     await t.run((ctx) => ctx.db.patch(acme, { isPublic: false }));
     expect((await t.run((ctx) => watchlistFeed(ctx, ada, 30, 50))).saas).toEqual([]);

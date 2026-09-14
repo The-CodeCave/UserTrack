@@ -6,7 +6,7 @@ import { SIZE_BUCKETS, sizeBucket } from "./lib/metrics";
 import { benchmarkHistoryFor, publicBenchmarkHighlight, type BenchmarkHighlight } from "./domain/benchmarks";
 import { seriesFor } from "./domain/metrics";
 import { FUNNEL_TIMEFRAMES, funnelFor, funnelHistoryFor, funnelOptionsFor } from "./domain/funnel";
-import { isAnonymous, isHandleConfirmed, isProfileVisible, publicLogo, stripPrivate, visibilityOf } from "./domain/visibility";
+import { isActivityPublic, isAnonymous, isHandleConfirmed, isProfileVisible, publicLogo, stripPrivate, visibilityOf } from "./domain/visibility";
 import { publicTrustLabel } from "./lib/trust";
 import { explainTrending, trendingFactors } from "./lib/trending";
 import { trendingInputs } from "./leaderboard";
@@ -187,7 +187,8 @@ export const saasBySlug = query({
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
     if (!s || !s.isPublic) return null;
     const integrations = await ctx.db.query("integrations").withIndex("by_saas", (q) => q.eq("saasId", s._id)).collect();
-    const milestones = await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).order("desc").take(8);
+    const vis = visibilityOf(s);
+    const milestones = (await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", s._id)).order("desc").take(16)).filter((m) => isActivityPublic(m.kind, vis)).slice(0, 8);
     return {
       ...publicSaas(s),
       owner: await publicOwner(ctx, s),
@@ -199,27 +200,26 @@ export const saasBySlug = query({
   },
 });
 
-// Widget payload: the few public numbers an embed needs, visibility applied, no owner / integrations / milestones.
+// Widget payload: the few public numbers an embed needs, no owner / integrations / milestones.
 export const widget = query({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
     if (!s || !s.isPublic) return null;
     const p = publicSaas(s);
-    const vis = p.visibility;
     return {
       slug: s.slug,
       name: s.name,
-      totalUsers: vis.totalUsers ? s.totalUsers : undefined,
-      newUsers7d: vis.growth ? s.newUsers7d : undefined,
-      newUsers30d: vis.growth ? s.newUsers30d : undefined,
-      growth7dPct: vis.growth ? s.growth7dPct : undefined,
-      growth30dPct: vis.growth ? s.growth30dPct : undefined,
+      totalUsers: s.totalUsers,
+      newUsers7d: s.newUsers7d,
+      newUsers30d: s.newUsers30d,
+      growth7dPct: s.growth7dPct,
+      growth30dPct: s.growth30dPct,
       trust: s.trust,
       trustLabel: p.trustLabel,
       trendingRank: s.trendingRank,
       lastSyncedAt: s.lastSyncedAt,
-      spark: vis.totalUsers ? await sparkline(ctx, s._id) : [],
+      spark: await sparkline(ctx, s._id),
     };
   },
 });
@@ -251,7 +251,7 @@ export const milestone = query({
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
     if (!s || !s.isPublic) return null;
     const m = await ctx.db.get(id as Id<"milestones">).catch(() => null);
-    if (!m || m.saasId !== s._id) return null;
+    if (!m || m.saasId !== s._id || !isActivityPublic(m.kind, visibilityOf(s))) return null;
     return { saas: publicSaas(s), milestone: { _id: m._id, kind: m.kind, title: m.title, copy: m.copy, value: m.value, achievedAt: m.achievedAt } };
   },
 });
@@ -263,7 +263,7 @@ export const event = query({
     const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
     if (!s || !s.isPublic) return null;
     const e = await ctx.db.get(id as Id<"events">).catch(() => null);
-    if (!e || e.saasId !== s._id || (e.kind !== "spike" && e.kind !== "activation_spike")) return null;
+    if (!e || e.saasId !== s._id || (e.kind !== "spike" && e.kind !== "activation_spike") || !isActivityPublic(e.kind, visibilityOf(s))) return null;
     return { saas: publicSaas(s), event: { _id: e._id, kind: e.kind, title: e.title, copy: e.detail, value: e.value, multiple: e.multiple, achievedAt: e.at } };
   },
 });
@@ -389,8 +389,9 @@ export const annotations = query({
     if (!s || !s.isPublic) return [];
     const ms = RANGE_MS[range];
     const cutoff = ms === null ? 0 : Date.now() - ms;
-    const milestones = await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", s._id).gte("achievedAt", cutoff)).order("desc").take(8);
-    const events = await ctx.db.query("events").withIndex("by_saas_time", (q) => q.eq("saasId", s._id).gte("at", cutoff)).order("desc").take(8);
+    const vis = visibilityOf(s);
+    const milestones = (await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", s._id).gte("achievedAt", cutoff)).order("desc").take(16)).filter((m) => isActivityPublic(m.kind, vis)).slice(0, 8);
+    const events = (await ctx.db.query("events").withIndex("by_saas_time", (q) => q.eq("saasId", s._id).gte("at", cutoff)).order("desc").take(16)).filter((e) => isActivityPublic(e.kind, vis)).slice(0, 8);
     return [
       ...milestones.map((m) => ({ id: m._id, t: m.achievedAt, kind: "milestone" as const, title: m.title, detail: m.copy })),
       ...events.map((e) => ({ id: e._id, t: e.at, kind: e.kind, title: e.title, detail: e.detail })),
@@ -571,8 +572,8 @@ export async function feedItems(ctx: QueryCtx, limit: number, category?: string)
   }
   const card = (s: Doc<"saas">) => ({ slug: s.slug, name: s.name, logoUrl: publicLogo(s), category: s.category, totalUsers: s.totalUsers, trust: s.trust, trustLabel: publicTrustLabel(s.trust, s.trustState, s.trustScore) });
   const items = [
-    ...milestones.flatMap((m) => { const s = bySaas.get(m.saasId); return s ? [{ id: `milestone:${m.saasId}:${m.key}`, kind: "milestone" as FeedKind, subkind: m.kind, at: m.achievedAt, title: m.title, detail: m.copy, value: m.value, share: `share/milestone-${m._id}`, saas: card(s) }] : []; }),
-    ...events.flatMap((e) => { const s = bySaas.get(e.saasId); return s && FEED_EVENT_KINDS.has(e.kind) ? [{ id: `${e.kind}:${e.saasId}:${e.day}`, kind: e.kind as FeedKind, subkind: e.kind, at: e.at, title: e.title, detail: e.detail, value: e.value, share: e.kind === "spike" ? `share/spike-${e._id}` : undefined, saas: card(s) }] : []; }),
+    ...milestones.flatMap((m) => { const s = bySaas.get(m.saasId); return s && isActivityPublic(m.kind, visibilityOf(s)) ? [{ id: `milestone:${m.saasId}:${m.key}`, kind: "milestone" as FeedKind, subkind: m.kind, at: m.achievedAt, title: m.title, detail: m.copy, value: m.value, share: `share/milestone-${m._id}`, saas: card(s) }] : []; }),
+    ...events.flatMap((e) => { const s = bySaas.get(e.saasId); return s && FEED_EVENT_KINDS.has(e.kind) && isActivityPublic(e.kind, visibilityOf(s)) ? [{ id: `${e.kind}:${e.saasId}:${e.day}`, kind: e.kind as FeedKind, subkind: e.kind, at: e.at, title: e.title, detail: e.detail, value: e.value, share: e.kind === "spike" ? `share/spike-${e._id}` : undefined, saas: card(s) }] : []; }),
   ];
   const seen = new Set<string>();
   return items.filter((i) => !seen.has(i.id) && seen.add(i.id)).sort((a, b) => b.at - a.at).slice(0, limit);
@@ -608,7 +609,8 @@ export const compare = query({
       const s = await ctx.db.query("saas").withIndex("by_slug", (q) => q.eq("slug", slug)).unique();
       if (!s || !s.isPublic) continue;
       const rows = await ctx.db.query("dailyMetrics").withIndex("by_saas_day", (q) => q.eq("saasId", s._id).gte("day", since)).collect();
-      out.push({ ...publicSaas(s), series: rows.map((r) => ({ day: r.day, total: r.totalUsers, delta: r.newUsers, activated: r.activatedUsers })) });
+      const showActivated = visibilityOf(s).activationRate;
+      out.push({ ...publicSaas(s), series: rows.map((r) => ({ day: r.day, total: r.totalUsers, delta: r.newUsers, activated: showActivated ? r.activatedUsers : undefined })) });
     }
     return out;
   },

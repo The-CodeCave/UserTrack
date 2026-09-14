@@ -85,6 +85,8 @@ describe("share engine", () => {
     await tx.mutation(api.share.track, { kind: "milestone-abc", action: "downloaded" });
     await tx.mutation(api.share.track, { kind: "milestone-abc", action: "downloaded" });
     await tx.mutation(api.share.track, { kind: "users", action: "bogus" });
+    await tx.mutation(api.share.track, { kind: "spam-row-1", action: "downloaded" });
+    await tx.mutation(api.share.track, { kind: "anything at all", action: "copied_link" });
     const stats = await tx.run((ctx) => ctx.db.query("shareStats").collect());
     expect(stats).toHaveLength(1);
     expect(stats[0]).toMatchObject({ kind: "milestone", action: "downloaded", count: 2 });

@@ -11,7 +11,7 @@ import { RANGES, dayKey, dayStart, DAY } from "./lib/time";
 import { integrationRole, providerKind, tokenType } from "./schema";
 import { describeProvider, getProvider, normalizeRole, ProviderError, verificationLevel, type Role } from "./providers";
 import { detectedCount } from "./integrations";
-import { isHandleConfirmed, isProfileVisible, visibilityOf } from "./domain/visibility";
+import { isAnonymous, isHandleConfirmed, isProfileVisible, visibilityOf } from "./domain/visibility";
 import { fetchMetrics } from "./providerRun";
 import { DomainError, createProject, findOwnedByDomain, listOwnedProjects, projectSummary, projectUrls, requireOwnedProject, requireVerifiedToPublish, siteUrl, updateProject } from "./domain/projects";
 import { connectIntegration, integrationView, listIntegrations, requestSync } from "./domain/integrations";
@@ -1091,7 +1091,7 @@ export const following = query({
     for (const row of w.saas) {
       const s = await ctx.db.get(row._id);
       if (!s || !s.isPublic) continue;
-      const owner = await ctx.db.get(s.ownerId);
+      const owner = isAnonymous(s) ? null : await ctx.db.get(s.ownerId);
       saas.push({ ...publicSaas(s), owner: owner && isHandleConfirmed(owner) ? { username: owner.username, displayName: owner.displayName } : null, via: row.via, followed: row.followed, rankMovement7d: row.rankMovement7d, trendingMovement7d: row.trendingMovement7d });
     }
     return { days: clampDays(days), saas, founders: w.founders.map((p) => ({ username: p.username, displayName: p.displayName, avatarUrl: p.avatarUrl, followerCount: p.followerCount })), feed: w.feed.map(({ via, founder, ...i }) => ({ ...i, via, founder })) };

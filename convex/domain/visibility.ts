@@ -15,13 +15,15 @@ export interface Visibility {
 
 export const VISIBILITY_KEYS = ["totalUsers", "growth", "activationRate", "conversionRate", "trialConversion", "convertedCount", "traffic", "benchmarks"] as const;
 export type VisibilityKey = (typeof VISIBILITY_KEYS)[number];
+// Users and growth are what a public page is: they cannot be switched off, only the whole project can stay private.
+export const ALWAYS_PUBLIC_KEYS: readonly VisibilityKey[] = ["totalUsers", "growth"];
 
 // Growth metrics are the product; conversion is private until the founder switches it on.
 export const DEFAULT_VISIBILITY: Visibility = { totalUsers: true, growth: true, activationRate: true, conversionRate: false, trialConversion: false, convertedCount: false, traffic: false, benchmarks: true };
 
 export const VISIBILITY_META: Record<VisibilityKey, { label: string; blurb: string; group: "growth" | "engagement" | "conversion" }> = {
-  totalUsers: { label: "Total users", blurb: "The verified user count. Required for leaderboards.", group: "growth" },
-  growth: { label: "User growth", blurb: "New users per window and growth %.", group: "growth" },
+  totalUsers: { label: "Total users", blurb: "The verified user count. Always public on a published project; boards rank by it.", group: "growth" },
+  growth: { label: "User growth", blurb: "New users per window and growth %. Always public on a published project.", group: "growth" },
   activationRate: { label: "Activation rate", blurb: "Activated ÷ users, plus activated counts.", group: "engagement" },
   conversionRate: { label: "Conversion rate", blurb: "Signup → Converted and Activated → Converted percentages. Counts stay hidden unless enabled below.", group: "conversion" },
   trialConversion: { label: "Trial conversion", blurb: "Trial stage in the funnel and Trial → Converted rate.", group: "conversion" },
@@ -36,8 +38,8 @@ type Legacy = Pick<Doc<"saas">, "visibility" | "showTraffic" | "showRevenue">;
 export function visibilityOf(s: Legacy): Visibility {
   const v = s.visibility ?? {};
   return {
-    totalUsers: v.totalUsers ?? DEFAULT_VISIBILITY.totalUsers,
-    growth: v.growth ?? DEFAULT_VISIBILITY.growth,
+    totalUsers: true,
+    growth: true,
     activationRate: v.activationRate ?? DEFAULT_VISIBILITY.activationRate,
     conversionRate: v.conversionRate ?? s.showRevenue ?? DEFAULT_VISIBILITY.conversionRate,
     trialConversion: v.trialConversion ?? DEFAULT_VISIBILITY.trialConversion,
@@ -55,12 +57,19 @@ const GATED: Record<Exclude<VisibilityKey, "totalUsers" | "growth" | "benchmarks
   convertedCount: ["convertedUsers", "newConverted24h", "newConverted7d", "newConverted30d", "convertedPrev30d", "payingUsers"],
   traffic: ["visitors30d", "sessions30d", "visitorsPrev30d"],
 };
-// Derived from daily new-user counts, so the streak follows the growth switch.
-const GROWTH_GATED: (keyof Doc<"saas">)[] = ["streakDays", "bestStreakDays"];
 // Never public regardless of settings.
 const ALWAYS_PRIVATE: (keyof Doc<"saas">)[] = ["ownerId", "mrr", "currency", "showRevenue", "logoStorageId"];
 // Anonymous mode: everything that identifies the founder or the company leaves the row; the owner is nulled by the caller.
 export const ANONYMOUS_HIDDEN: (keyof Doc<"saas">)[] = ["logoUrl", "websiteUrl", "appStoreUrl", "playStoreUrl", "cofounders", "trustmrrSlug"];
+
+// Stored milestones and events carry their numbers in title / copy, so they follow the metric's switch at read time.
+export function isActivityPublic(kind: string, vis: Visibility) {
+  if (kind === "activated" || kind === "activation_spike") return vis.activationRate;
+  if (kind === "converted") return vis.convertedCount;
+  if (kind === "traffic_spike") return vis.traffic;
+  if (kind === "benchmark") return vis.benchmarks;
+  return true;
+}
 
 export const isAnonymous = (s: Pick<Doc<"saas">, "anonymous">) => s.anonymous === true;
 // Logo for compact cards built outside publicSaas (feed, watchlists, frozen rankings).
@@ -70,7 +79,6 @@ export function stripPrivate<T extends Partial<Doc<"saas">>>(s: T, vis: Visibili
   const out = { ...s };
   for (const k of ALWAYS_PRIVATE) delete out[k];
   if (isAnonymous(out)) for (const k of ANONYMOUS_HIDDEN) delete out[k];
-  if (!vis.growth) for (const k of GROWTH_GATED) delete out[k];
   for (const key of Object.keys(GATED) as (keyof typeof GATED)[]) {
     if (vis[key]) continue;
     for (const f of GATED[key]) delete out[f];

@@ -10,7 +10,7 @@ import { MIN_SAMPLE } from "./lib/benchmarks";
 import { benchmarkCards, benchmarkHistoryFor, isBenchmarkEligible } from "./domain/benchmarks";
 import { publicTrustLabel } from "./lib/trust";
 import { FUNNEL_TIMEFRAMES, OWNER_FUNNEL, funnelFor, funnelHistoryFor } from "./domain/funnel";
-import { VISIBILITY_KEYS, visibilityOf } from "./domain/visibility";
+import { ALWAYS_PUBLIC_KEYS, VISIBILITY_KEYS, visibilityOf } from "./domain/visibility";
 import { storedImageUrl } from "./lib/uploads";
 import { cofounder, funding, projectType, teamSize, visibility } from "./schema";
 
@@ -116,7 +116,7 @@ export const setVisibility = mutation({
     const { saas } = await requireOwnedSaas(ctx, id);
     const current = visibilityOf(saas);
     const next = { ...current };
-    for (const k of VISIBILITY_KEYS) if (patch[k] !== undefined) next[k] = patch[k]!;
+    for (const k of VISIBILITY_KEYS) if (patch[k] !== undefined && !ALWAYS_PUBLIC_KEYS.includes(k)) next[k] = patch[k]!;
     // Publishing a rate without a count is fine; publishing a count implies the rate.
     if (next.convertedCount) next.conversionRate = true;
     await ctx.db.patch(id, { visibility: next, showTraffic: undefined, showRevenue: undefined });

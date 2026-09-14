@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
-import { CLIENT_IP_HEADER, clientIp } from "@/lib/client-ip";
+import { CLIENT_IP_HEADER, CLIENT_IP_PROOF_HEADER, clientIp } from "@/lib/client-ip";
 
 const AUTH_PAGES = ["/sign-in", "/sign-up"];
 const JWT_TOLERANCE_S = 60;
@@ -23,7 +23,7 @@ export async function sessionState(req: NextRequest): Promise<boolean | null> {
   const cookie = req.headers.get("cookie");
   if (!cookie || !getSessionCookie(req.headers)) return false;
   try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_CONVEX_SITE_URL}/api/auth/convex/token`, { headers: { cookie, [CLIENT_IP_HEADER]: clientIp(req) }, cache: "no-store" });
+    const res = await fetch(`${process.env.NEXT_PUBLIC_CONVEX_SITE_URL}/api/auth/convex/token`, { headers: { cookie, [CLIENT_IP_HEADER]: clientIp(req), [CLIENT_IP_PROOF_HEADER]: process.env.UT_GATEWAY_SECRET ?? "" }, cache: "no-store" });
     if (res.status === 401) return false;
     if (!res.ok) return null;
     return Boolean(((await res.json()) as { token?: string | null }).token);

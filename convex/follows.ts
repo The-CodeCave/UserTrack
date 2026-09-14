@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getProfileForUser, requireProfile } from "./profiles";
 import { DAY } from "./lib/time";
 import { publicTrustLabel } from "./lib/trust";
-import { isProfileVisible, publicLogo } from "./domain/visibility";
+import { isActivityPublic, isAnonymous, isProfileVisible, publicLogo, visibilityOf } from "./domain/visibility";
 import { rankMovement } from "./lib/history";
 
 const targetType = v.union(v.literal("saas"), v.literal("profile"));
@@ -109,10 +109,10 @@ export async function watchedProjects(ctx: Ctx, profileId: Id<"profiles">) {
   }
   for (const r of rows.filter((r) => r.targetType === "profile")) {
     const p = await ctx.db.get(r.targetId as Id<"profiles">).catch(() => null);
-    if (!p) continue;
+    if (!p || !isProfileVisible(p)) continue;
     founders.push(p);
     for (const s of await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", p._id)).collect()) {
-      if (s.isPublic && !projects.has(s._id)) projects.set(s._id, { saas: s, via: "founder", founder: p });
+      if (s.isPublic && !isAnonymous(s) && !projects.has(s._id)) projects.set(s._id, { saas: s, via: "founder", founder: p });
     }
   }
   return { founders, projects: [...projects.values()], directIds: direct };
@@ -130,11 +130,12 @@ export async function watchlistFeed(ctx: Ctx, profileId: Id<"profiles">, days = 
   const items: { id: string; kind: WatchlistItemKind; subkind: string; at: number; title: string; detail: string; value?: number; share?: string; via: "direct" | "founder"; founder?: { username: string; displayName: string }; saas: ReturnType<typeof card> }[] = [];
   for (const { saas: s, via, founder } of projects) {
     const f = founder ? { username: founder.username, displayName: founder.displayName } : undefined;
+    const vis = visibilityOf(s);
     const ms = await ctx.db.query("milestones").withIndex("by_saas_time", (q) => q.eq("saasId", s._id).gte("achievedAt", since)).order("desc").take(20);
-    for (const m of ms) items.push({ id: `milestone:${s._id}:${m.key}`, kind: "milestone", subkind: m.kind, at: m.achievedAt, title: m.title, detail: m.copy, value: m.value, share: `share/milestone-${m._id}`, via, founder: f, saas: card(s) });
+    for (const m of ms.filter((m) => isActivityPublic(m.kind, vis))) items.push({ id: `milestone:${s._id}:${m.key}`, kind: "milestone", subkind: m.kind, at: m.achievedAt, title: m.title, detail: m.copy, value: m.value, share: `share/milestone-${m._id}`, via, founder: f, saas: card(s) });
     const evs = await ctx.db.query("events").withIndex("by_saas_time", (q) => q.eq("saasId", s._id).gte("at", since)).order("desc").take(20);
     for (const e of evs) {
-      if (!FEED_EVENT_KINDS.has(e.kind)) continue;
+      if (!FEED_EVENT_KINDS.has(e.kind) || !isActivityPublic(e.kind, vis)) continue;
       const kind = e.kind === "launched" && via === "founder" ? "new_project" : (e.kind as WatchlistItemKind);
       items.push({ id: `${e.kind}:${s._id}:${e.day}`, kind, subkind: e.kind, at: e.at, title: kind === "new_project" ? `New from ${founder?.displayName ?? "a founder you follow"}` : e.title, detail: e.detail, value: e.value, share: e.kind === "spike" ? `share/spike-${e._id}` : undefined, via, founder: f, saas: card(s) });
     }

@@ -435,6 +435,9 @@ describe("gateway follows", () => {
     const rest = await t.query(api.gateway.following, { auth: apiAuth });
     expect(rest.saas[0]).toMatchObject({ slug: "other-app", via: "direct", followed: true, owner: { username: "bob" } });
     expect(rest.saas[0]).not.toHaveProperty("ownerId");
+    await t.run(async (ctx) => ctx.db.patch(other, { anonymous: true }));
+    expect((await t.query(api.gateway.following, { auth: apiAuth })).saas[0].owner).toBeNull();
+    await t.run(async (ctx) => ctx.db.patch(other, { anonymous: undefined }));
     const un = await t.mutation(api.gateway.unfollowTool, { auth, targetType: "saas", slug: "other-app" });
     expect(un).toMatchObject({ following: false, removed: true });
     expect((await t.mutation(api.gateway.unfollowTool, { auth, targetType: "saas", slug: "other-app" })).removed).toBe(false);

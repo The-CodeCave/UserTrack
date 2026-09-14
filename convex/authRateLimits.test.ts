@@ -7,7 +7,8 @@ import { memoryAdapter } from "better-auth/adapters/memory";
 import schema from "./schema";
 import { internal } from "./_generated/api";
 import { AUTH_RATE_LIMIT_DEFAULT, AUTH_RATE_LIMIT_RULES, decideAuthRateLimit } from "./lib/authRateLimits";
-import { CLIENT_IP_HEADER } from "../src/lib/client-ip";
+import { CLIENT_IP_HEADER, CLIENT_IP_PROOF_HEADER } from "../src/lib/client-ip";
+import { withVouchedClientIp } from "./lib/gateway";
 
 vi.mock("./email/users", () => ({ findAuthUser: async () => null }));
 
@@ -93,5 +94,23 @@ describe("Better Auth over the durable store", () => {
     for (let i = 0; i < 20; i++) expect((await post(auth, "/sign-in/social", "203.0.113.7", body)).status).not.toBe(429);
     expect((await post(auth, "/sign-in/social", "203.0.113.7", body)).status).toBe(429);
     expect((await rows(tx)).map((r) => r.key)).toEqual(["203.0.113.7|/sign-in/social"]);
+  });
+
+  it("does not let a direct convex.site caller rotate its own client IP header past the limit", async () => {
+    process.env.UT_GATEWAY_SECRET = "0123456789abcdef0123456789abcdef";
+    const tx = t();
+    const auth = authWith(tx);
+    const send = async (ip: string, proof?: string) => {
+      const headers = { "content-type": "application/json", [CLIENT_IP_HEADER]: ip, ...(proof ? { [CLIENT_IP_PROOF_HEADER]: proof } : {}) };
+      return auth.handler(await withVouchedClientIp(new Request("https://usertrack.dev/api/auth/sign-in/social", { method: "POST", headers, body: JSON.stringify({ provider: "google", callbackURL: "/app" }) })));
+    };
+    for (let i = 0; i < 20; i++) expect((await send(`198.51.100.${i}`, "wrong")).status).not.toBe(429);
+    expect((await send("198.51.100.200")).status).toBe(429);
+    expect((await send("203.0.113.7", process.env.UT_GATEWAY_SECRET)).status).not.toBe(429);
+    const keys = (await rows(tx)).map((r) => r.key);
+    expect(keys).toHaveLength(2);
+    expect(keys).toContain("203.0.113.7|/sign-in/social");
+    expect(keys.some((k) => k.startsWith("198.51.100."))).toBe(false);
+    delete process.env.UT_GATEWAY_SECRET;
   });
 });

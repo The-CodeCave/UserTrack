@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_VISIBILITY, publicLogo, stripPrivate, visibilityOf } from "./visibility";
+import { DEFAULT_VISIBILITY, isActivityPublic, publicLogo, stripPrivate, visibilityOf } from "./visibility";
 
 const doc = { convertedUsers: 447, trialUsers: 80, signupToConvertedPct: 6.8, trialToConvertedPct: 42.3, activatedUsers: 3601, activationRatePct: 54.7, visitors30d: 81240, mrr: 1234, currency: "USD", ownerId: "p1", totalUsers: 6581, streakDays: 12, bestStreakDays: 30 } as never;
 
@@ -27,10 +27,20 @@ describe("visibility", () => {
     expect(out.totalUsers).toBe(6581);
     expect(out.streakDays).toBe(12);
   });
-  it("hides the growth streak with the growth switch", () => {
-    const out = stripPrivate(doc, visibilityOf({ visibility: { growth: false } })) as Record<string, unknown>;
-    expect(out.streakDays).toBeUndefined();
-    expect(out.bestStreakDays).toBeUndefined();
+  it("keeps users and growth public even when a stored setting says otherwise", () => {
+    const vis = visibilityOf({ visibility: { totalUsers: false, growth: false } });
+    expect(vis).toMatchObject({ totalUsers: true, growth: true });
+    const out = stripPrivate(doc, vis) as Record<string, unknown>;
+    expect(out).toMatchObject({ totalUsers: 6581, streakDays: 12, bestStreakDays: 30 });
+  });
+  it("gates stored milestones and events by the metric they reveal", () => {
+    const hidden = visibilityOf({ visibility: { activationRate: false, benchmarks: false } });
+    for (const kind of ["activated", "activation_spike", "converted", "traffic_spike", "benchmark"]) expect(isActivityPublic(kind, hidden), kind).toBe(false);
+    for (const kind of ["users", "spike", "rank", "launched", "verified"]) expect(isActivityPublic(kind, hidden), kind).toBe(true);
+    const shown = visibilityOf({ visibility: { convertedCount: true, traffic: true } });
+    expect(isActivityPublic("converted", shown)).toBe(true);
+    expect(isActivityPublic("activated", shown)).toBe(true);
+    expect(isActivityPublic("traffic_spike", shown)).toBe(true);
   });
   it("public rate, private count", () => {
     const out = stripPrivate(doc, visibilityOf({ visibility: { conversionRate: true } })) as Record<string, unknown>;

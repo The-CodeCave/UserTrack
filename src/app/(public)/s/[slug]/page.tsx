@@ -100,7 +100,7 @@ export default async function SaasPage({ params }: { params: Promise<{ slug: str
               <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{s.name}</h1>
               <TrustBadge trust={s.trust} label={s.trustLabel} />
               {s.isDemo && <DemoTag />}
-              {(s.streakDays ?? 0) >= 7 && s.trust === "verified" && s.visibility.growth && <StreakChip days={s.streakDays!} />}
+              {(s.streakDays ?? 0) >= 7 && s.trust === "verified" && <StreakChip days={s.streakDays!} />}
               {s.rank && <Link href="/leaderboard" className="inline-flex items-center gap-1 border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider hover:border-line-strong">#{s.rank} · 30d <MovementTag m={s.prevRank !== undefined ? { kind: s.prevRank > s.rank ? "up" : s.prevRank < s.rank ? "down" : "same", delta: s.prevRank - s.rank } : null} /></Link>}
               {s.trendingRank && <Link href="/trending" className="inline-flex items-center gap-1 border border-pink/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-pink hover:bg-pink/10"><Flame className="size-3" />#{s.trendingRank} trending</Link>}
               {s.trendingRank && <TrendingExplain slug={slug} />}

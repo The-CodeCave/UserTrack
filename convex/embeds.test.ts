@@ -70,13 +70,11 @@ describe("embeds.record", () => {
 });
 
 describe("public.widget", () => {
-  it("returns public numbers only and honours visibility", async () => {
+  it("returns public numbers only; users and growth cannot be hidden", async () => {
     const tx = t();
     await seed(tx, { visibility: { growth: false } });
     const w = await tx.query(api.public.widget, { slug: "acme" });
-    expect(w).toMatchObject({ slug: "acme", name: "Acme", totalUsers: 900, trust: "verified", lastSyncedAt: 5, spark: [] });
-    expect(w?.newUsers30d).toBeUndefined();
-    expect(w?.growth30dPct).toBeUndefined();
+    expect(w).toMatchObject({ slug: "acme", name: "Acme", totalUsers: 900, newUsers30d: 400, trust: "verified", lastSyncedAt: 5, spark: [] });
     expect(w && "ownerId" in w).toBe(false);
   });
   it("is null for drafts", async () => {

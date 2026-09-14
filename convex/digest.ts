@@ -8,6 +8,7 @@ import { getPreferences } from "./email/prefs";
 import { failRun, recordPage, startRun } from "./jobs";
 import { enqueue } from "./email/send";
 import type { WeeklyDigestData } from "./email/templates";
+import { isActivityPublic, isAnonymous, visibilityOf } from "./domain/visibility";
 
 export interface DigestSaas {
   slug: string; name: string; totalUsers: number; newUsers7d: number; growth7dPct: number;
@@ -61,14 +62,16 @@ export const generate = internalMutation({
         const follows = await ctx.db.query("follows").withIndex("by_follower", (q) => q.eq("followerId", p._id)).take(FOLLOW_SCAN);
         const followedIds = new Set<string>(follows.filter((f) => f.targetType === "saas").map((f) => f.targetId));
         for (const f of follows.filter((f) => f.targetType === "profile")) {
-          for (const s of await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", f.targetId as Id<"profiles">)).collect()) followedIds.add(s._id);
+          for (const s of await ctx.db.query("saas").withIndex("by_owner", (q) => q.eq("ownerId", f.targetId as Id<"profiles">)).collect()) if (!isAnonymous(s)) followedIds.add(s._id);
         }
         const followedRows = (await Promise.all([...followedIds].map((id) => ctx.db.get(id as Id<"saas">)))).filter((s): s is Doc<"saas"> => Boolean(s) && s!.isPublic && !s!.isDemo);
         const followed = followedRows.sort((a, b) => b.newUsers7d - a.newUsers7d).slice(0, 5).map(brief);
         const ownIds = new Set<string>(ownRows.map((o) => o._id));
         const milestones = [];
-        for (const m of recent.filter((m) => followedIds.has(m.saasId) || ownIds.has(m.saasId)).slice(0, 8)) {
-          const s = ownRows.find((o) => o._id === m.saasId) ?? followedRows.find((f) => f._id === m.saasId) ?? (await ctx.db.get(m.saasId));
+        for (const m of recent.filter((m) => followedIds.has(m.saasId) || ownIds.has(m.saasId))) {
+          if (milestones.length === 8) break;
+          const s = ownRows.find((o) => o._id === m.saasId) ?? followedRows.find((f) => f._id === m.saasId);
+          if (!s || (!ownIds.has(m.saasId) && !isActivityPublic(m.kind, visibilityOf(s)))) continue;
           milestones.push({ title: m.title, copy: m.copy, slug: s?.slug ?? "", achievedAt: m.achievedAt });
         }
         const payload: DigestPayload = { week, own, followed, milestones, movers, trending, generatedAt: now };

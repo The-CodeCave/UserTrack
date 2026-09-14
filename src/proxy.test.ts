@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { CLIENT_IP_HEADER } from "@/lib/client-ip";
+import { CLIENT_IP_HEADER, CLIENT_IP_PROOF_HEADER } from "@/lib/client-ip";
 import { proxy } from "./proxy";
 
 process.env.NEXT_PUBLIC_CONVEX_SITE_URL = "https://test.convex.site";
+process.env.UT_GATEWAY_SECRET = "proxy-test-secret";
 
 const jwt = (exp: number) => `h.${Buffer.from(JSON.stringify({ exp })).toString("base64url")}.s`;
 const now = () => Math.floor(Date.now() / 1000);
@@ -42,6 +43,7 @@ describe("proxy route guard", () => {
     expect(url).toBe("https://test.convex.site/api/auth/convex/token");
     const headers = init!.headers as Record<string, string>;
     expect(headers[CLIENT_IP_HEADER]).toBe("203.0.113.5");
+    expect(headers[CLIENT_IP_PROOF_HEADER]).toBe("proxy-test-secret");
     expect(headers.cookie).toBe(cookie);
   });
 

@@ -14,6 +14,7 @@ import { xDraft, type DraftKind } from "../src/lib/x-drafts";
 import { botWorthy, normalizePrefs } from "./lib/shareRules";
 import { authorizeUrl, basicAuth, describeXError, FOLLOWERS_PAGE_SIZE, FOLLOWERS_REFRESH_COOLDOWN_MS, followersOf, needsRefresh, OAUTH_STATE_TTL_MS, oauth1Header, parseTokenResponse, refreshRequestBody, tokenRequestBody, X_ME_URL, X_REVOKE_URL, X_TOKEN_URL, X_TWEETS_URL, type XMe } from "./lib/xApi";
 import { DAY } from "./lib/time";
+import { isActivityPublic, visibilityOf } from "./domain/visibility";
 import { failActionRun } from "./jobs";
 
 export const FOUNDER_POST_COOLDOWN_MS = DAY;
@@ -279,7 +280,7 @@ export const autoPost = internalMutation({
     for (const e of events) {
       const saas = await ctx.db.get(e.saasId);
       const profile = await ctx.db.get(e.profileId);
-      if (!saas || !profile || !saas.isPublic || saas.isDemo) continue;
+      if (!saas || !profile || !saas.isPublic || saas.isDemo || !isActivityPublic(e.kind, visibilityOf(saas))) continue;
       const prefs = normalizePrefs(profile.socialPrefs);
       const draft = (author: "founder" | "usertrack") => xDraft({ kind: e.kind as DraftKind, name: saas.name, value: e.value, title: e.title, totalUsers: saas.totalUsers, newUsers30d: saas.newUsers30d, growth30dPct: saas.growth30dPct, rank: e.rank, percentile: e.percentile, verified: saas.trust === "verified", author, founderHandle: author === "usertrack" && prefs.allowTagging ? profile.x : undefined, seed: e.key });
 

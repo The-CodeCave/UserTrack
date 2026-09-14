@@ -17,6 +17,8 @@ const RANK_KINDS = new Set(["rank", "top10", "top100", "trending_top10"]);
 // Same eligibility as the leaderboard (inlined: importing leaderboard.ts here would create an import cycle via trust.ts).
 const rankable = (s: Doc<"saas">) => s.isPublic && s.trust === "verified" && !s.isDemo && s.trustState !== "review";
 export const SHARE_ACTIONS = ["generated", "downloaded", "copied_link", "copied_image", "x_intent", "dismissed"] as const;
+// Card kinds of src/lib/share.ts with the milestone / spike id stripped; anything else would let callers mint unbounded rows.
+const TRACKED_KINDS = new Set(["users", "growth", "week", "rank", "trending", "activation", "conversion", "benchmark", "milestone", "spike"]);
 
 interface ShareInput {
   key: string;
@@ -163,7 +165,8 @@ export const track = mutation({
   args: { kind: v.string(), action: v.string() },
   handler: async (ctx, { kind, action }) => {
     if (!(SHARE_ACTIONS as readonly string[]).includes(action)) return;
-    const k = kind.replace(/-[a-z0-9]+$/i, "").slice(0, 40) || "unknown";
+    const k = kind.replace(/-[a-z0-9]+$/i, "");
+    if (!TRACKED_KINDS.has(k)) return;
     const day = dayKey(Date.now());
     const row = await ctx.db.query("shareStats").withIndex("by_day_kind_action", (q) => q.eq("day", day).eq("kind", k).eq("action", action)).unique();
     if (row) await ctx.db.patch(row._id, { count: row.count + 1, updatedAt: Date.now() });

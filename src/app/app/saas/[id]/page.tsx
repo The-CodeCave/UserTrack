@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { ExternalLink, Trash2, Copy, Check, Eye, Trophy, ArrowRight, Apple, Play, History, RefreshCw } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { VISIBILITY_KEYS, VISIBILITY_META } from "@convex/domain/visibility";
+import { ALWAYS_PUBLIC_KEYS, VISIBILITY_KEYS, VISIBILITY_META } from "@convex/domain/visibility";
 import { normalizeRole } from "@convex/providers/types";
 import { SectionLabel } from "@/components/blueprint/section-label";
 import { Panel } from "@/components/blueprint/panel";
@@ -392,19 +392,20 @@ export default function ManageSaasPage({ params }: { params: Promise<{ id: strin
         <section className="space-y-3">
           <SectionLabel>Public metrics</SectionLabel>
           <Panel className="divide-y divide-line p-0">
-            <p className="px-4 py-3 text-sm text-muted-foreground">Connection ≠ publication — connecting a source never publishes it. Each metric below is private until you switch it on.</p>
+            <p className="px-4 py-3 text-sm text-muted-foreground">Connection ≠ publication — connecting a source never publishes it. Users and growth are always public on a published project; everything else is yours to switch.</p>
             {GROUPS.map((group) => (
               <div key={group} className="space-y-3 px-4 py-3">
                 <div className="text-label">{group}</div>
                 {VISIBILITY_KEYS.filter((k) => VISIBILITY_META[k].group === group).map((k) => {
-                  const hint = k === "traffic" && !byRole("traffic") ? "Connect a reach source first" : group === "conversion" && !conversion ? "Connect a conversion source first" : null;
+                  const locked = ALWAYS_PUBLIC_KEYS.includes(k);
+                  const hint = locked ? null : k === "traffic" && !byRole("traffic") ? "Connect a reach source first" : group === "conversion" && !conversion ? "Connect a conversion source first" : null;
                   return (
                     <label key={k} className="flex items-start justify-between gap-4">
                       <span>
                         <span className="block text-sm">{VISIBILITY_META[k].label}</span>
                         <span className="block text-xs text-muted-foreground">{VISIBILITY_META[k].blurb}{hint ? ` · ${hint}.` : ""}</span>
                       </span>
-                      <Switch checked={saas.visibility[k]} disabled={Boolean(hint)} onCheckedChange={(v) => setVisibility({ id: saasId, visibility: { [k]: v } })} />
+                      <Switch checked={locked || saas.visibility[k]} disabled={locked || Boolean(hint)} onCheckedChange={(v) => setVisibility({ id: saasId, visibility: { [k]: v } })} />
                     </label>
                   );
                 })}

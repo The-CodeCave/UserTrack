@@ -47,6 +47,30 @@ describe("discovery feed", () => {
     expect((await tx.query(api.public.feed, { limit: 10, category: "developer-tools" })).length).toBe(2);
   });
 
+  it("keeps milestones and events of private metrics off every public read", async () => {
+    const tx = t();
+    const owner = await seedOwner(tx);
+    const acme = await seedSaas(tx, owner);
+    const now = Date.now();
+    const converted = await tx.run(async (ctx) => {
+      await ctx.db.insert("milestones", { saasId: acme, key: "activated:100", kind: "activated", metric: "activatedUsers", value: 100, title: "100 activated users", copy: "a", achievedAt: now - 3000 });
+      await ctx.db.insert("events", { saasId: acme, kind: "activation_spike", day: "2026-09-02", at: now - 2500, title: "3× activations", detail: "a" });
+      await ctx.db.insert("dailyMetrics", { saasId: acme, day: "2026-09-02", totalUsers: 900, newUsers: 10, activatedUsers: 300 } as never);
+      return ctx.db.insert("milestones", { saasId: acme, key: "converted:1000", kind: "converted", metric: "convertedUsers", value: 1000, title: "1,000 converted users", copy: "c", achievedAt: now - 2000 });
+    });
+    const kinds = async () => ({
+      feed: (await tx.query(api.public.feed, { limit: 10 })).map((f) => f.subkind).sort(),
+      page: (await tx.query(api.public.saasBySlug, { slug: "acme" }))!.milestones.map((m) => m.kind).sort(),
+      notes: (await tx.query(api.public.annotations, { slug: "acme", range: "all" })).map((a) => a.title).sort(),
+      card: Boolean(await tx.query(api.public.milestone, { slug: "acme", id: converted })),
+      activated: (await tx.query(api.public.compare, { slugs: ["acme"], days: 0 }))[0].series[0].activated,
+    });
+    // Defaults: activation public, conversion private.
+    expect(await kinds()).toEqual({ feed: ["activated", "activation_spike"], page: ["activated"], notes: ["100 activated users", "3× activations"], card: false, activated: 300 });
+    await tx.run((ctx) => ctx.db.patch(acme, { visibility: { activationRate: false, convertedCount: true, conversionRate: true } }));
+    expect(await kinds()).toEqual({ feed: ["converted"], page: ["converted"], notes: ["1,000 converted users"], card: true, activated: undefined });
+  });
+
   it("writes launched / verified events exactly once", async () => {
     const tx = t();
     const owner = await seedOwner(tx);
