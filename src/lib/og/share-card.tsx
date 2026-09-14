@@ -1,8 +1,8 @@
 import { publicQuery } from "@/lib/convex-public";
 import { api } from "@convex/_generated/api";
 import { OgFrame, OgRangeChart, OgEyebrow, OgLogo, OgBadge, OgChip, OgCheck, cardTheme, ogImage, ogWordmark, remoteImage, truncate, MUTED, DIM, INK, HOST } from "@/lib/og/frame";
-import { parseShareKind, shareCopy, SHARE_SIZES, GRAPH_KINDS, type ShareEvent } from "@/lib/share";
-import { CARD_RANGE_LABEL, DEFAULT_CARD, verificationLine, type CardConfig } from "@/lib/share-card";
+import { parseShareKind, shareCopy, SHARE_SIZES, GRAPH_KINDS, type ShareEvent, type ShareKind, type ShareSaas, type ShareWindow } from "@/lib/share";
+import { CARD_RANGE_LABEL, DEFAULT_CARD, verificationLine, type CardConfig, type CardRange } from "@/lib/share-card";
 import { formatCompact, formatDelta } from "@/lib/format";
 
 export async function loadShare(slug: string, kindRaw: string) {
@@ -27,6 +27,16 @@ export async function loadShare(slug: string, kindRaw: string) {
   return { s, m: null, kind: parsed.kind };
 }
 
+// Copy window for the users / growth cards: 7 days is stored on the row, longer ranges come from the series the chart draws.
+export async function shareWindow(slug: string, d: { s: ShareSaas; m: ShareEvent | null; kind: ShareKind }, range: CardRange): Promise<ShareWindow | undefined> {
+  if (d.m || (d.kind !== "users" && d.kind !== "growth") || range === "30d") return undefined;
+  if (range === "7d") return { range, newUsers: d.s.newUsers7d, growthPct: d.s.growth7dPct };
+  const pts = await publicQuery(api.public.series, { slug, range }).catch(() => null);
+  if (!pts || pts.length < 2) return undefined;
+  const first = pts[0].total, last = pts[pts.length - 1].total;
+  return { range, newUsers: last - first, growthPct: first > 0 ? ((last - first) / first) * 100 : undefined };
+}
+
 // Series for the card's chart: totals for the selected range; falls back to the 30-day sparkline.
 async function chartSeries(slug: string, range: CardConfig["range"], spark: number[]) {
   const r = range === "30d" ? null : await publicQuery(api.public.series, { slug, range }).catch(() => null);
@@ -40,7 +50,7 @@ async function chartSeries(slug: string, range: CardConfig["range"], spark: numb
 export async function renderShareCard(slug: string, kind: string, cfg: CardConfig = DEFAULT_CARD) {
   const d = await loadShare(slug, kind);
   const base = d?.s ? await publicQuery(api.public.saasBySlug, { slug }) : null;
-  const c = d && base ? shareCopy(base, d.kind, d.m) : { eyebrow: "USERTRACK", value: "Not found", sub: "" };
+  const c = d && base ? shareCopy(base, d.kind, d.m, await shareWindow(slug, d, cfg.range)) : { eyebrow: "USERTRACK", value: "Not found", sub: "" };
   const logo = cfg.logo ? await remoteImage(base?.logoUrl) : null;
   const square = cfg.size === "square";
   const t = cardTheme(cfg.style, cfg.accent);
@@ -49,7 +59,7 @@ export async function renderShareCard(slug: string, kind: string, cfg: CardConfi
   const series = base && showChart ? await chartSeries(slug, cfg.range, base.spark) : null;
   const short = c.value.length <= 9;
   const value = square ? (short ? 210 : 78) : short ? 168 : 66;
-  const eyebrow = cfg.title ?? (d && GRAPH_KINDS.has(d.kind) && cfg.range !== "30d" && d.kind !== "week" ? CARD_RANGE_LABEL[cfg.range].toUpperCase() : c.eyebrow);
+  const eyebrow = cfg.title ?? c.eyebrow;
   const founder = cfg.founder && base?.owner?.x ? `@${base.owner.x}` : cfg.founder && base?.owner ? `by ${base.owner.displayName}` : null;
   const verified = base?.trust === "verified";
   const footerRight = cfg.verified && base ? verificationLine(base.trust) : base?.rank ? `#${base.rank} on the leaderboard` : "User growth";

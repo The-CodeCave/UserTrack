@@ -1,4 +1,5 @@
 import { formatCompact, formatDelta, formatPct, formatRate } from "@/lib/format";
+import { CARD_RANGE_LABEL, type CardRange } from "@/lib/share-card";
 
 export interface ShareSaas {
   name: string; slug: string; totalUsers: number; newUsers7d: number; newUsers30d: number; growth7dPct?: number; growth30dPct: number; rank?: number; trendingRank?: number;
@@ -22,11 +23,16 @@ export function parseShareKind(kind: string): { kind: ShareKind; milestoneId?: s
 
 export const parseShareSize = (v: string | null | undefined): ShareSize => (v === "square" ? "square" : "og");
 
+// New users over the range picked on the card; the 30-day default is stored on the row and needs no window.
+export interface ShareWindow { range: Exclude<CardRange, "30d">; newUsers: number; growthPct?: number }
+const WINDOW_PHRASE: Record<ShareWindow["range"], string> = { "7d": "in the last 7 days", "90d": "in the last 90 days", "1y": "in the last 12 months", all: "since tracking started" };
+
 // Headline / value / sub copy for every card kind. Used by the share page, its OG image and the share text.
-export function shareCopy(s: ShareSaas, kind: ShareKind, m?: ShareEvent | null) {
+export function shareCopy(s: ShareSaas, kind: ShareKind, m?: ShareEvent | null, w?: ShareWindow) {
   if (m) return { eyebrow: m.eyebrow ?? (kind.startsWith("spike-") ? "GROWTH SPIKE" : kind === "benchmark" ? "BENCHMARK" : "MILESTONE"), value: m.title, sub: m.copy, text: `${m.copy} ${hashtag(s)}` };
   switch (kind) {
     case "growth":
+      if (w) return { eyebrow: CARD_RANGE_LABEL[w.range].toUpperCase(), value: formatDelta(w.newUsers), sub: `${w.growthPct === undefined ? "" : `${formatPct(w.growthPct)} growth · `}${formatCompact(s.totalUsers)} users total`, text: `${s.name} gained ${formatDelta(w.newUsers)} users ${WINDOW_PHRASE[w.range]}${w.growthPct === undefined ? "" : ` (${formatPct(w.growthPct)})`}. ${hashtag(s)}` };
       return { eyebrow: "LAST 30 DAYS", value: formatDelta(s.newUsers30d), sub: `${formatPct(s.growth30dPct)} growth · ${formatCompact(s.totalUsers)} users total`, text: `${s.name} gained ${formatDelta(s.newUsers30d)} users in the last 30 days (${formatPct(s.growth30dPct)}). ${hashtag(s)}` };
     case "week":
       return { eyebrow: "LAST 7 DAYS", value: formatDelta(s.newUsers7d), sub: `${formatPct(s.growth7dPct ?? 0)} this week · ${formatCompact(s.totalUsers)} users total`, text: `${s.name} gained ${formatDelta(s.newUsers7d)} users this week (${formatPct(s.growth7dPct ?? 0)}). ${hashtag(s)}` };
@@ -41,7 +47,7 @@ export function shareCopy(s: ShareSaas, kind: ShareKind, m?: ShareEvent | null) 
     case "conversion":
       return { eyebrow: "CONVERSION", value: formatRate(s.signupToConvertedPct), sub: "Signup → Converted · users who convert, never revenue", text: `${formatRate(s.signupToConvertedPct)} of ${s.name} signups convert. ${hashtag(s)}` };
     default:
-      return { eyebrow: "TOTAL USERS", value: formatCompact(s.totalUsers), sub: `${formatDelta(s.newUsers30d)} in the last 30 days`, text: `${s.name} just hit ${formatCompact(s.totalUsers)} users. ${hashtag(s)}` };
+      return { eyebrow: "TOTAL USERS", value: formatCompact(s.totalUsers), sub: w ? `${formatDelta(w.newUsers)} ${WINDOW_PHRASE[w.range]}` : `${formatDelta(s.newUsers30d)} in the last 30 days`, text: `${s.name} just hit ${formatCompact(s.totalUsers)} users. ${hashtag(s)}` };
   }
 }
 

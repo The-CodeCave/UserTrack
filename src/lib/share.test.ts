@@ -25,6 +25,15 @@ describe("shareCopy", () => {
     expect(shareCopy(s, "week")).toEqual({ eyebrow: "LAST 7 DAYS", value: "+120", sub: "+4.0% this week · 12.5K users total", text: "Acme gained +120 users this week (+4.0%). Verified on UserTrack." });
     expect(shareCopy({ ...s, trust: "unverified" }, "users").text).toBe("Acme just hit 12.5K users. Tracked on UserTrack.");
   });
+  it("users and growth follow the range picked on the card", () => {
+    const week = { range: "7d" as const, newUsers: 120, growthPct: 4 };
+    expect(shareCopy(s, "growth", null, week)).toEqual({ eyebrow: "LAST 7 DAYS", value: "+120", sub: "+4.0% growth · 12.5K users total", text: "Acme gained +120 users in the last 7 days (+4.0%). Verified on UserTrack." });
+    expect(shareCopy(s, "users", null, week)).toMatchObject({ eyebrow: "TOTAL USERS", value: "12.5K", sub: "+120 in the last 7 days" });
+    expect(shareCopy(s, "users", null, { range: "1y", newUsers: 9000 }).sub).toBe("+9,000 in the last 12 months");
+    expect(shareCopy(s, "growth", null, { range: "all", newUsers: 12481 })).toMatchObject({ eyebrow: "ALL TIME", value: "+12.5K", sub: "12.5K users total" });
+    expect(shareCopy(s, "users").sub).toBe("+1,900 in the last 30 days");
+    expect(shareCopy(s, "week", null, { range: "90d", newUsers: 5000 }).value).toBe("+120");
+  });
   it("conversion", () => {
     expect(shareCopy({ ...s, signupToConvertedPct: 8.7 }, "conversion")).toEqual({ eyebrow: "CONVERSION", value: "8.7%", sub: "Signup → Converted · users who convert, never revenue", text: "8.7% of Acme signups convert. Verified on UserTrack." });
   });

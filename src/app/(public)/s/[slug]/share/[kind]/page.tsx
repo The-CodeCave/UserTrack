@@ -10,7 +10,7 @@ import { ShareButton } from "@/components/share/share-button";
 import { Button } from "@/components/ui/button";
 import { GRAPH_KINDS, shareCopy } from "@/lib/share";
 import { cardImageUrl, cardQuery, unfurlConfig, verificationLine } from "@/lib/share-card";
-import { loadShare as load } from "@/lib/og/share-card";
+import { loadShare as load, shareWindow } from "@/lib/og/share-card";
 import { saasUrl, shareUrl } from "@/lib/site";
 
 type Props = { params: Promise<{ slug: string; kind: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
@@ -21,7 +21,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const d = await load(slug, kind);
   if (!d) return { title: "Not found", robots: { index: false } };
   const cfg = unfurlConfig(await searchParams);
-  const c = shareCopy(d.s, d.kind, d.m);
+  const c = shareCopy(d.s, d.kind, d.m, await shareWindow(slug, d, cfg.range));
   const title = `${d.s.name} · ${c.value}`;
   const description = `${c.sub} · ${verificationLine(d.s.trust)}.`;
   const images = [{ url: cardImageUrl(shareUrl(slug, kind), cfg), width: 1200, height: 630, alt: `${d.s.name} share card`, type: "image/png" }];
@@ -33,7 +33,7 @@ export default async function SharePage({ params, searchParams }: Props) {
   const d = await load(slug, kind);
   if (!d) notFound();
   const cfg = unfurlConfig(await searchParams);
-  const c = shareCopy(d.s, d.kind, d.m);
+  const c = shareCopy(d.s, d.kind, d.m, await shareWindow(slug, d, cfg.range));
   const url = shareUrl(slug, kind);
   const image = cardImageUrl(url, cfg);
   const target = { page: url, slug, kind, label: `${d.s.name} · ${c.value}`, trust: d.s.trust, graph: GRAPH_KINDS.has(d.kind), text: c.text };
