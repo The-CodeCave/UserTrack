@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: router-linux-x64-2
     env:
       # A workspace token, so every Railway call names the project explicitly.
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}

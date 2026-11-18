@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: router-linux-x64-2
     environment: npm
     steps:
       - uses: actions/checkout@v4

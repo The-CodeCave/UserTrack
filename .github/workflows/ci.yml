@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: router-linux-x64-4
     steps:
       - uses: actions/checkout@v4
       # No `version:` — pnpm/action-setup reads the `packageManager` field of package.json.
